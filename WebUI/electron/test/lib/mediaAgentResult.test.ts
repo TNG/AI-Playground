@@ -235,13 +235,13 @@ describe('condenseMediaAgentRun', () => {
       seed: 42,
     })
     expect(result.images[0].dynamicSettings).toEqual(dynamicSettings)
-    // The slim copy is the parent model's context: only the prompt may remain.
+    // The slim copy is the parent model's context: only the prompt and workflow name may remain.
     expect(slimCondensedMedia(result).images).toEqual([
       {
         id: '1',
         type: 'image',
         imageUrl: 'aipg-media://a.png',
-        settings: { prompt: 'a castle' },
+        settings: { preset: 'Draft Image', prompt: 'a castle' },
       },
     ])
   })

@@ -298,9 +298,9 @@ describe('mediaDelegation (in-process media tool)', () => {
       details: { items: Record<string, unknown>[] }
     }
 
-    // The parent model's context keeps only the prompt per item.
+    // The parent model's context keeps only the prompt and workflow name per item.
     const content = JSON.parse(result.content[0].text) as { images: Record<string, unknown>[] }
-    expect(content.images[0].settings).toEqual({ prompt: 'a castle' })
+    expect(content.images[0].settings).toEqual({ prompt: 'a castle', preset: 'Draft Image' })
     expect(content.images[0].dynamicSettings).toBeUndefined()
     // The transcript's items carry the full generation settings and dynamic inputs.
     expect(result.details.items[0].settings).toEqual({

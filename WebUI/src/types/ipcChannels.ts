@@ -320,6 +320,16 @@ export const CHANNELS = {
     result: null as unknown as IpcOkWith<{ session: SessionSummary }>,
   },
   /**
+   * Include a Session in Overviews or not. Setting it only records consent: nothing is read,
+   * summarised or run. Pushes `session-changed`.
+   */
+  'sessions:setIncludedInOverviews': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, boolean],
+    result: null as unknown as IpcOkWith<{ session: SessionSummary }>,
+  },
+  /**
    * Add a host folder to a Session's folder list, read-only; `refusal` says why it was not added
    * (too broad, the home folder, or overlapping an entry). Pushes `session-changed`.
    */

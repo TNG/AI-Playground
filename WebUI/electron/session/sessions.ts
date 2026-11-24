@@ -78,6 +78,7 @@ function summaryOf(file: SessionFile): SessionSummary {
     presetsUsed,
     pickedAgentId,
     reachable,
+    includedInOverviews,
     hiddenMessageIds,
   } = file
   return {
@@ -86,6 +87,7 @@ function summaryOf(file: SessionFile): SessionSummary {
     renamed,
     pinned,
     reachable,
+    includedInOverviews,
     hiddenMessageIds,
     ...(groupId === undefined ? {} : { groupId }),
     createdAt,
@@ -167,6 +169,7 @@ async function createSessionFile(
     taskRunHarnessSessions: [],
     updateCursors: {},
     reachable: true,
+    includedInOverviews: false,
     hiddenMessageIds: [],
     folders: [workspace],
     workspaceFolderId: workspace.id,
@@ -191,6 +194,7 @@ export async function listSessions(): Promise<SessionSummary[]> {
         renamed: false,
         pinned: false,
         reachable: false,
+        includedInOverviews: false,
         hiddenMessageIds: [],
         unreadable: true,
         createdAt: time,
@@ -249,6 +253,16 @@ export async function renameSession(id: string, title: string): Promise<SessionS
 
 export async function pinSession(id: string, pinned: boolean): Promise<SessionSummary> {
   const file = await mutateSession(id, (current) => ({ ...current, pinned }))
+  emitSessionChanged(sessionDocumentOf(file))
+  return summaryOf(file)
+}
+
+/** Consent only: the flag is the boundary an Overview reads, and setting it does no work. */
+export async function setSessionIncludedInOverviews(
+  id: string,
+  included: boolean,
+): Promise<SessionSummary> {
+  const file = await mutateSession(id, (current) => ({ ...current, includedInOverviews: included }))
   emitSessionChanged(sessionDocumentOf(file))
   return summaryOf(file)
 }

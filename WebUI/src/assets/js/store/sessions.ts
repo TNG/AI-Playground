@@ -389,6 +389,15 @@ export const useSessions = defineStore('sessions', () => {
     return !!result
   }
 
+  /** Whether the Session may appear in Overviews; false when the change was not kept. */
+  async function setIncludedInOverviews(id: string, included: boolean): Promise<boolean> {
+    const result = await call('sessions/set-included-in-overviews-failed', () =>
+      window.electronAPI.sessions.setIncludedInOverviews(id, included),
+    )
+    if (result) remember(result.session)
+    return !!result
+  }
+
   /** The Agent picked in the Session's prompt bar, `null` for Assistant; false when not kept. */
   async function pickAgent(id: string, agentId: string | null): Promise<boolean> {
     const session = sessions.value[id]
@@ -763,6 +772,7 @@ export const useSessions = defineStore('sessions', () => {
     workspaceDirOf,
     pickAgent,
     setReachable,
+    setIncludedInOverviews,
     createGroup,
     moveToGroup,
     renameGroup,

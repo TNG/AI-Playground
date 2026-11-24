@@ -28,6 +28,7 @@ import type {
   readShowMore,
   setShowMore,
   pinSession,
+  setSessionIncludedInOverviews,
   pickSessionAgent,
   renameSession,
   renameSessionGroup,
@@ -75,6 +76,7 @@ export type SessionsDeps = {
   openSession: typeof openSession
   renameSession: typeof renameSession
   pinSession: typeof pinSession
+  setSessionIncludedInOverviews: typeof setSessionIncludedInOverviews
   setSessionReachable: typeof setSessionReachable
   setRealShellFolders: typeof setRealShellFolders
   migrateHomeAgentThreads: typeof migrateHomeAgentThreads
@@ -347,6 +349,18 @@ export function buildSessionsRegistry(deps: SessionsDeps) {
       try {
         if (typeof pinned !== 'boolean') throw new Error('pinned must be a boolean')
         const session = await deps.pinSession(requireString(id, 'session id'), pinned)
+        return { success: true as const, session }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
+    'sessions:setIncludedInOverviews': async (_event, id, included) => {
+      try {
+        if (typeof included !== 'boolean') throw new Error('included must be a boolean')
+        const session = await deps.setSessionIncludedInOverviews(
+          requireString(id, 'session id'),
+          included,
+        )
         return { success: true as const, session }
       } catch (e) {
         return ipcFail(e)

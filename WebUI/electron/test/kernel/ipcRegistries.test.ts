@@ -43,6 +43,7 @@ describe('per-owner handler registries', () => {
       | 'sessions:startNewWorkspace'
       | 'sessions:openFolder'
       | 'sessions:pin'
+      | 'sessions:setIncludedInOverviews'
       | 'sessions:pickAgent'
       | 'sessions:createGroup'
       | 'sessions:moveToGroup'

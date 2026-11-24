@@ -76,6 +76,8 @@ export const SessionFileSchema = z.object({
   pickedAgentId: z.string().optional(),
   /** Channels may send it messages and it may notify them (Reachable Session). */
   reachable: z.boolean().default(false),
+  /** Its History Entries may appear in an Overview (Included in Overviews); off by default. */
+  includedInOverviews: z.boolean().default(false),
   /** Hidden messages stay in the file and in what the model sees; only the view drops them. */
   hiddenMessageIds: z.array(z.string()).default([]),
   /** Absent on a file written before the list existed; read through `sessionFolderListOf`. */
@@ -107,6 +109,7 @@ export type SessionSummary = Pick<
   | 'presetsUsed'
   | 'pickedAgentId'
   | 'reachable'
+  | 'includedInOverviews'
   | 'hiddenMessageIds'
 > & { unreadable?: boolean; folderList?: SessionFolderList }
 

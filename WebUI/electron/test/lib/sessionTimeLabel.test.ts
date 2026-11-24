@@ -59,6 +59,7 @@ describe('a Session row label in the panel', () => {
     renamed: false,
     pinned: false,
     reachable: false,
+    includedInOverviews: false,
     hiddenMessageIds: [],
     createdAt: 0,
     updatedAt: 0,

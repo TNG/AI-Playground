@@ -87,6 +87,8 @@ const emit = defineEmits<{
   toggle: [intent: ComponentPanelToggleIntent]
   repair: [row: ComponentPanelOptionsRow]
   showError: [row: ComponentPanelOptionsRow]
+  install: [row: ComponentPanelOptionsRow]
+  update: [row: ComponentPanelOptionsRow]
   togglePhison: [value: boolean]
   'update:coreServicesOpen': [value: boolean]
 }>()
@@ -302,6 +304,8 @@ function onSelectMode(mode: ProductMode) {
               @toggle="(v: boolean) => toggleBackend(coreRow!, v)"
               @repair="emit('repair', backendOptionsRow(coreRow!))"
               @show-error="emit('showError', backendOptionsRow(coreRow!))"
+              @install="emit('install', backendOptionsRow(coreRow!))"
+              @update="emit('update', backendOptionsRow(coreRow!))"
             >
               <template v-if="coreDependentRows.length > 0" #disclosure>
                 <CollapsibleTrigger
@@ -329,6 +333,8 @@ function onSelectMode(mode: ProductMode) {
                 @toggle="(v: boolean) => toggleBackend(row, v)"
                 @repair="emit('repair', backendOptionsRow(row))"
                 @show-error="emit('showError', backendOptionsRow(row))"
+                @install="emit('install', backendOptionsRow(row))"
+                @update="emit('update', backendOptionsRow(row))"
               >
                 <template #options>
                   <slot name="options" :row="backendOptionsRow(row)" />
@@ -345,6 +351,8 @@ function onSelectMode(mode: ProductMode) {
             @toggle="(v: boolean) => toggleBackend(row, v)"
             @repair="emit('repair', backendOptionsRow(row))"
             @show-error="emit('showError', backendOptionsRow(row))"
+            @install="emit('install', backendOptionsRow(row))"
+            @update="emit('update', backendOptionsRow(row))"
           >
             <template #options>
               <slot name="options" :row="backendOptionsRow(row)" />
@@ -380,6 +388,8 @@ function onSelectMode(mode: ProductMode) {
           @toggle="(v: boolean) => toggleBackend(row, v)"
           @repair="emit('repair', backendOptionsRow(row))"
           @show-error="emit('showError', backendOptionsRow(row))"
+          @install="emit('install', backendOptionsRow(row))"
+          @update="emit('update', backendOptionsRow(row))"
         >
           <template #options>
             <slot name="options" :row="backendOptionsRow(row)" />
@@ -473,6 +483,9 @@ function onSelectMode(mode: ProductMode) {
           languages.SETUP_WIZARD_BACKENDS_INTRO ||
           'Required components will be installed automatically. Optional components can be toggled on or off.'
         }}
+      </p>
+      <p v-else class="text-xs text-muted-foreground pt-3">
+        {{ languages.BACKEND_TERMS_AND_CONDITIONS }}
       </p>
     </div>
   </div>

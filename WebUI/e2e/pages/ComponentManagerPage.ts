@@ -39,6 +39,54 @@ export class ComponentManagerPage {
     return this.row(name).getByRole('switch', { name: `Enable ${name}`, exact: true })
   }
 
+  /** The inline Install action on a Component that is not on disk. */
+  installButton(name: string): Locator {
+    return this.row(name).getByRole('button', { name: `Install ${name}`, exact: true })
+  }
+
+  /** The inline Repair action on a failed Component. */
+  repairButton(name: string): Locator {
+    return this.row(name).getByRole('button', { name: 'Repair', exact: true })
+  }
+
+  /** The inline error-log action on a failed Component. */
+  errorLogButton(name: string): Locator {
+    return this.row(name).getByRole('button', { name: 'View error log', exact: true })
+  }
+
+  /** The inline "Update to <version>" action, shown only when a newer version exists. */
+  updateButton(name: string): Locator {
+    return this.row(name).getByRole('button', { name: `Update ${name}`, exact: true })
+  }
+
+  /** Inline install/start/stop progress text while the row is busy. */
+  progressText(name: string): Locator {
+    return this.row(name).getByText(
+      /^(Installing|Downloading|Extracting|Preparing|Starting|Stopping)/,
+    )
+  }
+
+  /** The row's existing options menu (reinstall, version change, settings, Channels setup). */
+  optionsButton(name: string): Locator {
+    return this.row(name).getByRole('button', { name: `${name} options`, exact: true })
+  }
+
+  get reinstallMenuItem(): Locator {
+    return this.page.getByRole('menuitem', { name: 'Reinstall Backend' })
+  }
+
+  get settingsMenuItem(): Locator {
+    return this.page.getByRole('menuitem', { name: 'Settings' })
+  }
+
+  get versionChangeMenuItem(): Locator {
+    return this.page.getByRole('menuitem', { name: /^(Update to|Downgrade to|Apply change to) / })
+  }
+
+  async closeOptions(): Promise<void> {
+    await this.page.keyboard.press('Escape')
+  }
+
   /** Open the tab from the header button. Idempotent. */
   async open(): Promise<void> {
     if (await this.isOpen()) return

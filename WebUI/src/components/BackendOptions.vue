@@ -340,11 +340,10 @@ const versionActionClass = computed(() => {
   return 'text-blue-500'
 })
 
-// Handler for version action - clears override and reinstalls
+// Handler for version action - installs the version the button advertises (uiOverride ?? target)
 const handleVersionAction = async () => {
   menuOpen.value = false
-  // Install the version the button advertises (uiOverride ?? target), not the one already installed.
-  await handleReinstall(getEffectiveTarget(props.backend))
+  await setupWizard.updateBackend(props.backend)
 }
 
 // Check if user has set a custom override

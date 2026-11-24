@@ -23,6 +23,7 @@ import * as toast from '@/assets/js/toast'
 import { useErrors } from './errors'
 import { updateLocalSettingsReported } from '@/lib/localSettingsUpdate'
 import { extractMessage } from '../errors/appError'
+import { setupProgressLabel } from '@/lib/setupProgress'
 import type { ErrorDetails } from '../../../../electron/adapters/backends/service'
 
 // Derived from the single source of truth rather than restated: a backend added
@@ -84,39 +85,6 @@ export type PhisonAidaptivRowViewModel = {
 function wizardDisplayName(serviceName: BackendServiceName): string {
   if (serviceName === 'ai-backend') return 'Core Services'
   return mapServiceNameToDisplayName(serviceName)
-}
-
-const knownSteps: Record<BackendServiceName, string[]> = {
-  'ai-backend': ['start', 'install dependencies'],
-  'llamacpp-backend': ['start', 'download', 'extract', 'configure-service'],
-  'openvino-backend': ['start', 'download', 'extract', 'install python'],
-  'comfyui-backend': [
-    'start',
-    // Linux-only step, emitted before the clone. Omitting it made Linux installs
-    // fall back to showing raw debug messages instead of a progress label.
-    'linux dependencies',
-    'install comfyUI',
-    'configure comfyUI',
-    'install builtin custom nodes',
-    'install comfyUI manager',
-  ],
-  'home-agent-backend': ['start', 'install dependencies'],
-  'qwen3-tts-backend': ['start', 'install dependencies'],
-  'whisper-backend': ['start', 'install dependencies'],
-}
-
-const stepDisplayNames: Record<string, string> = {
-  start: 'Preparing...',
-  download: 'Downloading...',
-  extract: 'Extracting...',
-  'configure-service': 'Configuring SSD offload...',
-  'install dependencies': 'Installing dependencies...',
-  'install python': 'Installing Python environment...',
-  'linux dependencies': 'Installing system packages...',
-  'install comfyUI': 'Installing ComfyUI...',
-  'configure comfyUI': 'Configuring...',
-  'install builtin custom nodes': 'Installing custom nodes...',
-  'install comfyUI manager': 'Installing ComfyUI Manager...',
 }
 
 type DemoModeDraft = DemoModeSetup & { passcodeHash?: string }
@@ -340,10 +308,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     if (phisonInstallActive) {
       const progress = backendServices.latestSetupProgress.get('llamacpp-backend')
       if (progress) {
-        const steps = knownSteps['llamacpp-backend'] ?? []
-        const stepIdx = steps.indexOf(progress.step)
-        const label = stepDisplayNames[progress.step] ?? progress.debugMessage
-        installProgressText = stepIdx >= 0 ? `${label} (${stepIdx + 1}/${steps.length})` : label
+        installProgressText = setupProgressLabel('llamacpp-backend', progress)
       } else if (activityMessage) {
         installProgressText = activityMessage
       } else if (status === 'stopping') {
@@ -517,10 +482,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
       if (ggufRowShowsLlamaProgress && (isInstalling || activityMessage)) {
         const progress = backendServices.latestSetupProgress.get(serviceName)
         if (progress) {
-          const steps = knownSteps[serviceName] ?? []
-          const stepIdx = steps.indexOf(progress.step)
-          const label = stepDisplayNames[progress.step] ?? progress.debugMessage
-          installProgressText = stepIdx >= 0 ? `${label} (${stepIdx + 1}/${steps.length})` : label
+          installProgressText = setupProgressLabel(serviceName, progress)
         } else if (activityMessage) {
           installProgressText = activityMessage
         } else if (status === 'stopping') {
@@ -1038,6 +1000,26 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     await installBackend(name)
   }
 
+  /** Reinstall at the version the row advertises: the user's override, else the pinned target. */
+  async function updateBackend(name: BackendServiceName) {
+    wizardDirty.value = true
+    const versions = backendServices.versionState[name]
+    const target = versions.uiOverride ?? versions.target
+    await backendServices.uninstallService(name)
+    const result = await backendServices.setUpService(
+      name,
+      target?.version ? { version: target.version, releaseTag: target.releaseTag } : undefined,
+    )
+    if (result.success) {
+      await restartBackend(name)
+    } else {
+      const msg =
+        result.errorDetails?.hint ??
+        (result.errorDetails ? 'Setup failed — see error log for details' : 'Setup failed')
+      toast.error(msg)
+    }
+  }
+
   async function restartBackend(name: BackendServiceName) {
     const stopStatus = await backendServices.stopService(name)
     if (stopStatus !== 'stopped') {
@@ -1192,6 +1174,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     cancelDemoModeSetup,
     installBackend,
     repairBackend,
+    updateBackend,
     restartBackend,
     showErrorModal,
     closeErrorModal,

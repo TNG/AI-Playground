@@ -49,6 +49,54 @@ test('the Component Manager shows the machine as it is and toggles a Component',
     )
   })
 
+  await test.step('a Component that is not on disk offers Install and keeps its switch off', async () => {
+    const name = 'Channels'
+    const rowText = await app.components.row(name).innerText()
+    if (/Not Installed/i.test(rowText)) {
+      await expect(app.components.installButton(name)).toBeVisible()
+      const toggle = app.components.toggle(name)
+      await expect(toggle).not.toBeChecked()
+      await expect(toggle).toBeDisabled()
+    } else {
+      await expect(app.components.installButton(name)).toHaveCount(0)
+    }
+  })
+
+  await test.step('only a failed Component offers Repair and its error log', async () => {
+    for (const name of ['ComfyUI', 'Llama.cpp - GGUF']) {
+      const failed = /Failed/i.test(await app.components.row(name).innerText())
+      if (failed) {
+        await expect(app.components.repairButton(name)).toBeVisible()
+        await expect(app.components.errorLogButton(name)).toBeVisible()
+      } else {
+        await expect(app.components.repairButton(name)).toHaveCount(0)
+        await expect(app.components.errorLogButton(name)).toHaveCount(0)
+      }
+    }
+  })
+
+  await test.step('a newer version is advertised on the row, not only in the menu', async () => {
+    const name = 'Llama.cpp - GGUF'
+    const update = app.components.updateButton(name)
+    if ((await update.count()) > 0) {
+      await expect(update).toBeVisible()
+      await expect(update).toHaveText(/^Update to /)
+      await expect(app.components.installButton(name)).toHaveCount(0)
+    }
+    // Nothing is installing on the installed fixture, so no row shows its progress.
+    await expect(app.components.progressText(name)).toHaveCount(0)
+  })
+
+  await test.step('the options menu keeps reinstall, version change and per-backend settings', async () => {
+    const name = 'Llama.cpp - GGUF'
+    const hasUpdate = (await app.components.updateButton(name).count()) > 0
+    await app.components.optionsButton(name).click()
+    await expect(app.components.reinstallMenuItem).toBeVisible()
+    await expect(app.components.settingsMenuItem).toBeVisible()
+    await expect(app.components.versionChangeMenuItem).toHaveCount(hasUpdate ? 1 : 0)
+    await app.components.closeOptions()
+  })
+
   await test.step('switching a running Component off reads Disabled, and on starts it again', async () => {
     const name = 'Llama.cpp - GGUF'
     const toggle = app.components.toggle(name)
@@ -61,6 +109,10 @@ test('the Component Manager shows the machine as it is and toggles a Component',
 
     await toggle.click()
     await expect(toggle).toBeChecked()
+    // Coming back up is progress text on the row, then the settled status.
+    await expect(app.components.row(name)).toContainText(/Starting|Running|Installed/, {
+      timeout: 120_000,
+    })
     await expect(app.components.row(name)).toContainText(/Running|Installed/, {
       timeout: 120_000,
     })

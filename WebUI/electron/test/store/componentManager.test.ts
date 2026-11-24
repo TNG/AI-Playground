@@ -12,8 +12,24 @@ const backendState = await vi.hoisted(async () => {
   return {
     info: ref([] as Array<Record<string, unknown>>),
     versionState: ref({} as Record<string, unknown>),
+    setupProgress: ref(new Map()),
   }
 })
+
+const wizardInstall = vi.fn(async (_name: string) => {})
+const wizardRepair = vi.fn(async (_name: string) => {})
+const wizardUpdate = vi.fn(async (_name: string) => {})
+const wizardShowError = vi.fn((_name: string) => {})
+
+vi.mock('@/assets/js/store/setupWizard', () => ({
+  useSetupWizard: () => ({
+    installBackend: wizardInstall,
+    repairBackend: wizardRepair,
+    updateBackend: wizardUpdate,
+    showErrorModal: wizardShowError,
+    isBusy: false,
+  }),
+}))
 
 const startService = vi.fn(async (name: string) => {
   setStatus(name, 'running')
@@ -42,6 +58,10 @@ vi.mock('@/assets/js/store/backendServices', () => {
       get versionState() {
         return backendState.versionState.value
       },
+      get latestSetupProgress() {
+        return backendState.setupProgress.value
+      },
+      getServiceErrorDetails: () => null,
       startService,
       stopService,
     }),
@@ -236,5 +256,171 @@ describe('Component Manager health line', () => {
     await manager.hydrateFromSettings()
 
     expect(manager.health.attention).toBe(0)
+  })
+})
+
+describe('Component Manager live install', () => {
+  it('offers Install only on a not-installed Component, whose switch stays off', async () => {
+    seed([service('home-agent-backend', { status: 'notInstalled', isSetUp: false })])
+    const { useComponentManager } = await import('@/assets/js/store/componentManager')
+    const manager = useComponentManager()
+    await manager.hydrateFromSettings()
+
+    const target = row(manager, 'home-agent-backend')
+    expect(target.canInstall).toBe(true)
+    expect(target.updateAvailable).toBe(false)
+    expect(target.enabled).toBe(false)
+    expect(target.toggleDisabled).toBe(true)
+  })
+
+  it('does not offer Install on an installed Component and refuses to install it', async () => {
+    seed([service('comfyui-backend', { status: 'running' })])
+    const { useComponentManager } = await import('@/assets/js/store/componentManager')
+    const manager = useComponentManager()
+    await manager.hydrateFromSettings()
+
+    expect(row(manager, 'comfyui-backend').canInstall).toBe(false)
+
+    await manager.install('comfyui-backend')
+
+    expect(wizardInstall).not.toHaveBeenCalled()
+  })
+
+  it('installs a not-installed Component through the wizard action', async () => {
+    seed([service('home-agent-backend', { status: 'notInstalled', isSetUp: false })])
+    const { useComponentManager } = await import('@/assets/js/store/componentManager')
+    const manager = useComponentManager()
+    await manager.hydrateFromSettings()
+
+    await manager.install('home-agent-backend')
+
+    expect(wizardInstall).toHaveBeenCalledWith('home-agent-backend')
+  })
+})
+
+describe('Component Manager live repair', () => {
+  it('offers Repair and the error log only on the failed row', async () => {
+    seed([
+      service('comfyui-backend', { status: 'failed' }),
+      service('llamacpp-backend', { status: 'running' }),
+    ])
+    const { useComponentManager } = await import('@/assets/js/store/componentManager')
+    const manager = useComponentManager()
+    await manager.hydrateFromSettings()
+
+    expect(row(manager, 'comfyui-backend').canRepair).toBe(true)
+    expect(row(manager, 'comfyui-backend').failed).toBe(true)
+    expect(row(manager, 'llamacpp-backend').canRepair).toBe(false)
+    expect(row(manager, 'llamacpp-backend').failed).toBe(false)
+  })
+
+  it('repairs a failed Component through the wizard action and leaves its neighbour alone', async () => {
+    seed([
+      service('comfyui-backend', { status: 'failed' }),
+      service('llamacpp-backend', { status: 'running' }),
+    ])
+    const { useComponentManager } = await import('@/assets/js/store/componentManager')
+    const manager = useComponentManager()
+    await manager.hydrateFromSettings()
+
+    await manager.repair('comfyui-backend')
+    await manager.repair('llamacpp-backend')
+
+    expect(wizardRepair).toHaveBeenCalledTimes(1)
+    expect(wizardRepair).toHaveBeenCalledWith('comfyui-backend')
+  })
+
+  it('opens the failed Component error log', async () => {
+    seed([service('comfyui-backend', { status: 'installationFailed' })])
+    const { useComponentManager } = await import('@/assets/js/store/componentManager')
+    const manager = useComponentManager()
+    await manager.hydrateFromSettings()
+
+    manager.showErrorLog('comfyui-backend')
+
+    expect(wizardShowError).toHaveBeenCalledWith('comfyui-backend')
+  })
+})
+
+describe('Component Manager live update', () => {
+  it('advertises the newer version and updates through the wizard action', async () => {
+    seed([service('llamacpp-backend', { status: 'running' })], {
+      'llamacpp-backend': { installed: { version: 'b6000' }, target: { version: 'b6100' } },
+    })
+    const { useComponentManager } = await import('@/assets/js/store/componentManager')
+    const manager = useComponentManager()
+    await manager.hydrateFromSettings()
+
+    const target = row(manager, 'llamacpp-backend')
+    expect(target.updateAvailable).toBe(true)
+    expect(target.updateTargetText).toBe('b6100')
+
+    await manager.update('llamacpp-backend')
+
+    expect(wizardUpdate).toHaveBeenCalledWith('llamacpp-backend')
+  })
+
+  it('does not advertise or apply a downgrade from the row', async () => {
+    seed([service('llamacpp-backend', { status: 'running' })], {
+      'llamacpp-backend': { installed: { version: 'b6100' }, target: { version: 'b6000' } },
+    })
+    const { useComponentManager } = await import('@/assets/js/store/componentManager')
+    const manager = useComponentManager()
+    await manager.hydrateFromSettings()
+
+    expect(row(manager, 'llamacpp-backend').updateAvailable).toBe(false)
+    expect(row(manager, 'llamacpp-backend').updateTargetText).toBe('')
+
+    await manager.update('llamacpp-backend')
+
+    expect(wizardUpdate).not.toHaveBeenCalled()
+  })
+
+  it('never offers an update for a Component that is not installed', async () => {
+    seed([service('comfyui-backend', { status: 'notInstalled', isSetUp: false })], {
+      'comfyui-backend': { target: { version: 'v0.4.0' } },
+    })
+    const { useComponentManager } = await import('@/assets/js/store/componentManager')
+    const manager = useComponentManager()
+    await manager.hydrateFromSettings()
+
+    expect(row(manager, 'comfyui-backend').updateAvailable).toBe(false)
+  })
+})
+
+describe('Component Manager install progress', () => {
+  it('reads progress from the service while it installs', async () => {
+    seed([
+      service('comfyui-backend', { status: 'installing' }),
+      service('llamacpp-backend', { status: 'running' }),
+    ])
+    backendState.setupProgress.value = new Map([
+      ['comfyui-backend', { step: 'install comfyUI', debugMessage: '' }],
+    ])
+    const { useComponentManager } = await import('@/assets/js/store/componentManager')
+    const manager = useComponentManager()
+    await manager.hydrateFromSettings()
+
+    expect(row(manager, 'comfyui-backend').isInstalling).toBe(true)
+    expect(row(manager, 'comfyui-backend').installProgressText).toBe('Installing ComfyUI... (3/6)')
+    expect(row(manager, 'llamacpp-backend').isInstalling).toBe(false)
+  })
+
+  it('shows the same progress when the tab is reopened', async () => {
+    seed([service('comfyui-backend', { status: 'installing' })])
+    backendState.setupProgress.value = new Map([
+      ['comfyui-backend', { step: 'install comfyUI', debugMessage: '' }],
+    ])
+    const { useComponentManager } = await import('@/assets/js/store/componentManager')
+    const first = useComponentManager()
+    await first.hydrateFromSettings()
+    const before = row(first, 'comfyui-backend').installProgressText
+
+    setActivePinia(createPinia())
+    const reopened = useComponentManager()
+    await reopened.hydrateFromSettings()
+
+    expect(row(reopened, 'comfyui-backend').isInstalling).toBe(true)
+    expect(row(reopened, 'comfyui-backend').installProgressText).toBe(before)
   })
 })

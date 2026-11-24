@@ -32,6 +32,16 @@ export type SetupWizardRowView = {
   repairDisabled?: boolean
   /** Show the "View error log" button. */
   showError?: boolean
+  /** Show the inline button that installs a Component that is not on disk. */
+  showInstall?: boolean
+  /** Accessible name for the install action, e.g. "Install ComfyUI". */
+  installLabel?: string
+  /** Show the inline "Update to <version>" action (newer version available). */
+  showUpdate?: boolean
+  /** Visible text for the update action, e.g. "Update to b6100". */
+  updateLabel?: string
+  /** Accessible name for the update action, e.g. "Update ComfyUI". */
+  updateAriaLabel?: string
 }
 
 const props = defineProps<{
@@ -54,6 +64,8 @@ const emit = defineEmits<{
   toggle: [boolean]
   repair: []
   showError: []
+  install: []
+  update: []
 }>()
 
 const languages = useI18N().state
@@ -153,6 +165,22 @@ const available = computed(() => props.row.availableInCurrentMode ?? true)
         class="text-xs bg-primary/80 hover:bg-primary py-0.5 px-2.5 rounded transition-colors disabled:opacity-50"
       >
         {{ languages.COM_REPAIR || 'Repair' }}
+      </button>
+      <button
+        v-else-if="row.showUpdate"
+        @click="emit('update')"
+        :aria-label="row.updateAriaLabel"
+        class="text-xs whitespace-nowrap text-success hover:text-success/80 transition-colors"
+      >
+        {{ row.updateLabel }}
+      </button>
+      <button
+        v-else-if="row.showInstall"
+        @click="emit('install')"
+        :aria-label="row.installLabel"
+        class="text-xs bg-primary/80 hover:bg-primary py-0.5 px-2.5 rounded transition-colors"
+      >
+        {{ languages.COM_INSTALL || 'Install' }}
       </button>
     </div>
 

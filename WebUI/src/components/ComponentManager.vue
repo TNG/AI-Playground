@@ -11,8 +11,11 @@ import { HYBRID_CLOUD_NAME } from '@/lib/cloudModeName'
 import { mapStatusToColor } from '@/lib/utils'
 import ComponentPanel, {
   type ComponentPanelBackendRow,
+  type ComponentPanelOptionsRow,
   type ComponentPanelToggleIntent,
 } from '@/components/ComponentPanel.vue'
+import BackendOptions from '@/components/BackendOptions.vue'
+import ErrorDetailsModal from '@/components/ErrorDetailsModal.vue'
 import type { SetupWizardRowView } from '@/components/SetupWizardRow.vue'
 import type { SetupWizardGroupToggle } from '@/components/SetupWizardGroup.vue'
 
@@ -61,6 +64,23 @@ function toRowView(row: ComponentRow): SetupWizardRowView {
     isInstalling: row.isInstalling,
     installProgressText: row.installProgressText,
     availableInCurrentMode: row.availableInCurrentMode,
+    showInstall: row.canInstall,
+    installLabel: (languages.COM_INSTALL_COMPONENT || 'Install {name}').replace(
+      '{name}',
+      row.displayName,
+    ),
+    showUpdate: row.updateAvailable && row.availableInCurrentMode,
+    updateLabel: (languages.COM_UPDATE_TO || 'Update to {version}').replace(
+      '{version}',
+      row.updateTargetText,
+    ),
+    updateAriaLabel: (languages.COM_UPDATE_COMPONENT || 'Update {name}').replace(
+      '{name}',
+      row.displayName,
+    ),
+    showRepair: row.canRepair,
+    repairDisabled: wizard.isBusy,
+    showError: row.failed,
   }
 }
 
@@ -144,6 +164,22 @@ function onToggle({ row, enabled }: ComponentPanelToggleIntent) {
   if (row.kind === 'backend') void manager.setEnabled(row.serviceName, enabled)
   else if (row.kind === 'cloud') void cloudMode.toggleFeature(enabled)
 }
+
+function onInstall(row: ComponentPanelOptionsRow) {
+  if (row.kind === 'backend') void manager.install(row.serviceName)
+}
+
+function onRepair(row: ComponentPanelOptionsRow) {
+  if (row.kind === 'backend') void manager.repair(row.serviceName)
+}
+
+function onUpdate(row: ComponentPanelOptionsRow) {
+  if (row.kind === 'backend') void manager.update(row.serviceName)
+}
+
+function onShowError(row: ComponentPanelOptionsRow) {
+  if (row.kind === 'backend') manager.showErrorLog(row.serviceName)
+}
 </script>
 
 <template>
@@ -172,8 +208,23 @@ function onToggle({ row, enabled }: ComponentPanelToggleIntent) {
       :core-services-open="coreServicesOpen"
       @group-toggle="setAiPlaygroundGroup"
       @toggle="onToggle"
+      @repair="onRepair"
+      @show-error="onShowError"
+      @install="onInstall"
+      @update="onUpdate"
       @toggle-phison="wizard.togglePhisonAidaptiv"
       @update:core-services-open="(value: boolean) => (coreServicesOpen = value)"
+    >
+      <template #options="{ row }">
+        <BackendOptions v-if="row.kind === 'backend'" :backend="row.serviceName" />
+      </template>
+    </ComponentPanel>
+
+    <ErrorDetailsModal
+      :is-open="wizard.errorModalOpen"
+      :service-name="wizard.errorModalServiceName ?? ''"
+      :error-details="wizard.errorModalDetails"
+      @close="wizard.closeErrorModal()"
     />
   </div>
 </template>

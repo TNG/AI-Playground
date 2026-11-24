@@ -8,8 +8,10 @@ import {
 import { useProductMode } from './productMode'
 import { useI18N } from './i18n'
 import { useErrors } from './errors'
+import { useSetupWizard } from './setupWizard'
 import { compareVersions, mapServiceNameToDisplayName, mapStatusToColor } from '@/lib/utils'
 import { updateLocalSettingsReported } from '@/lib/localSettingsUpdate'
+import { setupProgressLabel } from '@/lib/setupProgress'
 
 /** What the health line summarises, derived once from the live rows. */
 export type ComponentHealth = {
@@ -27,7 +29,13 @@ export type ComponentRow = {
   running: boolean
   availableInCurrentMode: boolean
   updateAvailable: boolean
+  /** The version the inline "Update to <version>" action installs; '' when there is none. */
+  updateTargetText: string
   failed: boolean
+  /** Offers Install: nothing on disk and available in the current Hardware Mode. */
+  canInstall: boolean
+  /** Offers Repair and its error log: broken but available in the current Hardware Mode. */
+  canRepair: boolean
   statusText: string
   statusColor: string
   /** The installed version, or '' when nothing is on disk. */
@@ -58,6 +66,7 @@ function formatVersion(version: { version: string; releaseTag?: string } | undef
 export const useComponentManager = defineStore('componentManager', () => {
   const backendServices = useBackendServices()
   const productMode = useProductMode()
+  const wizard = useSetupWizard()
   const languages = useI18N().state
   const errors = useErrors()
 
@@ -72,28 +81,28 @@ export const useComponentManager = defineStore('componentManager', () => {
     return !(productMode.productMode === 'nvidia' && serviceName === 'openvino-backend')
   }
 
-  function hasUpdate(
+  function advertisedUpdateTarget(
     serviceName: BackendServiceName,
     installed: boolean,
     versionState: Record<string, unknown>,
-  ): boolean {
-    if (!installed || serviceName === 'ai-backend') return false
+  ): string {
+    if (!installed || serviceName === 'ai-backend') return ''
     const versions = versionState[serviceName] as
       | {
-          installed?: { version?: string }
-          uiOverride?: { version?: string }
-          target?: { version?: string }
+          installed?: { version: string; releaseTag?: string }
+          uiOverride?: { version: string; releaseTag?: string }
+          target?: { version: string; releaseTag?: string }
         }
       | undefined
     const installedVersion = versions?.installed?.version
-    const targetVersion = (versions?.uiOverride ?? versions?.target)?.version
-    if (!installedVersion || !targetVersion) return false
-    return (
+    const target = versions?.uiOverride ?? versions?.target
+    if (!installedVersion || !target?.version) return ''
+    const isNewer =
       compareVersions(
         comparableVersion(serviceName, installedVersion),
-        comparableVersion(serviceName, targetVersion),
+        comparableVersion(serviceName, target.version),
       ) < 0
-    )
+    return isNewer ? formatVersion(target) : ''
   }
 
   const rows = computed<ComponentRow[]>(() =>
@@ -137,9 +146,17 @@ export const useComponentManager = defineStore('componentManager', () => {
           )
         : ''
 
+      const progress = busy ? backendServices.latestSetupProgress.get(serviceName) : undefined
+      const updateText = advertisedUpdateTarget(
+        serviceName,
+        installed,
+        backendServices.versionState as unknown as Record<string, unknown>,
+      )
       const installProgressText = busy
         ? status === 'installing'
-          ? label('BACKEND_STATUS_INSTALLING', 'Installing')
+          ? progress
+            ? setupProgressLabel(serviceName, progress)
+            : label('BACKEND_STATUS_INSTALLING', 'Installing')
           : status === 'starting'
             ? label('BACKEND_STATUS_STARTING', 'Starting')
             : label('BACKEND_STATUS_STOPPING', 'Stopping')
@@ -154,11 +171,10 @@ export const useComponentManager = defineStore('componentManager', () => {
         running,
         availableInCurrentMode: available,
         failed,
-        updateAvailable: hasUpdate(
-          serviceName,
-          installed,
-          backendServices.versionState as unknown as Record<string, unknown>,
-        ),
+        updateAvailable: updateText !== '',
+        updateTargetText: updateText,
+        canInstall: !installed && available,
+        canRepair: failed && available,
         statusText,
         statusColor,
         versionText,
@@ -181,6 +197,10 @@ export const useComponentManager = defineStore('componentManager', () => {
     }
     return { running, updates, attention }
   })
+
+  function rowFor(serviceName: BackendServiceName): ComponentRow | undefined {
+    return rows.value.find((entry) => entry.serviceName === serviceName)
+  }
 
   function isBackendName(name: string): name is BackendServiceName {
     return (allBackendServiceNames as readonly string[]).includes(name)
@@ -233,6 +253,26 @@ export const useComponentManager = defineStore('componentManager', () => {
     }
   }
 
+  function showErrorLog(serviceName: BackendServiceName): void {
+    if (!rowFor(serviceName)?.failed) return
+    wizard.showErrorModal(serviceName)
+  }
+
+  async function install(serviceName: BackendServiceName): Promise<void> {
+    if (!rowFor(serviceName)?.canInstall) return
+    await wizard.installBackend(serviceName)
+  }
+
+  async function repair(serviceName: BackendServiceName): Promise<void> {
+    if (!rowFor(serviceName)?.canRepair) return
+    await wizard.repairBackend(serviceName)
+  }
+
+  async function update(serviceName: BackendServiceName): Promise<void> {
+    if (!rowFor(serviceName)?.updateAvailable) return
+    await wizard.updateBackend(serviceName)
+  }
+
   return {
     rows,
     health,
@@ -240,6 +280,10 @@ export const useComponentManager = defineStore('componentManager', () => {
     hydrated,
     hydrateFromSettings,
     setEnabled,
+    install,
+    repair,
+    update,
+    showErrorLog,
   }
 })
 

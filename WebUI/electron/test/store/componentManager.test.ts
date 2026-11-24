@@ -28,6 +28,7 @@ const wizardInstall = vi.fn(async (_name: string) => {})
 const wizardRepair = vi.fn(async (_name: string) => {})
 const wizardUpdate = vi.fn(async (_name: string) => {})
 const wizardShowError = vi.fn((_name: string) => {})
+const wizardSyncPresets = vi.fn(async () => {})
 const preferredDeviceKey = vi.fn((pref: PreferredDevice | null) =>
   pref ? `gpu:${pref.uuid ?? pref.instanceId ?? pref.gpuDeviceId ?? pref.name}` : null,
 )
@@ -42,6 +43,7 @@ vi.mock('@/assets/js/store/setupWizard', () => ({
     repairBackend: wizardRepair,
     updateBackend: wizardUpdate,
     showErrorModal: wizardShowError,
+    syncPresetsForCurrentProductMode: wizardSyncPresets,
     isBusy: false,
     get preferredDeviceOptions() {
       return wizardState.preferredDeviceOptions.value
@@ -64,6 +66,7 @@ const stopService = vi.fn(async (name: string) => {
   return 'stopped'
 })
 const uninstallService = vi.fn(async (_name: string) => {})
+const uninstall = vi.fn(async (_name: string) => {})
 
 vi.mock('@/assets/js/store/backendServices', () => {
   return {
@@ -90,12 +93,29 @@ vi.mock('@/assets/js/store/backendServices', () => {
       startService,
       stopService,
       uninstallService,
+      uninstall,
     }),
   }
 })
 
+const productModeState = await vi.hoisted(async () => {
+  const { ref } = await import('vue')
+  return { mode: ref('studio') }
+})
+const selectMode = vi.fn(async (mode: string) => {
+  productModeState.mode.value = mode
+})
+const detectRecommendation = vi.fn(async () => {})
+
 vi.mock('@/assets/js/store/productMode', () => ({
-  useProductMode: () => ({ productMode: 'essentials' }),
+  useProductMode: () => ({
+    get productMode() {
+      return productModeState.mode.value
+    },
+    hardwareRecommendation: null,
+    selectMode,
+    detectRecommendation,
+  }),
 }))
 
 vi.mock('@/assets/js/store/i18n', () => ({
@@ -170,6 +190,7 @@ beforeEach(() => {
   localSettings.value = {}
   seed([])
   holdsState.holds.value = []
+  productModeState.mode.value = 'studio'
   wizardState.preferredDeviceOptions.value = []
   wizardState.pendingPreferredDevice.value = null
 })
@@ -679,5 +700,85 @@ describe('Component Manager uninstall', () => {
 
     expect(row(manager, 'comfyui-backend').inUseReason).toMatch(/generation/)
     expect(uninstallService).not.toHaveBeenCalled()
+  })
+})
+
+describe('Component Manager Hardware Mode', () => {
+  it('applies a change in place: dims and stops unavailable Components, never uninstalls', async () => {
+    seed([
+      service('ai-backend', { status: 'running', isRequired: true }),
+      service('openvino-backend', { status: 'running' }),
+      service('comfyui-backend', { status: 'running' }),
+    ])
+    const { useComponentManager } = await import('@/assets/js/store/componentManager')
+    const manager = useComponentManager()
+    await manager.hydrateFromSettings()
+
+    await manager.changeHardwareMode('nvidia')
+
+    expect(selectMode).toHaveBeenCalledWith('nvidia')
+    expect(row(manager, 'openvino-backend').availableInCurrentMode).toBe(false)
+    expect(row(manager, 'openvino-backend').installed).toBe(true)
+    expect(stopService).toHaveBeenCalledWith('openvino-backend')
+    expect(stopService).not.toHaveBeenCalledWith('comfyui-backend')
+    expect(uninstall).not.toHaveBeenCalled()
+    expect(wizardSyncPresets).toHaveBeenCalledTimes(1)
+  })
+
+  it('offers Components newly available, without installing or starting them', async () => {
+    productModeState.mode.value = 'nvidia'
+    seed([service('openvino-backend', { status: 'notInstalled', isSetUp: false })])
+    const { useComponentManager } = await import('@/assets/js/store/componentManager')
+    const manager = useComponentManager()
+    await manager.hydrateFromSettings()
+
+    expect(row(manager, 'openvino-backend').availableInCurrentMode).toBe(false)
+
+    await manager.changeHardwareMode('studio')
+
+    const target = row(manager, 'openvino-backend')
+    expect(target.availableInCurrentMode).toBe(true)
+    expect(target.canInstall).toBe(true)
+    expect(wizardInstall).not.toHaveBeenCalled()
+    expect(startService).not.toHaveBeenCalled()
+  })
+
+  it('refuses the change while any In-flight Work exists, and allows it once the work ends', async () => {
+    holdsState.holds.value = [{ component: 'comfyui-backend', work: 'media-run' }]
+    seed([service('comfyui-backend', { status: 'running' })])
+    const { useComponentManager } = await import('@/assets/js/store/componentManager')
+    const manager = useComponentManager()
+    await manager.hydrateFromSettings()
+
+    expect(manager.hardwareModeChangeBlocked).toBe(true)
+    expect(manager.hardwareModeChangeReason).toMatch(/Finish the running work/)
+
+    await manager.changeHardwareMode('nvidia')
+
+    expect(selectMode).not.toHaveBeenCalled()
+    expect(wizardSyncPresets).not.toHaveBeenCalled()
+    expect(manager.hardwareMode).toBe('studio')
+
+    holdsState.holds.value = []
+    expect(manager.hardwareModeChangeBlocked).toBe(false)
+
+    await manager.changeHardwareMode('nvidia')
+
+    expect(selectMode).toHaveBeenCalledWith('nvidia')
+    expect(wizardSyncPresets).toHaveBeenCalledTimes(1)
+    expect(manager.hardwareMode).toBe('nvidia')
+  })
+
+  it('does nothing when the mode is unchanged', async () => {
+    seed([service('openvino-backend', { status: 'running' })])
+    const { useComponentManager } = await import('@/assets/js/store/componentManager')
+    const manager = useComponentManager()
+    await manager.hydrateFromSettings()
+
+    await manager.changeHardwareMode('studio')
+
+    expect(selectMode).not.toHaveBeenCalled()
+    expect(wizardSyncPresets).not.toHaveBeenCalled()
+    expect(stopService).not.toHaveBeenCalled()
   })
 })

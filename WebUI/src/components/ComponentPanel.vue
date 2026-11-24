@@ -78,8 +78,10 @@ const props = defineProps<{
   ungroupedRows: ComponentPanelBackendRow[]
   phisonRow: PhisonAidaptivRowViewModel | null
   coreServicesOpen: boolean
-  /** Shows the Hardware Mode choices but changes nothing — that change is later work. */
-  selectionReadOnly?: boolean
+  /** Live mode: the Hardware Mode change is refused while any In-flight Work exists. */
+  modeChangeBlocked?: boolean
+  /** Why the Hardware Mode change is blocked, e.g. "Finish the running work first". */
+  modeChangeReason?: string | null
 }>()
 
 defineSlots<{
@@ -91,6 +93,7 @@ defineSlots<{
 
 const emit = defineEmits<{
   selectMode: [mode: ProductMode]
+  changeMode: [mode: ProductMode]
   selectDevice: [key: string]
   overrideDevice: [value: boolean]
   saveDevice: [intent: { key: string; override: boolean }]
@@ -110,6 +113,38 @@ const languages = useI18N().state
 const deviceDialogOpen = ref(false)
 const draftDeviceKey = ref<string | null>(null)
 const draftDeviceOverride = ref(false)
+
+const modeDialogOpen = ref(false)
+const draftMode = ref<ProductMode | null>(null)
+
+const currentModeOption = computed(
+  () => props.modeOptions.find((option) => option.mode === props.selectedMode) ?? null,
+)
+const draftModeOption = computed(
+  () => props.modeOptions.find((option) => option.mode === draftMode.value) ?? null,
+)
+const canApplyMode = computed(
+  () => draftModeOption.value !== null && draftMode.value !== props.selectedMode,
+)
+
+function modeTitle(option: ComponentPanelModeOption): string {
+  return [option.titleOne, option.titleTwo].filter(Boolean).join(' ')
+}
+
+function modeOptionName(option: ComponentPanelModeOption): string {
+  return [option.titleOne, option.titleTwo, option.subtitle].filter(Boolean).join(' ')
+}
+
+function openModeDialog() {
+  draftMode.value = props.selectedMode
+  modeDialogOpen.value = true
+}
+
+function confirmModeChange() {
+  if (!canApplyMode.value || !draftMode.value) return
+  emit('changeMode', draftMode.value)
+  modeDialogOpen.value = false
+}
 
 const selectedDeviceOption = computed(
   () => props.deviceOptions.find((option) => option.key === props.selectedDeviceKey) ?? null,
@@ -157,7 +192,6 @@ function onSelectDevice(key: unknown) {
 }
 
 function onSelectMode(mode: ProductMode) {
-  if (props.selectionReadOnly) return
   emit('selectMode', mode)
 }
 </script>
@@ -168,17 +202,18 @@ function onSelectMode(mode: ProductMode) {
       <h2 class="text-sm font-semibold uppercase tracking-wider text-muted-foreground pb-3">
         {{ languages.SETUP_WIZARD_MODE_SECTION || 'Product Mode' }}
       </h2>
-      <div class="flex flex-col gap-2">
+
+      <!-- Draft (wizard): the pick is staged and applied on "Install & Continue". -->
+      <div v-if="applyMode === 'draft'" class="flex flex-col gap-2">
         <label
           v-for="option in modeOptions"
           :key="option.mode"
-          class="flex items-start gap-2.5 p-3 rounded-lg border transition-colors"
-          :class="[
+          class="flex items-start gap-2.5 p-3 rounded-lg border transition-colors cursor-pointer"
+          :class="
             selectedMode === option.mode
               ? 'border-primary bg-primary/10'
-              : 'border-border hover:border-muted/50',
-            selectionReadOnly ? 'cursor-default' : 'cursor-pointer',
-          ]"
+              : 'border-border hover:border-muted/50'
+          "
           @click="onSelectMode(option.mode)"
         >
           <div class="shrink-0 mt-0.5">
@@ -228,6 +263,123 @@ function onSelectMode(mode: ProductMode) {
           </div>
         </label>
       </div>
+
+      <!-- Live (Component Manager): the current mode, changed through a confirmation. -->
+      <template v-else>
+        <div
+          role="group"
+          :aria-label="languages.SETUP_WIZARD_MODE_SECTION || 'Hardware Mode'"
+          class="flex items-center justify-between gap-2 p-3 rounded-lg border border-border"
+        >
+          <span class="min-w-0">
+            <span class="block text-xs font-medium truncate">{{
+              currentModeOption ? modeTitle(currentModeOption) : ''
+            }}</span>
+            <span
+              v-if="currentModeOption?.subtitle"
+              class="block text-[11px] text-muted-foreground"
+            >
+              {{ currentModeOption.subtitle }}
+            </span>
+          </span>
+          <div class="flex flex-col items-end gap-1 shrink-0">
+            <Button
+              variant="outline"
+              size="sm"
+              :disabled="modeChangeBlocked || modeOptions.length === 0"
+              @click="openModeDialog"
+            >
+              {{ languages.COMPONENT_MANAGER_HARDWARE_MODE_CHANGE || 'Change' }}
+            </Button>
+            <span v-if="modeChangeBlocked && modeChangeReason" class="text-[11px] text-warning">
+              {{ modeChangeReason }}
+            </span>
+          </div>
+        </div>
+
+        <Dialog v-model:open="modeDialogOpen">
+          <DialogContent class="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>{{
+                languages.SETUP_WIZARD_MODE_SECTION || 'Hardware Mode'
+              }}</DialogTitle>
+              <DialogDescription>
+                {{
+                  languages.COMPONENT_MANAGER_HARDWARE_MODE_DESCRIPTION ||
+                  'Applies immediately. Components unavailable in the new Hardware Mode are stopped but stay installed; newly available ones are offered, not installed.'
+                }}
+              </DialogDescription>
+            </DialogHeader>
+
+            <RadioGroup
+              v-model="draftMode"
+              :aria-label="languages.SETUP_WIZARD_MODE_SECTION || 'Hardware Mode'"
+              class="flex flex-col gap-2"
+            >
+              <div
+                v-for="option in modeOptions"
+                :key="option.mode"
+                class="flex items-start gap-2 p-3 rounded-lg border transition-colors"
+                :class="
+                  draftMode === option.mode
+                    ? 'border-primary bg-primary/10'
+                    : 'border-border hover:border-muted/50'
+                "
+              >
+                <RadioGroupItem
+                  :id="`hardware-mode-${option.mode}`"
+                  :value="option.mode"
+                  :aria-label="modeOptionName(option)"
+                  class="mt-0.5"
+                />
+                <label :for="`hardware-mode-${option.mode}`" class="min-w-0 cursor-pointer flex-1">
+                  <span class="flex items-baseline gap-1 flex-wrap">
+                    <span class="text-xs font-bold text-[#00c4fa] -mr-0.5">{{
+                      option.titleOne
+                    }}</span>
+                    <span class="text-xs font-bold">{{ option.titleTwo }}</span>
+                    <span
+                      v-if="option.subtitle"
+                      class="text-xs font-medium text-muted-foreground"
+                      >{{ option.subtitle }}</span
+                    >
+                  </span>
+                  <span class="flex gap-1 pt-0.5">
+                    <span
+                      v-if="recommendedMode === option.mode"
+                      class="text-[9px] font-semibold uppercase tracking-wider text-success"
+                      >{{ languages.PRODUCT_MODE_BADGE_RECOMMENDED }}</span
+                    >
+                    <span
+                      v-if="option.experimental"
+                      class="text-[9px] font-semibold uppercase tracking-wider text-gray-400"
+                      >{{ languages.PRODUCT_MODE_BADGE_EXPERIMENTAL }}</span
+                    >
+                  </span>
+                  <span class="block text-[11px] text-muted-foreground pt-1 leading-snug">
+                    {{ option.description }}
+                  </span>
+                  <span class="block text-[11px] text-muted-foreground pt-1 leading-snug">
+                    <span class="font-medium">{{
+                      languages.COMPONENT_MANAGER_HARDWARE_MODE_SUPPORTED || 'Supported hardware'
+                    }}</span
+                    >: {{ option.supportedHardware }}
+                  </span>
+                </label>
+              </div>
+            </RadioGroup>
+
+            <DialogFooter>
+              <Button variant="ghost" @click="modeDialogOpen = false">{{
+                languages.COM_CANCEL || 'Cancel'
+              }}</Button>
+              <Button :disabled="!canApplyMode" @click="confirmModeChange">
+                {{ languages.COM_APPLY || 'Apply' }}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </template>
 
       <!-- Hidden entirely when no GPU is detected — there is nothing to choose. -->
       <div v-if="deviceOptions.length > 0" class="pt-6">

@@ -51,6 +51,33 @@ test('the Component Manager shows the machine as it is and toggles a Component',
     await expect(app.components.defaultGpuDialog).toBeHidden()
   })
 
+  await test.step('the Hardware Mode row changes the mode through a confirmation, without a restart', async () => {
+    await expect(app.components.hardwareModeRow).toBeVisible()
+
+    const original = modeOptionNameFor(await app.components.hardwareModeRow.innerText())
+    const target =
+      original === 'AI PLAYGROUND studio' ? 'AI PLAYGROUND essentials' : 'AI PLAYGROUND studio'
+
+    await app.components.openHardwareModeDialog()
+
+    await expect(app.components.hardwareModeOption('AI PLAYGROUND essentials')).toBeVisible()
+    await expect(app.components.hardwareModeOption('AI PLAYGROUND studio')).toBeVisible()
+    await expect(app.components.hardwareModeDialog).toContainText('Supported hardware')
+    await expect(app.components.hardwareModeDialog).toContainText(/Recommended|Experimental/)
+    // Re-picking the current mode is not a change.
+    await expect(app.components.applyHardwareModeButton).toBeDisabled()
+
+    await app.components.applyHardwareMode(target)
+    await expect(app.components.hardwareModeRow).toContainText(modeLabelFor(target))
+    // The picker is gone: the app is still running and the tab is still open.
+    await expect(app.shell.header).toBeVisible()
+    await expect(app.components.tabPanel).toBeVisible()
+
+    await app.components.openHardwareModeDialog()
+    await app.components.applyHardwareMode(original)
+    await expect(app.components.hardwareModeRow).toContainText(modeLabelFor(original))
+  })
+
   await test.step('the rows keep the wizard groups and read the row vocabulary', async () => {
     await expect(
       app.components.tabPanel.getByRole('group', { name: 'AI Playground', exact: true }),
@@ -237,3 +264,16 @@ test('Channels and Hybrid Cloud setup open inside the Component Manager tab', as
     await app.components.close()
   })
 })
+
+/** The mode option name that matches the Hardware Mode row's current text. */
+function modeOptionNameFor(rowText: string): string {
+  if (/NVIDIA|CUDA/i.test(rowText)) return 'AI PLAYGROUND studio for NVIDIA CUDA'
+  if (/essentials/i.test(rowText)) return 'AI PLAYGROUND essentials'
+  return 'AI PLAYGROUND studio'
+}
+
+function modeLabelFor(optionName: string): RegExp {
+  if (/essentials/.test(optionName)) return /essentials/i
+  if (/NVIDIA/.test(optionName)) return /NVIDIA|CUDA/i
+  return /\bstudio\b/i
+}

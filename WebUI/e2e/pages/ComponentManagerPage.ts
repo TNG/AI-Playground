@@ -169,6 +169,41 @@ export class ComponentManagerPage {
       .click()
   }
 
+  /** The current Hardware Mode and its Change action. */
+  get hardwareModeRow(): Locator {
+    return this.tabPanel.getByRole('group', { name: 'Hardware Mode', exact: true })
+  }
+
+  get changeHardwareModeButton(): Locator {
+    return this.hardwareModeRow.getByRole('button', { name: 'Change', exact: true })
+  }
+
+  /** The Hardware Mode confirmation is portaled, so it is looked up on the page. */
+  get hardwareModeDialog(): Locator {
+    return this.page.getByRole('dialog', { name: 'Hardware Mode', exact: true })
+  }
+
+  /** One radio per mode, named "<title> <subtitle>" (e.g. "AI PLAYGROUND studio"). */
+  hardwareModeOption(name: string): Locator {
+    return this.hardwareModeDialog.getByRole('radio', { name, exact: true })
+  }
+
+  get applyHardwareModeButton(): Locator {
+    return this.hardwareModeDialog.getByRole('button', { name: 'Apply', exact: true })
+  }
+
+  async openHardwareModeDialog(): Promise<void> {
+    await this.changeHardwareModeButton.click()
+    await expect(this.hardwareModeDialog).toBeVisible()
+  }
+
+  /** Choose a mode and confirm; leaves the dialog closed on the applied mode. */
+  async applyHardwareMode(name: string): Promise<void> {
+    await this.hardwareModeOption(name).click()
+    await this.applyHardwareModeButton.click()
+    await expect(this.hardwareModeDialog).toBeHidden()
+  }
+
   /** The Default GPU row: the current default plus its Change button. Hidden with no GPU. */
   get defaultGpuRow(): Locator {
     return this.tabPanel.getByRole('group', { name: 'Default GPU', exact: true })

@@ -229,6 +229,10 @@ function onSaveDevice({ key, override }: { key: string; override: boolean }) {
   void manager.setPreferredDevice(option.value, override)
 }
 
+function onChangeMode(mode: ProductMode) {
+  void manager.changeHardwareMode(mode)
+}
+
 function openCloudSetup() {
   cloudMenuOpen.value = false
   if (!cloudMode.isFeatureEnabled) return
@@ -258,10 +262,11 @@ function openCloudSetup() {
 
       <ComponentPanel
         apply-mode="live"
-        selection-read-only
         :mode-options="modeOptions"
         :selected-mode="productModeStore.productMode"
         :recommended-mode="recommendedMode"
+        :mode-change-blocked="manager.hardwareModeChangeBlocked"
+        :mode-change-reason="manager.hardwareModeChangeReason"
         :device-options="manager.deviceOptions"
         :selected-device-key="manager.selectedDeviceKey"
         :override-device-selection="false"
@@ -274,6 +279,7 @@ function openCloudSetup() {
         :ungrouped-rows="ungroupedRowData"
         :phison-row="wizard.phisonAidaptivRow"
         :core-services-open="coreServicesOpen"
+        @change-mode="onChangeMode"
         @group-toggle="setAiPlaygroundGroup"
         @toggle="onToggle"
         @repair="onRepair"

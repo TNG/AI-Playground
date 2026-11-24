@@ -11,6 +11,7 @@ import { useComponentHolds } from './componentHolds'
 import { useI18N } from './i18n'
 import { useErrors } from './errors'
 import { compareVersions, mapServiceNameToDisplayName, mapStatusToColor } from '@/lib/utils'
+import { isComponentAvailableInMode } from '@/lib/productModeAvailability'
 import { updateLocalSettingsReported } from '@/lib/localSettingsUpdate'
 import { setupProgressLabel } from '@/lib/setupProgress'
 import type { ComponentWork } from '@/types/componentChange'
@@ -170,7 +171,46 @@ export const useComponentManager = defineStore('componentManager', () => {
   }
 
   function isAvailableInCurrentMode(serviceName: BackendServiceName): boolean {
-    return !(productMode.productMode === 'nvidia' && serviceName === 'openvino-backend')
+    return isComponentAvailableInMode(productMode.productMode, serviceName)
+  }
+
+  const hardwareMode = computed(() => productMode.productMode)
+  const hardwareModeChangeBlocked = computed(() => componentHolds.anyInFlightWork)
+  const hardwareModeChangeReason = computed(() =>
+    hardwareModeChangeBlocked.value
+      ? label('COMPONENT_MANAGER_HARDWARE_MODE_BLOCKED', 'Finish the running work first.')
+      : null,
+  )
+
+  /**
+   * Applies a Hardware Mode change in place: no restart, unavailable Components
+   * stopped but kept on disk, newly available ones only offered. Presets reload
+   * through the wizard's existing product-mode sync path.
+   */
+  async function changeHardwareMode(mode: ProductMode): Promise<void> {
+    if (componentHolds.anyInFlightWork) return
+    const previous = productMode.productMode
+    if (previous === mode) return
+
+    const becameUnavailable = allBackendServiceNames.filter(
+      (serviceName) =>
+        isComponentAvailableInMode(previous, serviceName) &&
+        !isComponentAvailableInMode(mode, serviceName),
+    )
+
+    await productMode.selectMode(mode)
+
+    for (const serviceName of becameUnavailable) {
+      const info = backendServices.info.find((entry) => entry.serviceName === serviceName)
+      if (info?.status !== 'running') continue
+      try {
+        await backendServices.stopService(serviceName)
+      } catch (error) {
+        errors.report(error, { category: 'backend', code: 'component/stop-failed' })
+      }
+    }
+
+    await wizard.syncPresetsForCurrentProductMode()
   }
 
   function advertisedUpdateTarget(
@@ -313,6 +353,8 @@ export const useComponentManager = defineStore('componentManager', () => {
     } catch (error) {
       errors.report(error, { category: 'backend', surface: 'silent' })
     }
+    // The mode catalog is normally filled by the wizard; the manager needs it too.
+    if (!productMode.hardwareRecommendation) await productMode.detectRecommendation()
     hydrated.value = true
   }
 
@@ -393,8 +435,12 @@ export const useComponentManager = defineStore('componentManager', () => {
     hydrated,
     deviceOptions,
     selectedDeviceKey,
+    hardwareMode,
+    hardwareModeChangeBlocked,
+    hardwareModeChangeReason,
     hydrateFromSettings,
     setPreferredDevice,
+    changeHardwareMode,
     setEnabled,
     install,
     repair,

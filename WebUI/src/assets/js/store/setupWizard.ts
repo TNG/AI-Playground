@@ -24,19 +24,12 @@ import { useErrors } from './errors'
 import { updateLocalSettingsReported } from '@/lib/localSettingsUpdate'
 import { extractMessage } from '../errors/appError'
 import { setupProgressLabel } from '@/lib/setupProgress'
+import { isComponentAvailableInMode } from '@/lib/productModeAvailability'
 import type { ErrorDetails } from '../../../../electron/adapters/backends/service'
 
 // Derived from the single source of truth rather than restated: a backend added
 // there but forgotten here would silently never appear in the wizard.
 const ALL_BACKENDS: BackendServiceName[] = [...allBackendServiceNames]
-
-function isBackendAvailableInProductMode(
-  mode: ProductMode | null,
-  serviceName: BackendServiceName,
-): boolean {
-  if (mode === 'nvidia' && serviceName === 'openvino-backend') return false
-  return true
-}
 
 export type WizardPage = 'main' | 'channelsSetup' | 'cloudModeSetup' | 'demoModeSetup'
 
@@ -392,7 +385,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   const backendRows = computed<BackendRowViewModel[]>(() => {
     return ALL_BACKENDS.map((serviceName) => {
       const info = backendServices.info.find((s) => s.serviceName === serviceName)
-      const available = isBackendAvailableInProductMode(pendingProductMode.value, serviceName)
+      const available = isComponentAvailableInMode(pendingProductMode.value, serviceName)
       const isRequired = info?.isRequired ?? serviceName === 'ai-backend'
       let isSetUp = info?.isSetUp ?? false
       let status = info?.status ?? ('notInstalled' as BackendStatus)
@@ -638,10 +631,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
         serviceName,
         isRequired: info.isRequired,
         isSetUp: info.isSetUp,
-        availableInProductMode: isBackendAvailableInProductMode(
-          pendingProductMode.value,
-          serviceName,
-        ),
+        availableInProductMode: isComponentAvailableInMode(pendingProductMode.value, serviceName),
         userDisabled: disabledBackends.value.has(serviceName),
         phisonOwnsLlamaCpp:
           serviceName === 'llamacpp-backend' &&
@@ -711,11 +701,11 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   function setPendingMode(mode: ProductMode) {
     pendingProductMode.value = mode
     for (const sn of ALL_BACKENDS) {
-      const wasAvailable = isBackendAvailableInProductMode(
+      const wasAvailable = isComponentAvailableInMode(
         productModeStore.productMode ?? pendingProductMode.value,
         sn,
       )
-      const nowAvailable = isBackendAvailableInProductMode(mode, sn)
+      const nowAvailable = isComponentAvailableInMode(mode, sn)
       if (nowAvailable && !wasAvailable) {
         const info = backendServices.info.find((s) => s.serviceName === sn)
         if (info && !info.isSetUp && !info.isRequired) {
@@ -1156,6 +1146,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     openWizard,
     openChannelsSetup,
     setPendingMode,
+    syncPresetsForCurrentProductMode,
     seedInstallSelection,
     toggleBackend,
     togglePhisonAidaptiv,

@@ -266,6 +266,7 @@ async function createSession(
   )
   const capabilityHost: CapabilityHost = {
     sessionId,
+    ...(config.sessionRef ? { sessionRef: config.sessionRef } : {}),
     modelToolUse,
     workspaceDir,
     ...(attachmentsDir ? { attachmentsDir } : {}),

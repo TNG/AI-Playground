@@ -21,6 +21,8 @@ export type { AgentToolSpec }
 
 export type CapabilityHost = {
   sessionId: string
+  /** The Session the turn runs in, absent for a Trial Run; never the Session in its own Overview. */
+  sessionRef?: string
   /** Resolved workspace folder (host path). */
   workspaceDir: string
   /** Where `attachments/…` references point when not inside the workspace: a Session's internal storage. */

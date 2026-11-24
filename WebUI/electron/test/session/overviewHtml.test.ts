@@ -66,7 +66,8 @@ describe('overview HTML renderer', () => {
       english,
     )
 
-    expect(html.match(/<section class="session">/g)).toHaveLength(2)
+    expect(html).toContain('<div class="cards">')
+    expect(html.match(/<article class="card">/g)).toHaveLength(2)
     expect(html).toContain('<p class="title">Beta</p>')
     expect(html).toContain('<p class="summary">Beta built the asteroid field.</p>')
     expect(html).toContain('<p class="title">Alpha</p>')
@@ -149,6 +150,8 @@ describe('overview HTML renderer', () => {
 
     expect(html).toContain(`<img class="picture" src="${picture}" alt="">`)
     expect(html.match(/<img\b/g)).toHaveLength(1)
+    // The text sits beside the picture, in the same card.
+    expect(html.indexOf('class="picture"')).toBeLessThan(html.indexOf('class="text"'))
   })
 
   it('never renders a picture source that is not a data URI', () => {

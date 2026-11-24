@@ -206,7 +206,7 @@ async function seedPictureSession(
 
 /** One `<section class="session">` block per reported Session, in report order. */
 function sessionSections(html: string): string[] {
-  return html.split('<section class="session">').slice(1)
+  return html.split('<article class="card">').slice(1)
 }
 
 async function seedVideoSession(): Promise<string> {

@@ -81,7 +81,7 @@ function chromeHtml(
   return fillTemplate(chrome.strings[key], escaped)
 }
 
-function sessionSection(session: OverviewSection): string {
+function sessionCard(session: OverviewSection): string {
   // Only an inlined picture may reach the page: a URL scheme would not resolve
   // once the file is copied, and the CSP allows nothing but `data:`.
   const picture =
@@ -89,21 +89,24 @@ function sessionSection(session: OverviewSection): string {
       ? `<img class="picture" src="${escapeHtml(session.picture)}" alt="">\n`
       : ''
   return (
-    `<section class="session">\n<p class="title">${escapeHtml(session.title)}</p>\n` +
-    picture +
-    `<p class="summary">${escapeHtml(session.summary)}</p>\n</section>`
+    `<article class="card">\n${picture}<div class="text">\n` +
+    `<p class="title">${escapeHtml(session.title)}</p>\n` +
+    `<p class="summary">${escapeHtml(session.summary)}</p>\n</div>\n</article>`
   )
 }
 
 const STYLE = `
 :root { color-scheme: light dark; }
 body { margin: 0; font: 16px/1.5 system-ui, sans-serif; }
-main { max-width: 60rem; margin: 0 auto; padding: 2rem 1rem 4rem; }
-.session { margin: 0 0 2rem; }
-.title { margin: 0; font-weight: 600; font-size: 1.1rem; }
+main { max-width: 78rem; margin: 0 auto; padding: 2rem 1rem 4rem; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr)); gap: 1rem; align-items: start; }
+.card { display: flex; gap: .9rem; padding: .9rem; border: 1px solid rgba(127, 127, 127, .35); border-radius: .75rem; background: rgba(127, 127, 127, .06); }
+.text { min-width: 0; }
+.picture { flex: none; width: 7rem; height: 7rem; object-fit: cover; border-radius: .5rem; }
+.title { margin: 0; font-weight: 600; font-size: 1.05rem; }
 .summary { margin: .35rem 0 0; white-space: pre-wrap; }
-.note { opacity: .75; margin: 0 0 1.5rem; }
-.picture { display: block; max-width: 100%; max-height: 20rem; margin: .5rem 0; border-radius: .5rem; }
+.note { opacity: .75; margin: 0 0 1.25rem; }
+@media print { .cards { display: block; } .card { break-inside: avoid; margin-bottom: 1rem; } }
 `
 
 export function renderOverviewHtml(overview: OverviewDocument, chrome: OverviewChrome): string {
@@ -128,7 +131,9 @@ export function renderOverviewHtml(overview: OverviewDocument, chrome: OverviewC
 </head>
 <body>
 <main>
-${note}${overview.sessions.map((session) => sessionSection(session)).join('\n')}
+${note}<div class="cards">
+${overview.sessions.map((session) => sessionCard(session)).join('\n')}
+</div>
 </main>
 </body>
 </html>

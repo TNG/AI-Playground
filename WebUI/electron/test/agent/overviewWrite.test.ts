@@ -370,7 +370,7 @@ describe('overview_write', () => {
     })
     const html = await fs.readFile(path.join(host.workspaceDir, String(result.path)), 'utf8')
     expect(html).toContain('OVERVIEW_REPORT_TRUNCATED')
-    expect(html.match(/<section class="session">/g)).toHaveLength(10)
+    expect(html.match(/<article class="card">/g)).toHaveLength(10)
   })
 
   it('renders the chrome strings the renderer shipped, with their locale', async () => {

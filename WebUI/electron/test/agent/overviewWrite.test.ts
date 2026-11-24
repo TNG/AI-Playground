@@ -300,6 +300,35 @@ describe('overview_write', () => {
     expect(html).toContain('OVERVIEW_SESSION_TRUNCATED')
   })
 
+  it('reports the Sessions the line budget left out, and the page says so', async () => {
+    for (let index = 0; index < 11; index++) {
+      await seedSession(
+        Array.from({ length: 40 }, (_, line) =>
+          historyEntry({
+            prompt: `session ${index} turn ${line}`,
+            timestamp: NOW - (index + 1) * HOUR - line * 60_000,
+          }),
+        ),
+        { updatedAt: NOW - index * HOUR },
+      )
+    }
+    const host = hostFor()
+
+    const result = await write(host, 'last-24h')
+
+    expect(result).toMatchObject({
+      written: true,
+      sessions: 10,
+      sessionsOmitted: 1,
+      shownEntries: 400,
+      totalEntries: 440,
+      truncated: true,
+    })
+    const html = await fs.readFile(path.join(host.workspaceDir, String(result.path)), 'utf8')
+    expect(html).toContain('OVERVIEW_SESSIONS_OMITTED')
+    expect(html.match(/<section class="session">/g)).toHaveLength(10)
+  })
+
   it('renders the chrome strings the renderer shipped, with their locale', async () => {
     await seedSession([historyEntry({})])
     const host = hostFor({

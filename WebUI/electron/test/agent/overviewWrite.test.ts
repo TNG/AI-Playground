@@ -236,7 +236,7 @@ describe('overview_write', () => {
     expect(html).toContain('Shipped the thing')
     expect(html).toContain('A quiet day.')
     expect(html).not.toMatch(/<script/i)
-    expect(html).not.toMatch(/<h[1-6]\b/)
+    expect(html.match(/<h1>/g)).toHaveLength(1)
     expect(html).not.toContain('<ol')
   })
 

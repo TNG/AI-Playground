@@ -98,14 +98,17 @@ function sessionCard(session: OverviewSection): string {
 const STYLE = `
 :root { color-scheme: light dark; }
 body { margin: 0; font: 16px/1.5 system-ui, sans-serif; }
-main { max-width: 78rem; margin: 0 auto; padding: 2rem 1rem 4rem; }
-.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr)); gap: 1rem; align-items: start; }
-.card { display: flex; gap: .9rem; padding: .9rem; border: 1px solid rgba(127, 127, 127, .35); border-radius: .75rem; background: rgba(127, 127, 127, .06); }
+main { max-width: 68rem; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; }
+.head { margin: 0 0 2rem; }
+h1 { margin: 0; font-size: 1.5rem; line-height: 1.25; font-weight: 600; letter-spacing: -.01em; }
+.cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.25rem; }
+.card { display: flex; gap: 1.1rem; align-items: flex-start; min-height: 12.5rem; padding: 1.25rem; border: 1px solid rgba(127, 127, 127, .28); border-radius: 1rem; background: rgba(127, 127, 127, .06); box-shadow: 0 1px 2px rgba(0, 0, 0, .05); }
 .text { min-width: 0; }
-.picture { flex: none; width: 7rem; height: 7rem; object-fit: cover; border-radius: .5rem; }
-.title { margin: 0; font-weight: 600; font-size: 1.05rem; }
-.summary { margin: .35rem 0 0; white-space: pre-wrap; }
-.note { opacity: .75; margin: 0 0 1.25rem; }
+.picture { flex: none; width: 8rem; height: 8rem; object-fit: cover; border-radius: .75rem; background: rgba(127, 127, 127, .12); }
+.title { margin: 0; font-size: 1.1rem; line-height: 1.35; font-weight: 600; }
+.summary { margin: .4rem 0 0; opacity: .9; white-space: pre-wrap; }
+.note { opacity: .75; margin: 0 0 1.75rem; }
+@media (max-width: 48rem) { .cards { grid-template-columns: minmax(0, 1fr); } }
 @media print { .cards { display: block; } .card { break-inside: avoid; margin-bottom: 1rem; } }
 `
 
@@ -131,6 +134,7 @@ export function renderOverviewHtml(overview: OverviewDocument, chrome: OverviewC
 </head>
 <body>
 <main>
+<header class="head"><h1>${title}</h1></header>
 ${note}<div class="cards">
 ${overview.sessions.map((session) => sessionCard(session)).join('\n')}
 </div>

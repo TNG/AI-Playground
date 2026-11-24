@@ -87,7 +87,6 @@ describe('overview HTML renderer', () => {
       english,
     )
 
-    expect(html).not.toMatch(/<h[1-6]\b/)
     expect(html).not.toContain('<ol')
     expect(html).not.toContain('class="turn"')
     expect(html).not.toContain('class="prompt"')
@@ -98,13 +97,12 @@ describe('overview HTML renderer', () => {
     expect(html).not.toContain('By day')
   })
 
-  it('puts the window in the document title only', () => {
+  it('states the window in the document title and in the headline', () => {
     const html = renderOverviewHtml(documentOf([section({})]), english)
 
-    const [head, body] = html.split('</title>')
-    expect(head).toContain('Overview: 2026-11-22 00:00 to 2026-11-25 00:00')
-    expect(body).not.toContain('2026-11-22')
-    expect(body).not.toContain('2026-11-25')
+    expect(html).toContain('<title>Overview: 2026-11-22 00:00 to 2026-11-25 00:00</title>')
+    expect(html).toContain('<h1>Overview: 2026-11-22 00:00 to 2026-11-25 00:00</h1>')
+    expect(html.match(/<h1>/g)).toHaveLength(1)
   })
 
   it('escapes every interpolated string and carries no script', () => {

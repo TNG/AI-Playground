@@ -59,6 +59,21 @@ export class ComponentManagerPage {
     return this.row(name).getByRole('button', { name: `Update ${name}`, exact: true })
   }
 
+  /** The inline Uninstall action on an optional installed Component. */
+  uninstallButton(name: string): Locator {
+    return this.row(name).getByRole('button', { name: `Uninstall ${name}`, exact: true })
+  }
+
+  /** The uninstall confirmation dialog, named after the Component it removes. */
+  uninstallDialog(name: string): Locator {
+    return this.page.getByRole('alertdialog', { name: `Uninstall ${name}?`, exact: true })
+  }
+
+  /** Cancel the uninstall confirmation, leaving the Component installed. */
+  async cancelUninstall(name: string): Promise<void> {
+    await this.uninstallDialog(name).getByRole('button', { name: 'Cancel', exact: true }).click()
+  }
+
   /** Inline install/start/stop progress text while the row is busy. */
   progressText(name: string): Locator {
     return this.row(name).getByText(

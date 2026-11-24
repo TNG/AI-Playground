@@ -63,6 +63,7 @@ const stopService = vi.fn(async (name: string) => {
   setStatus(name, 'stopped')
   return 'stopped'
 })
+const uninstallService = vi.fn(async (_name: string) => {})
 
 vi.mock('@/assets/js/store/backendServices', () => {
   return {
@@ -88,6 +89,7 @@ vi.mock('@/assets/js/store/backendServices', () => {
       getServiceErrorDetails: () => null,
       startService,
       stopService,
+      uninstallService,
     }),
   }
 })
@@ -603,5 +605,79 @@ describe('Component Manager in-use guard', () => {
 
     holdsState.holds.value = [{ component: 'openvino-backend', work: 'speech-turn' }]
     expect(manager.anyInFlightWork).toBe(true)
+  })
+})
+
+describe('Component Manager uninstall', () => {
+  it('offers Uninstall on an optional installed Component and never on a required one', async () => {
+    seed([
+      service('ai-backend', { status: 'running', isRequired: true }),
+      service('comfyui-backend', { status: 'running' }),
+    ])
+    const { useComponentManager } = await import('@/assets/js/store/componentManager')
+    const manager = useComponentManager()
+    await manager.hydrateFromSettings()
+
+    expect(row(manager, 'comfyui-backend').canUninstall).toBe(true)
+    expect(row(manager, 'ai-backend').canUninstall).toBe(false)
+  })
+
+  it('does not offer Uninstall on a Component that is not on disk', async () => {
+    seed([service('home-agent-backend', { status: 'notInstalled', isSetUp: false })])
+    const { useComponentManager } = await import('@/assets/js/store/componentManager')
+    const manager = useComponentManager()
+    await manager.hydrateFromSettings()
+
+    expect(row(manager, 'home-agent-backend').canUninstall).toBe(false)
+  })
+
+  it('names what stops working for each optional Component', async () => {
+    seed([
+      service('comfyui-backend', { status: 'running' }),
+      service('llamacpp-backend', { status: 'running' }),
+      service('home-agent-backend', { status: 'running' }),
+    ])
+    const { useComponentManager } = await import('@/assets/js/store/componentManager')
+    const manager = useComponentManager()
+    await manager.hydrateFromSettings()
+
+    expect(row(manager, 'comfyui-backend').uninstallStopsText).toMatch(/Image, video and 3D/)
+    expect(row(manager, 'llamacpp-backend').uninstallStopsText).toMatch(/GGUF/)
+    expect(row(manager, 'home-agent-backend').uninstallStopsText).toMatch(/Channels/)
+  })
+
+  it('removes an optional Component only through the existing uninstall IPC', async () => {
+    seed([service('comfyui-backend', { status: 'running' })])
+    const { useComponentManager } = await import('@/assets/js/store/componentManager')
+    const manager = useComponentManager()
+    await manager.hydrateFromSettings()
+
+    await manager.uninstall('comfyui-backend')
+
+    expect(uninstallService).toHaveBeenCalledWith('comfyui-backend')
+  })
+
+  it('refuses a required Component even when the action bypasses the row', async () => {
+    seed([service('ai-backend', { status: 'running', isRequired: true })])
+    const { useComponentManager } = await import('@/assets/js/store/componentManager')
+    const manager = useComponentManager()
+    await manager.hydrateFromSettings()
+
+    await manager.uninstall('ai-backend')
+
+    expect(uninstallService).not.toHaveBeenCalled()
+  })
+
+  it('refuses a Component the In-flight Work holds, with the same reason', async () => {
+    seed([service('comfyui-backend', { status: 'running' })])
+    holdsState.holds.value = [{ component: 'comfyui-backend', work: 'media-run' }]
+    const { useComponentManager } = await import('@/assets/js/store/componentManager')
+    const manager = useComponentManager()
+    await manager.hydrateFromSettings()
+
+    await manager.uninstall('comfyui-backend')
+
+    expect(row(manager, 'comfyui-backend').inUseReason).toMatch(/generation/)
+    expect(uninstallService).not.toHaveBeenCalled()
   })
 })

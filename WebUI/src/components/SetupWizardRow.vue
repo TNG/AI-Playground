@@ -42,6 +42,14 @@ export type SetupWizardRowView = {
   updateLabel?: string
   /** Accessible name for the update action, e.g. "Update ComfyUI". */
   updateAriaLabel?: string
+  /** Show the inline Uninstall action (optional Components only). */
+  showUninstall?: boolean
+  /** Visible text for the uninstall action. */
+  uninstallLabel?: string
+  /** Accessible name for the uninstall action, e.g. "Uninstall ComfyUI". */
+  uninstallAriaLabel?: string
+  /** Disable the uninstall action (work holds the Component). */
+  uninstallDisabled?: boolean
   /** Work holds this Component: its change actions are disabled and this reason shows. */
   inUseReason?: string
   /** Disable the install action (work holds the Component). */
@@ -72,6 +80,7 @@ const emit = defineEmits<{
   showError: []
   install: []
   update: []
+  uninstall: []
 }>()
 
 const languages = useI18N().state
@@ -192,6 +201,15 @@ const available = computed(() => props.row.availableInCurrentMode ?? true)
         class="text-xs bg-primary/80 hover:bg-primary py-0.5 px-2.5 rounded transition-colors disabled:opacity-50"
       >
         {{ languages.COM_INSTALL || 'Install' }}
+      </button>
+      <button
+        v-if="row.showUninstall"
+        @click="emit('uninstall')"
+        :disabled="row.uninstallDisabled"
+        :aria-label="row.uninstallAriaLabel"
+        class="text-xs whitespace-nowrap text-destructive hover:text-destructive/80 transition-colors disabled:opacity-50"
+      >
+        {{ row.uninstallLabel || languages.COMPONENT_MANAGER_UNINSTALL || 'Uninstall' }}
       </button>
     </div>
 

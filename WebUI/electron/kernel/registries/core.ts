@@ -773,6 +773,17 @@ export function buildCoreInvokeRegistry(deps: CoreDeps) {
         )
         return { success: true }
       }
+      const admission = deps.componentChanges.uninstall(
+        serviceName as BackendServiceName,
+        service.isRequired,
+      )
+      if (!admission.allowed) {
+        deps.appLogger.warn(
+          `Refused to uninstall required service ${serviceName}`,
+          'electron-backend',
+        )
+        return { success: false, error: admission.error }
+      }
       const refusal = refusedChange(
         serviceName,
         deps.componentChanges.change(serviceName as BackendServiceName),

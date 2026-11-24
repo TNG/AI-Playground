@@ -81,6 +81,30 @@ test('the Component Manager shows the machine as it is and toggles a Component',
     }
   })
 
+  await test.step('an optional Component offers Uninstall behind a confirmation; a required one never does', async () => {
+    await expect(
+      app.components.row('Core Services').getByRole('button', { name: /^Uninstall/ }),
+    ).toHaveCount(0)
+
+    for (const name of ['ComfyUI', 'Llama.cpp - GGUF']) {
+      const uninstall = app.components.uninstallButton(name)
+      if ((await uninstall.count()) === 0) continue
+
+      await expect(uninstall).toBeEnabled()
+      await uninstall.click()
+
+      const dialog = app.components.uninstallDialog(name)
+      await expect(dialog).toBeVisible()
+      await expect(dialog).toContainText(/stops? working/i)
+      await expect(dialog).toContainText('Model weights are kept')
+
+      // Cancel: this spec never performs a real uninstall.
+      await app.components.cancelUninstall(name)
+      await expect(dialog).toBeHidden()
+      break
+    }
+  })
+
   await test.step('only a failed Component offers Repair and its error log', async () => {
     for (const name of ['ComfyUI', 'Llama.cpp - GGUF']) {
       const failed = /Failed/i.test(await app.components.row(name).innerText())

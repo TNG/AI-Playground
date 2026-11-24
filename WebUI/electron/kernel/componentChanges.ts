@@ -17,6 +17,22 @@ export function componentChange(
   return { allowed: false, code: 'component-in-use', work: holder.work }
 }
 
+export type ComponentUninstall =
+  { allowed: true } | { allowed: false; code: 'component-required'; error: string }
+
+/** Whether `component` may be uninstalled. A required Component never may. */
+export function uninstallComponent(
+  component: BackendServiceName,
+  isRequired: boolean,
+): ComponentUninstall {
+  if (!isRequired) return { allowed: true }
+  return {
+    allowed: false,
+    code: 'component-required',
+    error: `Cannot uninstall ${component}: it is required.`,
+  }
+}
+
 export type ComponentChangeDeps = {
   /** Every Component held by work in flight: what main owns and what the window reports. */
   heldComponents: () => readonly HeldComponent[]
@@ -28,6 +44,8 @@ export function createComponentChanges(deps: ComponentChangeDeps) {
   return {
     change: (component: BackendServiceName): ComponentChange =>
       componentChange(component, deps.heldComponents()),
+    uninstall: (component: BackendServiceName, isRequired: boolean): ComponentUninstall =>
+      uninstallComponent(component, isRequired),
     anyInFlightWork: (): boolean => deps.hasInFlightWork(),
   }
 }

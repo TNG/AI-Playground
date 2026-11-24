@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   componentChange,
   createComponentChanges,
+  uninstallComponent,
   type ComponentChangeDeps,
 } from '../../kernel/componentChanges'
 import type { HeldComponent } from '@/types/componentChange'
@@ -50,6 +51,20 @@ describe('componentChange', () => {
   })
 })
 
+describe('uninstallComponent', () => {
+  it('allows an optional Component to be uninstalled', () => {
+    expect(uninstallComponent('comfyui-backend', false)).toEqual({ allowed: true })
+  })
+
+  it('refuses a required Component even when nothing holds it', () => {
+    expect(uninstallComponent('ai-backend', true)).toEqual({
+      allowed: false,
+      code: 'component-required',
+      error: expect.stringContaining('required'),
+    })
+  })
+})
+
 describe('createComponentChanges', () => {
   it('allows the change once the work holding it finishes', () => {
     let held: HeldComponent[] = [{ component: 'llamacpp-backend', work: 'turn' }]
@@ -65,5 +80,12 @@ describe('createComponentChanges', () => {
 
     expect(busy.anyInFlightWork()).toBe(true)
     expect(createComponentChanges(deps()).anyInFlightWork()).toBe(false)
+  })
+
+  it('carries the uninstall rule the kernel handler consults', () => {
+    const guard = createComponentChanges(deps())
+
+    expect(guard.uninstall('comfyui-backend', false)).toEqual({ allowed: true })
+    expect(guard.uninstall('ai-backend', true)).toMatchObject({ allowed: false })
   })
 })

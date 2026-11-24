@@ -38,6 +38,10 @@ export type ComponentRow = {
   canInstall: boolean
   /** Offers Repair and its error log: broken but available in the current Hardware Mode. */
   canRepair: boolean
+  /** Offers Uninstall: installed and never a required Component. */
+  canUninstall: boolean
+  /** What stops working if it is uninstalled; '' when it cannot be uninstalled. */
+  uninstallStopsText: string
   statusText: string
   statusColor: string
   /** The installed version, or '' when nothing is on disk. */
@@ -127,6 +131,44 @@ export const useComponentManager = defineStore('componentManager', () => {
     return label(entry.key, entry.fallback)
   }
 
+  /** What an optional Component's removal costs: feature keys, not internals. */
+  const UNINSTALL_STOPS: Partial<Record<BackendServiceName, { key: string; fallback: string }>> = {
+    'home-agent-backend': {
+      key: 'COMPONENT_MANAGER_UNINSTALL_STOPS_CHANNELS',
+      fallback: 'Channels stop working: Telegram, Slack and LAN chat.',
+    },
+    'qwen3-tts-backend': {
+      key: 'COMPONENT_MANAGER_UNINSTALL_STOPS_TTS',
+      fallback: 'Text to Speech stops working.',
+    },
+    'whisper-backend': {
+      key: 'COMPONENT_MANAGER_UNINSTALL_STOPS_STT',
+      fallback: 'Speech to Text stops working.',
+    },
+    'llamacpp-backend': {
+      key: 'COMPONENT_MANAGER_UNINSTALL_STOPS_LLAMACPP',
+      fallback: 'Local GGUF chat and agent runs stop working.',
+    },
+    'openvino-backend': {
+      key: 'COMPONENT_MANAGER_UNINSTALL_STOPS_OPENVINO',
+      fallback: 'OpenVINO chat, embedding and transcription stop working.',
+    },
+    'comfyui-backend': {
+      key: 'COMPONENT_MANAGER_UNINSTALL_STOPS_COMFYUI',
+      fallback: 'Image, video and 3D generation stop working.',
+    },
+  }
+
+  function uninstallStopsText(serviceName: BackendServiceName, canUninstall: boolean): string {
+    if (!canUninstall) return ''
+    const entry = UNINSTALL_STOPS[serviceName]
+    if (entry) return label(entry.key, entry.fallback)
+    return label('COMPONENT_MANAGER_UNINSTALL_STOPS_GENERIC', '{name} stops working.').replace(
+      '{name}',
+      displayNameFor(serviceName),
+    )
+  }
+
   function isAvailableInCurrentMode(serviceName: BackendServiceName): boolean {
     return !(productMode.productMode === 'nvidia' && serviceName === 'openvino-backend')
   }
@@ -203,6 +245,7 @@ export const useComponentManager = defineStore('componentManager', () => {
         backendServices.versionState as unknown as Record<string, unknown>,
       )
       const inUseWork = installed ? componentHolds.workFor(serviceName) : null
+      const canUninstall = installed && !isRequired
       const installProgressText = busy
         ? status === 'installing'
           ? progress
@@ -226,6 +269,8 @@ export const useComponentManager = defineStore('componentManager', () => {
         updateTargetText: updateText,
         canInstall: !installed && available,
         canRepair: failed && available,
+        canUninstall,
+        uninstallStopsText: uninstallStopsText(serviceName, canUninstall),
         statusText,
         statusColor,
         versionText,
@@ -331,6 +376,16 @@ export const useComponentManager = defineStore('componentManager', () => {
     await wizard.updateBackend(serviceName)
   }
 
+  async function uninstall(serviceName: BackendServiceName): Promise<void> {
+    const row = rowFor(serviceName)
+    if (!row?.canUninstall || row.inUseWork) return
+    try {
+      await backendServices.uninstallService(serviceName)
+    } catch (error) {
+      errors.report(error, { category: 'backend', code: 'component/uninstall-failed' })
+    }
+  }
+
   return {
     rows,
     health,
@@ -344,6 +399,7 @@ export const useComponentManager = defineStore('componentManager', () => {
     install,
     repair,
     update,
+    uninstall,
     showErrorLog,
     anyInFlightWork: computed(() => componentHolds.anyInFlightWork),
   }

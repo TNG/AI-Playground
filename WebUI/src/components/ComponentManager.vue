@@ -23,6 +23,16 @@ import ChannelsSetupPage from '@/components/ChannelsSetupPage.vue'
 import CloudModeSetupPage from '@/components/CloudModeSetupPage.vue'
 import SettingsMenu from '@/components/SettingsMenu.vue'
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 
 const manager = useComponentManager()
 const productModeStore = useProductMode()
@@ -34,6 +44,8 @@ const languages = i18n.state
 
 const coreServicesOpen = ref(false)
 const cloudMenuOpen = ref(false)
+const uninstallDialogOpen = ref(false)
+const uninstallTarget = ref<ComponentRow | null>(null)
 
 onMounted(() => void manager.hydrateFromSettings())
 
@@ -87,6 +99,12 @@ function toRowView(row: ComponentRow): SetupWizardRowView {
     ),
     showRepair: row.canRepair,
     repairDisabled: wizard.isBusy || row.inUseWork !== null,
+    showUninstall: row.canUninstall,
+    uninstallLabel: languages.COMPONENT_MANAGER_UNINSTALL || 'Uninstall',
+    uninstallAriaLabel: (
+      languages.COMPONENT_MANAGER_UNINSTALL_ACTION || 'Uninstall {name}'
+    ).replace('{name}', row.displayName),
+    uninstallDisabled: row.inUseWork !== null || row.isInstalling || wizard.isBusy,
     showError: row.failed,
     inUseReason: row.inUseReason ?? undefined,
     installDisabled: row.inUseWork !== null,
@@ -187,6 +205,20 @@ function onUpdate(row: ComponentPanelOptionsRow) {
   if (row.kind === 'backend') void manager.update(row.serviceName)
 }
 
+function onUninstall(row: ComponentPanelOptionsRow) {
+  if (row.kind !== 'backend') return
+  const target = manager.rows.find((entry) => entry.serviceName === row.serviceName)
+  if (!target?.canUninstall) return
+  uninstallTarget.value = target
+  uninstallDialogOpen.value = true
+}
+
+function confirmUninstall() {
+  const target = uninstallTarget.value
+  uninstallDialogOpen.value = false
+  if (target) void manager.uninstall(target.serviceName)
+}
+
 function onShowError(row: ComponentPanelOptionsRow) {
   if (row.kind === 'backend') manager.showErrorLog(row.serviceName)
 }
@@ -248,6 +280,7 @@ function openCloudSetup() {
         @show-error="onShowError"
         @install="onInstall"
         @update="onUpdate"
+        @uninstall="onUninstall"
         @save-device="onSaveDevice"
         @toggle-phison="wizard.togglePhisonAidaptiv"
         @update:core-services-open="(value: boolean) => (coreServicesOpen = value)"
@@ -274,6 +307,38 @@ function openCloudSetup() {
         :error-details="wizard.errorModalDetails"
         @close="wizard.closeErrorModal()"
       />
+
+      <AlertDialog v-if="uninstallTarget" v-model:open="uninstallDialogOpen">
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {{
+                (languages.COMPONENT_MANAGER_UNINSTALL_TITLE || 'Uninstall {name}?').replace(
+                  '{name}',
+                  uninstallTarget.displayName,
+                )
+              }}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              <span class="block">{{ uninstallTarget.uninstallStopsText }}</span>
+              <span class="block pt-2">
+                {{
+                  languages.COMPONENT_MANAGER_UNINSTALL_KEEPS_WEIGHTS ||
+                  'Only the runtime is removed. Model weights are kept, so reinstalling does not download them again.'
+                }}
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel @click="uninstallTarget = null">{{
+              languages.COM_CANCEL || 'Cancel'
+            }}</AlertDialogCancel>
+            <AlertDialogAction @click="confirmUninstall">{{
+              languages.COMPONENT_MANAGER_UNINSTALL || 'Uninstall'
+            }}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </template>
   </div>
 </template>

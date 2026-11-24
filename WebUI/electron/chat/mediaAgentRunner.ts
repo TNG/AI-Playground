@@ -5,6 +5,7 @@ import { appLoggerInstance } from '../observability/logger'
 import { createToolAgent, type ToolAgentEvent, type ToolAgentRunOptions } from '@/lib/toolAgent'
 import { repairWorkflowToolInput } from '@/lib/comfyToolRepair'
 import type {
+  ChatModelConfig,
   ChatToolSpec,
   MediaAgentRunRequest,
   MediaAgentRunResult,
@@ -28,6 +29,18 @@ import { executeChatComfyTool } from './chatComfyTool'
 const appLogger = appLoggerInstance
 
 const INNER_COMFY_TOOLS = new Set(['comfyUI', 'comfyUiImageEdit'])
+
+// Picking a workflow and writing its prompt needs no thinking: a thinking
+// Qwen3.6 specialist looped "Let's call the tool. One last check." for 360k
+// characters without calling it, stalling the whole Game Agent run. The cap is
+// the backstop for models whose thinking cannot be switched off.
+const SPECIALIST_MAX_OUTPUT_TOKENS = 8192
+
+function specialistModel(config: ChatModelConfig): ChatModelConfig {
+  const kwargs = config.chatTemplateKwargs
+  if (kwargs?.enable_thinking !== true) return config
+  return { ...config, chatTemplateKwargs: { ...kwargs, enable_thinking: false } }
+}
 
 type MediaAgentRunArgs = MediaAgentRunRequest & {
   readMediaAsDataUri?: (url: string) => Promise<string>
@@ -195,6 +208,7 @@ async function runMediaAgentBracket(
     system: () => request.system,
     tools: () => tools,
     maxSteps: 6,
+    maxOutputTokens: SPECIALIST_MAX_OUTPUT_TOKENS,
   })
   const onEvent = (event: ToolAgentEvent) => emitMediaAgentEvent(request.runKey, event)
   // Tracing: the run carries the context its request shipped, and its spans
@@ -203,7 +217,7 @@ async function runMediaAgentBracket(
   noteMainChatTurnContext(request.model.trace)
   markDelegatedMediaRun()
   const result = await agent.run({
-    model: createMainChatModel(request.model),
+    model: createMainChatModel(specialistModel(request.model)),
     request: request.request,
     priorMessages,
     ...(request.readMediaAsDataUri

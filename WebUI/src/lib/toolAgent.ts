@@ -62,6 +62,8 @@ export type ToolAgentConfig = {
   tools: () => ToolSet
   /** LLM-step cap for the nested loop (a tool round trip is one step). */
   maxSteps?: number
+  /** Output-token cap per step; without one the provider allows the rest of the window. */
+  maxOutputTokens?: number
 }
 
 export type ToolAgentRunOptions = {
@@ -132,6 +134,7 @@ export function createToolAgent(config: ToolAgentConfig) {
       messages,
       tools,
       stopWhen: isStepCount(config.maxSteps ?? DEFAULT_MAX_STEPS),
+      ...(config.maxOutputTokens ? { maxOutputTokens: config.maxOutputTokens } : {}),
       abortSignal: options.abortSignal,
       experimental_repairToolCall: options.repairToolCall,
       prepareStep: presentGeneratedImages

@@ -212,6 +212,40 @@ describe('runMediaAgentInMain', () => {
     })
   })
 
+  // A thinking specialist once looped for 360k characters without calling its tool.
+  it('runs the specialist without thinking and with a bounded step', async () => {
+    let call = 0
+    const model = new MockLanguageModelV3({
+      doStream: async () => {
+        call++
+        if (call === 1) return toolCallResponse('comfyUI', { workflow: 'W1' }, 'c1')
+        return textResponse('Done.')
+      },
+    })
+    vi.mocked(createMainChatModel).mockReturnValue(model)
+    const parentModel = {
+      ...runRequest().model,
+      chatTemplateKwargs: { enable_thinking: true, reasoning_effort: 'low' },
+    }
+
+    await runMediaAgentInMain(runRequest({ model: parentModel }))
+
+    expect(vi.mocked(createMainChatModel).mock.calls[0][0].chatTemplateKwargs).toEqual({
+      enable_thinking: false,
+      reasoning_effort: 'low',
+    })
+    expect(model.doStreamCalls[0].maxOutputTokens).toBe(8192)
+  })
+
+  it('leaves a model without a thinking switch as it came', async () => {
+    const model = new MockLanguageModelV3({ doStream: async () => textResponse('Nothing to do.') })
+    vi.mocked(createMainChatModel).mockReturnValue(model)
+
+    await runMediaAgentInMain(runRequest())
+
+    expect(vi.mocked(createMainChatModel).mock.calls[0][0]).toEqual(runRequest().model)
+  })
+
   it('coerces a bogus workflow to the default via the shipped repair data', async () => {
     let call = 0
     const model = new MockLanguageModelV3({

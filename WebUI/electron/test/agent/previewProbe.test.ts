@@ -96,6 +96,15 @@ describe('formatProbeReport', () => {
     expect(text).toMatch(/Pressed ArrowLeft: 2\.0% of pixels changed\n/)
   })
 
+  // A 3D scene can be drawn and animated with the player behind the camera.
+  it('calls out a player the camera does not see', () => {
+    const text = formatProbeReport({
+      ...HEALTHY,
+      game: { state: 'playing', score: 3, entities: 4, playerOnScreen: false },
+    })
+    expect(text).toMatch(/Verdict: the player is outside the camera's view/)
+  })
+
   it('leaves out the resize listener, which says nothing about playability', () => {
     expect(formatProbeReport(HEALTHY)).not.toContain('resize')
   })

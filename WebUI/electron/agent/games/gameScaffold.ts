@@ -267,6 +267,7 @@ const MODELS = {
   player: { name: null, sprite: null, size: 1.5, color: CONFIG.accent },
 }
 const templates = {}
+const missingSprites = new Set()
 
 function loadModels() {
   return Promise.all(
@@ -289,11 +290,15 @@ function makeObject(kind) {
   const spec = MODELS[kind]
   if (templates[kind]) {
     holder.add(templates[kind].clone())
-  } else if (spec && spec.sprite) {
+  } else if (spec && spec.sprite && window.GAME_SPRITES && window.GAME_SPRITES[spec.sprite]) {
     const sprite = THREE.makeGameSprite(spec.sprite, spec.size)
     sprite.position.y = spec.size / 2
     holder.add(sprite)
   } else {
+    if (spec && spec.sprite && !missingSprites.has(spec.sprite)) {
+      missingSprites.add(spec.sprite)
+      console.warn('Sprite ' + spec.sprite + ' is not imported yet, using a box')
+    }
     const size = spec ? spec.size : 1
     const box = new THREE.Mesh(
       new THREE.BoxGeometry(size, size, size),
@@ -432,7 +437,22 @@ window.__game = {
   get models() {
     return Object.keys(templates)
   },
+  // Whether the camera sees them: a scene can be drawn and animated with the
+  // player out of view, and the probe has no other way to tell.
+  get playerOnScreen() {
+    return game.player.object ? onScreen(game.player.object) : false
+  },
+  get entitiesOnScreen() {
+    const shown = game.entities.filter((entity) => onScreen(entity.object)).length
+    return shown + ' of ' + game.entities.length
+  },
   reset,
+}
+
+function onScreen(object) {
+  camera.updateMatrixWorld()
+  const view = new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse)
+  return new THREE.Frustum().setFromProjectionMatrix(view).intersectsBox(new THREE.Box3().setFromObject(object))
 }
 `
 

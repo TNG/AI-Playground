@@ -190,7 +190,7 @@ export const PROBE_SCRIPT = `(function () {
     if (!window.__game || typeof window.__game !== 'object') return null
     var out = {}
     var found = false
-    var fields = ['state', 'score', 'entities', 'lives', 'level']
+    var fields = ['state', 'score', 'entities', 'lives', 'level', 'playerOnScreen', 'entitiesOnScreen']
     for (var i = 0; i < fields.length; i++) {
       try {
         var value = window.__game[fields[i]]
@@ -265,8 +265,12 @@ export type ProbeReport = {
   seconds?: number
   canvas?: { count: number; width: number; height: number; ink: number | null } | null
   listeners?: string[]
-  keys?: { key: string; delta: number | null; game?: Record<string, string | number> | null }[]
-  game?: Record<string, string | number> | null
+  keys?: {
+    key: string
+    delta: number | null
+    game?: Record<string, string | number | boolean> | null
+  }[]
+  game?: Record<string, string | number | boolean> | null
   errors?: string[]
   errorCount?: number
 }
@@ -380,8 +384,8 @@ export function formatProbeReport(report: ProbeReport): string {
 
 /** "state title→playing, entities 0→2", or nothing when no field moved. */
 function gameChanges(
-  before: Record<string, string | number> | null,
-  after: Record<string, string | number> | null,
+  before: Record<string, string | number | boolean> | null,
+  after: Record<string, string | number | boolean> | null,
 ): string {
   if (!before || !after) return ''
   return Object.keys(after)
@@ -400,6 +404,11 @@ function verdict(report: ProbeReport): string {
   const ink = report.canvas?.ink
   if (report.canvas && ink !== null && ink !== undefined && ink < MIN_INK) {
     return 'the canvas is effectively blank. Check that draw() runs and uses canvas.width/height.'
+  }
+  // Reported by the 3D scaffold's hook: a 3D scene can be fully drawn and
+  // animated with the player behind the camera, and nothing else here sees that.
+  if (report.game?.playerOnScreen === false) {
+    return "the player is outside the camera's view. Aim the camera at it (scene section) first."
   }
   const hasKeyboard = (report.listeners ?? []).some((type) => type.startsWith('key'))
   if (!hasKeyboard) {

@@ -48,6 +48,19 @@ describe('3D game scaffold', () => {
     expect(script).toContain('templates[kind].clone()')
   })
 
+  // Agents name a sprite in MODELS before importing it; that must not stop the game.
+  it('keeps a box for a sprite that is named but not imported yet', () => {
+    expect(SCAFFOLD_3D_FILES['game.js']).toContain(
+      'spec.sprite && window.GAME_SPRITES && window.GAME_SPRITES[spec.sprite]',
+    )
+  })
+
+  it('tells the probe whether the camera sees the player', () => {
+    const script = SCAFFOLD_3D_FILES['game.js']
+    expect(script).toContain('get playerOnScreen()')
+    expect(script).toContain('get entitiesOnScreen()')
+  })
+
   it('loads three.js, then the models, then the game, as classic scripts', () => {
     const page = SCAFFOLD_3D_FILES['index.html']
     const lib = page.indexOf('<script src="lib/three-game.js"></script>')

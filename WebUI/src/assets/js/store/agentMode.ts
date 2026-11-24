@@ -929,7 +929,7 @@ export const useAgentMode = defineStore(
     }
 
     // Frozen with the locale: a language change mid-session must not rewrite the
-    // chrome of a report the Session already produces in one language.
+    // chrome of an Overview the Session already produces in one language.
     function sessionOverviewChrome(sessionId: string): OverviewChrome {
       return (pendingOverviewChrome[sessionId] ??= overviewChromeOf(
         sessionResponseLocale(sessionId),

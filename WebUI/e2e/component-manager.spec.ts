@@ -1,4 +1,5 @@
 import { expect, test } from './fixtures'
+import { ChannelsPage } from './pages/ChannelsPage'
 
 // One test: launching the app and installing backends costs minutes, so every
 // Component Manager assertion rides the single installed state that
@@ -147,6 +148,67 @@ test('the Component Manager shows the machine as it is and toggles a Component',
 
     await app.components.openButton.click()
     await expect(app.components.tabPanel).toBeVisible()
+
+    await app.components.close()
+  })
+})
+
+// The two setup screens that used to replace the app with the first-run wizard
+// now render inside the tab, with Back returning to the Component list. Their
+// entry points (the title-bar Channels gear and the Permissions link) land on the
+// same Channels sub-view.
+test('Channels and Hybrid Cloud setup open inside the Component Manager tab', async ({
+  app,
+  window,
+}) => {
+  test.setTimeout(40 * 60_000)
+  await app.installAllBackends()
+
+  const channelsAvailable = await app.ensureChannelsBackendInstalled()
+  // Installing Channels can divert the wizard to its setup page; leave it cleanly
+  // so the steps below start from the running app.
+  await new ChannelsPage(window).finishSetup()
+
+  await test.step('the Hybrid Cloud provider setup opens inside the tab, and Back returns to the list', async () => {
+    await app.components.open()
+    await app.components.setEnabled('Hybrid Cloud', true)
+
+    await app.components.openCloudFromRow()
+    await expect(app.components.cloudView).toBeVisible()
+
+    await app.components.backButton.click()
+    await expect(app.components.cloudView).toBeHidden()
+    await expect(app.components.healthLine).toBeVisible()
+  })
+
+  await test.step('the title-bar Channels gear opens the Channels setup inside the tab', async () => {
+    if (!channelsAvailable) return
+
+    await app.components.openChannelsFromGear()
+    await expect(app.components.channelsView).toBeVisible()
+
+    await app.components.backButton.click()
+    await expect(app.components.channelsView).toBeHidden()
+    await expect(app.components.healthLine).toBeVisible()
+  })
+
+  await test.step('the Permissions "Set up Channels" link lands on the same sub-view', async () => {
+    if (!channelsAvailable) return
+
+    await app.shell.openAppSettings()
+    await app.shell.settingsTab('App Settings').click()
+
+    // The link only shows while no Channel is configured; a previous run may have
+    // configured one (that config outlives the app window), in which case the gear
+    // above is the entry point this test already covered.
+    const link = app.shell
+      .settingsPanel('App Settings')
+      .getByRole('button', { name: 'Set up Channels', exact: true })
+    if (!(await link.isVisible().catch(() => false))) return
+
+    await link.click()
+    await expect(app.components.tabPanel).toBeVisible()
+    await expect(app.components.channelsView).toBeVisible()
 
     await app.components.close()
   })

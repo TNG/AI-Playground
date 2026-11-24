@@ -87,6 +87,49 @@ export class ComponentManagerPage {
     await this.page.keyboard.press('Escape')
   }
 
+  /** The Channels setup sub-view, shown in place of the list. */
+  get channelsView(): Locator {
+    return this.tabPanel.getByRole('heading', { name: 'Channel Setup', exact: true })
+  }
+
+  /** The Hybrid Cloud provider setup sub-view. */
+  get cloudView(): Locator {
+    return this.tabPanel.getByRole('heading', { name: 'Hybrid Cloud Setup', exact: true })
+  }
+
+  /** The sub-view footer's Back, returning to the Component list. */
+  get backButton(): Locator {
+    return this.tabPanel.getByRole('button', { name: '← Back', exact: true })
+  }
+
+  /** The title-bar Channels gear, the same entry point as the Permissions link. */
+  get channelsGear(): Locator {
+    return this.page.getByRole('button', { name: 'Revisit Channel setup', exact: true })
+  }
+
+  /** A Component's options menu, opened by its gear. */
+  async openOptions(name: string): Promise<void> {
+    await this.row(name)
+      .getByRole('button', { name: `Configure ${name} providers`, exact: true })
+      .click()
+  }
+
+  /** Open the Channels setup from the title-bar gear. */
+  async openChannelsFromGear(): Promise<void> {
+    await this.close()
+    await this.channelsGear.click()
+    await expect(this.tabPanel).toBeVisible()
+    await expect(this.channelsView).toBeVisible()
+  }
+
+  /** Open the Hybrid Cloud provider setup from its row's options menu. */
+  async openCloudFromRow(): Promise<void> {
+    await this.open()
+    await this.openOptions('Hybrid Cloud')
+    await this.page.getByRole('menuitem', { name: 'Go to Setup', exact: true }).click()
+    await expect(this.cloudView).toBeVisible()
+  }
+
   /** Open the tab from the header button. Idempotent. */
   async open(): Promise<void> {
     if (await this.isOpen()) return

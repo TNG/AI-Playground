@@ -7,6 +7,9 @@ export type AgentLibraryView = { agentId?: string; sessionRef?: string; showTria
 
 export type AppSettingsTab = 'app' | 'components' | 'models'
 
+/** The setup screens the Component Manager shows in place of its list. */
+export type ComponentManagerSubView = 'channels' | 'cloud'
+
 /** The surface over the Session whose title-bar button shows pressed. */
 export type FrontmostSurface = 'settings' | 'models' | 'agent'
 
@@ -22,6 +25,7 @@ export const useUIStore = defineStore('ui', () => {
   const agentLibraryView = ref<AgentLibraryView | null>(null)
   const appSettingsOpen = ref(false)
   const appSettingsTab = ref<AppSettingsTab>('app')
+  const componentManagerSubView = ref<ComponentManagerSubView | null>(null)
   // The theme panel docks beside everything above rather than covering it.
   const themePanelOpen = ref(false)
   // Registered by the panel, so this store stays free of the theme store's dependencies.
@@ -41,11 +45,13 @@ export const useUIStore = defineStore('ui', () => {
 
   function openAppSettings(tab: AppSettingsTab = 'app') {
     appSettingsTab.value = tab
+    if (tab !== 'components') componentManagerSubView.value = null
     appSettingsOpen.value = true
   }
 
   function setAppSettingsTab(tab: AppSettingsTab) {
     appSettingsTab.value = tab
+    if (tab !== 'components') componentManagerSubView.value = null
   }
 
   /** The gear's toggle: pressed only while App Settings shows a tab other than the Model Library. */
@@ -80,8 +86,22 @@ export const useUIStore = defineStore('ui', () => {
     else openModelLibrary()
   }
 
-  function openComponentManager() {
-    openAppSettings('components')
+  function openComponentManager(subView: ComponentManagerSubView | null = null) {
+    appSettingsOpen.value = true
+    appSettingsTab.value = 'components'
+    componentManagerSubView.value = subView
+  }
+
+  function openComponentManagerChannels() {
+    openComponentManager('channels')
+  }
+
+  function openComponentManagerCloud() {
+    openComponentManager('cloud')
+  }
+
+  function closeComponentManagerSubView() {
+    componentManagerSubView.value = null
   }
 
   function toggleComponentManager() {
@@ -137,9 +157,13 @@ export const useUIStore = defineStore('ui', () => {
     setThemePanelLeaveGuard,
     frontmost,
     componentManagerShowing,
+    componentManagerSubView,
     openModelLibrary,
     toggleModelLibrary,
     openComponentManager,
+    openComponentManagerChannels,
+    openComponentManagerCloud,
+    closeComponentManagerSubView,
     toggleComponentManager,
     agentLibrary,
     openAgentLibrary,

@@ -268,3 +268,69 @@ describe('The Component Manager tab', () => {
     expect(ui.componentManagerShowing).toBe(false)
   })
 })
+
+describe('The Component Manager sub-views', () => {
+  beforeEach(() => setActivePinia(createPinia()))
+
+  it('opens the Channels setup inside the tab from the title-bar gear', () => {
+    const ui = useUIStore()
+
+    ui.openComponentManagerChannels()
+
+    expect(ui.appSettingsOpen).toBe(true)
+    expect(ui.appSettingsTab).toBe('components')
+    expect(ui.componentManagerSubView).toBe('channels')
+    expect(ui.componentManagerShowing).toBe(true)
+  })
+
+  it('opens the Channels setup inside the tab from the Permissions link over the App tab', () => {
+    const ui = useUIStore()
+    ui.openAppSettings('app')
+
+    ui.openComponentManagerChannels()
+
+    expect(ui.appSettingsTab).toBe('components')
+    expect(ui.componentManagerSubView).toBe('channels')
+  })
+
+  it('opens the Hybrid Cloud provider setup inside the tab', () => {
+    const ui = useUIStore()
+
+    ui.openComponentManagerCloud()
+
+    expect(ui.appSettingsOpen).toBe(true)
+    expect(ui.appSettingsTab).toBe('components')
+    expect(ui.componentManagerSubView).toBe('cloud')
+  })
+
+  it('returns to the Component list when a sub-view closes, leaving the tab open', () => {
+    const ui = useUIStore()
+    ui.openComponentManagerChannels()
+
+    ui.closeComponentManagerSubView()
+
+    expect(ui.appSettingsOpen).toBe(true)
+    expect(ui.appSettingsTab).toBe('components')
+    expect(ui.componentManagerSubView).toBeNull()
+  })
+
+  it('shows the Component list again when the tab is reopened from the header', () => {
+    const ui = useUIStore()
+    ui.openComponentManagerChannels()
+
+    ui.toggleComponentManager()
+    ui.toggleComponentManager()
+
+    expect(ui.appSettingsOpen).toBe(true)
+    expect(ui.componentManagerSubView).toBeNull()
+  })
+
+  it('leaves a sub-view when another App Settings tab is shown', () => {
+    const ui = useUIStore()
+    ui.openComponentManagerChannels()
+
+    ui.setAppSettingsTab('models')
+
+    expect(ui.componentManagerSubView).toBeNull()
+  })
+})

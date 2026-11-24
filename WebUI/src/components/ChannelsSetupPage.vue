@@ -184,7 +184,7 @@
     </p>
 
     <SetupWizardFooter
-      :show-back="!isEditMode"
+      :show-back="embedded || !isEditMode"
       :primary-label="isEditMode ? 'Done' : 'Continue'"
       @back="emit('back')"
       @primary="emit('done')"
@@ -208,10 +208,15 @@ const emit = defineEmits<{
   done: []
 }>()
 
+const props = defineProps<{
+  /** Rendered inside the Component Manager tab rather than the Setup Wizard. */
+  embedded?: boolean
+}>()
+
 const wizard = useSetupWizard()
 const channelStore = useChannels()
 const i18n = useI18N().state
-const isEditMode = computed(() => wizard.channelsSetupOrigin === 'edit')
+const isEditMode = computed(() => props.embedded === true || wizard.channelsSetupOrigin === 'edit')
 
 const answerableNotices = computed(() =>
   channelStore.notificationChannels.flatMap((kind) => {

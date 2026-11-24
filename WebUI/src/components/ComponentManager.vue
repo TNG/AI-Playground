@@ -4,6 +4,7 @@ import { useComponentManager, type ComponentRow } from '@/assets/js/store/compon
 import { useProductMode } from '@/assets/js/store/productMode'
 import { useCloudMode } from '@/assets/js/store/cloudMode'
 import { useSetupWizard } from '@/assets/js/store/setupWizard'
+import { useUIStore } from '@/assets/js/store/ui'
 import { useI18N } from '@/assets/js/store/i18n'
 import type { BackendServiceName } from '@/assets/js/store/backendServices'
 import { CORE_DEPENDENT_BACKENDS } from '@/lib/wizardInstallDefaults'
@@ -18,15 +19,21 @@ import BackendOptions from '@/components/BackendOptions.vue'
 import ErrorDetailsModal from '@/components/ErrorDetailsModal.vue'
 import type { SetupWizardRowView } from '@/components/SetupWizardRow.vue'
 import type { SetupWizardGroupToggle } from '@/components/SetupWizardGroup.vue'
+import ChannelsSetupPage from '@/components/ChannelsSetupPage.vue'
+import CloudModeSetupPage from '@/components/CloudModeSetupPage.vue'
+import SettingsMenu from '@/components/SettingsMenu.vue'
+import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
 
 const manager = useComponentManager()
 const productModeStore = useProductMode()
 const cloudMode = useCloudMode()
 const wizard = useSetupWizard()
+const ui = useUIStore()
 const i18n = useI18N()
 const languages = i18n.state
 
 const coreServicesOpen = ref(false)
+const cloudMenuOpen = ref(false)
 
 onMounted(() => void manager.hydrateFromSettings())
 
@@ -186,52 +193,84 @@ function onSaveDevice({ key, override }: { key: string; override: boolean }) {
   if (!option) return
   void manager.setPreferredDevice(option.value, override)
 }
+
+function openCloudSetup() {
+  cloudMenuOpen.value = false
+  if (!cloudMode.isFeatureEnabled) return
+  ui.openComponentManagerCloud()
+}
 </script>
 
 <template>
   <div class="flex flex-col">
-    <p role="status" class="text-sm text-muted-foreground">
-      {{ healthText }}
-    </p>
-
-    <ComponentPanel
-      apply-mode="live"
-      selection-read-only
-      :mode-options="modeOptions"
-      :selected-mode="productModeStore.productMode"
-      :recommended-mode="recommendedMode"
-      :device-options="manager.deviceOptions"
-      :selected-device-key="manager.selectedDeviceKey"
-      :override-device-selection="false"
-      :core-row="coreRowData"
-      :core-dependent-rows="coreDependentRowData"
-      :group-rows="aiPlaygroundOptionalRowData"
-      :group-toggle="groupToggle"
-      :cloud-row="cloudRow"
-      :demo-mode-row="null"
-      :ungrouped-rows="ungroupedRowData"
-      :phison-row="wizard.phisonAidaptivRow"
-      :core-services-open="coreServicesOpen"
-      @group-toggle="setAiPlaygroundGroup"
-      @toggle="onToggle"
-      @repair="onRepair"
-      @show-error="onShowError"
-      @install="onInstall"
-      @update="onUpdate"
-      @save-device="onSaveDevice"
-      @toggle-phison="wizard.togglePhisonAidaptiv"
-      @update:core-services-open="(value: boolean) => (coreServicesOpen = value)"
-    >
-      <template #options="{ row }">
-        <BackendOptions v-if="row.kind === 'backend'" :backend="row.serviceName" />
-      </template>
-    </ComponentPanel>
-
-    <ErrorDetailsModal
-      :is-open="wizard.errorModalOpen"
-      :service-name="wizard.errorModalServiceName ?? ''"
-      :error-details="wizard.errorModalDetails"
-      @close="wizard.closeErrorModal()"
+    <ChannelsSetupPage
+      v-if="ui.componentManagerSubView === 'channels'"
+      embedded
+      @back="ui.closeComponentManagerSubView()"
+      @done="ui.closeComponentManagerSubView()"
     />
+
+    <CloudModeSetupPage
+      v-else-if="ui.componentManagerSubView === 'cloud'"
+      @back="ui.closeComponentManagerSubView()"
+      @done="ui.closeComponentManagerSubView()"
+    />
+
+    <template v-else>
+      <p role="status" class="text-sm text-muted-foreground">
+        {{ healthText }}
+      </p>
+
+      <ComponentPanel
+        apply-mode="live"
+        selection-read-only
+        :mode-options="modeOptions"
+        :selected-mode="productModeStore.productMode"
+        :recommended-mode="recommendedMode"
+        :device-options="manager.deviceOptions"
+        :selected-device-key="manager.selectedDeviceKey"
+        :override-device-selection="false"
+        :core-row="coreRowData"
+        :core-dependent-rows="coreDependentRowData"
+        :group-rows="aiPlaygroundOptionalRowData"
+        :group-toggle="groupToggle"
+        :cloud-row="cloudRow"
+        :demo-mode-row="null"
+        :ungrouped-rows="ungroupedRowData"
+        :phison-row="wizard.phisonAidaptivRow"
+        :core-services-open="coreServicesOpen"
+        @group-toggle="setAiPlaygroundGroup"
+        @toggle="onToggle"
+        @repair="onRepair"
+        @show-error="onShowError"
+        @install="onInstall"
+        @update="onUpdate"
+        @save-device="onSaveDevice"
+        @toggle-phison="wizard.togglePhisonAidaptiv"
+        @update:core-services-open="(value: boolean) => (coreServicesOpen = value)"
+      >
+        <template #options="{ row }">
+          <BackendOptions v-if="row.kind === 'backend'" :backend="row.serviceName" />
+          <SettingsMenu
+            v-else-if="row.kind === 'cloud'"
+            v-model:open="cloudMenuOpen"
+            :label="HYBRID_CLOUD_NAME"
+            :title="`Configure ${HYBRID_CLOUD_NAME} providers`"
+            :disabled="!cloudMode.isFeatureEnabled"
+          >
+            <DropdownMenuItem @select="openCloudSetup">{{
+              languages.COM_GO_TO_SETUP || 'Go to Setup'
+            }}</DropdownMenuItem>
+          </SettingsMenu>
+        </template>
+      </ComponentPanel>
+
+      <ErrorDetailsModal
+        :is-open="wizard.errorModalOpen"
+        :service-name="wizard.errorModalServiceName ?? ''"
+        :error-details="wizard.errorModalDetails"
+        @close="wizard.closeErrorModal()"
+      />
+    </template>
   </div>
 </template>

@@ -750,7 +750,7 @@ export function buildToolSet(
               return {
                 success: false as const,
                 error: new Error(
-                  `Invalid workflow ${typeof workflow === 'string' ? `"${workflow}"` : '(missing)'} for ${spec.name}`,
+                  `Invalid workflow ${typeof workflow === 'string' ? `"${workflow}"` : '(missing)'} for ${spec.name}. Valid workflows: ${data.names.join(', ')}`,
                 ),
               }
             },
@@ -1053,10 +1053,12 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
             ...(repairData
               ? {
                   // Repair a comfy image tool call whose `workflow` the model
-                  // omitted or set to an unknown value: coerce it to that
-                  // tool's default workflow. Without this the SDK drops the
-                  // bad call and the chat renders an "unknown preset" card /
-                  // failed generation.
+                  // omitted or left blank: coerce it to that tool's default
+                  // workflow. A named-but-unknown workflow is left alone so the
+                  // validation error (with the valid names) reaches the model,
+                  // which retries with the workflow the user asked for.
+                  // Without any repair the SDK drops the bad call and the chat
+                  // renders an "unknown preset" card / failed generation.
                   experimental_repairToolCall: async ({ toolCall, error }) => {
                     if (NoSuchToolError.isInstance(error)) return null
                     const data: WorkflowRepairData | undefined =

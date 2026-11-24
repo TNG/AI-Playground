@@ -15,10 +15,15 @@ export type WorkflowRepairData = {
 }
 
 /**
- * Coerce a malformed `workflow` field to the default, or return null when the
- * input is already valid or no workflows exist. `rawInput` is the model's
- * tool-call input as a JSON string; the return value is the repaired JSON
- * string. Shared by the create and edit repairs — they differ only in the
+ * Coerce a malformed `workflow` field, or return null when the input needs no
+ * repair — or must not be repaired. A missing/blank/non-string `workflow` is
+ * filled with the default. A named workflow that is unknown but near-matches an
+ * enabled one (case/whitespace) is repaired to that name, never to the default.
+ * Any other named workflow returns null: the validation error then reaches the
+ * model (with the valid names listed), so it retries with a workflow the user
+ * actually asked for instead of silently running the default. `rawInput` is the
+ * model's tool-call input as a JSON string; the return value is the repaired
+ * JSON string. Shared by the create and edit repairs — they differ only in the
  * workflow data they pass.
  */
 export function repairWorkflowToolInput(rawInput: string, data: WorkflowRepairData): string | null {
@@ -31,6 +36,15 @@ export function repairWorkflowToolInput(rawInput: string, data: WorkflowRepairDa
     obj = {}
   }
   if (typeof obj.workflow === 'string' && data.names.includes(obj.workflow)) return null
+  if (typeof obj.workflow === 'string' && obj.workflow.trim() !== '') {
+    const wanted = obj.workflow.trim().toLowerCase()
+    const matches = data.names.filter((name) => name.trim().toLowerCase() === wanted)
+    if (matches.length === 1) {
+      obj.workflow = matches[0]
+      return JSON.stringify(obj)
+    }
+    return null
+  }
   obj.workflow = data.defaultWorkflow
   return JSON.stringify(obj)
 }

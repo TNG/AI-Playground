@@ -58,6 +58,8 @@ function slimInnerComfyOutput(output: Record<string, unknown>): Record<string, u
     ...(typeof output.success === 'boolean' ? { success: output.success } : {}),
     ...(typeof output.message === 'string' ? { message: output.message } : {}),
     ...(output.declined === true ? { declined: true } : {}),
+    ...(typeof output.size === 'string' ? { size: output.size } : {}),
+    ...(typeof output.sizeNotice === 'string' ? { sizeNotice: output.sizeNotice } : {}),
     images: images.map((item) => {
       if (typeof item !== 'object' || item === null) return item
       const media = item as Record<string, unknown>
@@ -87,7 +89,12 @@ async function executeInnerComfy(
   input: unknown,
   execOptions: InnerExecOptions,
   controller: AbortController,
-): Promise<Record<string, unknown>> {
+): Promise<{
+  /** What the inner tool produced, full generation settings included — the transcript's only source. */
+  raw: Record<string, unknown>
+  /** What the specialist's own context sees, stripped to what the model needs. */
+  slim: Record<string, unknown>
+}> {
   const raw = await executeChatComfyTool({
     toolName,
     input,
@@ -104,11 +111,11 @@ async function executeInnerComfy(
     declinedWorkflows: request.declinedWorkflows,
     ...allowedWorkflowsOf(request.repairData, toolName),
   })
-  const output = slimInnerComfyOutput(raw)
+  const slim = slimInnerComfyOutput(raw)
   console.info(
-    `[mediaAgent] inner ${toolName} returned ${Array.isArray(output.images) ? output.images.length : 0} image(s)`,
+    `[mediaAgent] inner ${toolName} returned ${Array.isArray(slim.images) ? slim.images.length : 0} image(s)`,
   )
-  return output
+  return { raw, slim }
 }
 
 function innerComfyTools(
@@ -138,7 +145,7 @@ function innerComfyTools(
                 error: new Error(
                   `Invalid workflow ${
                     typeof workflow === 'string' ? `"${workflow}"` : '(missing)'
-                  } for ${spec.name}`,
+                  } for ${spec.name}. Valid workflows: ${data.names.join(', ')}`,
                 ),
               }
             },
@@ -242,9 +249,12 @@ async function runMediaAgentBracket(
       if (!INNER_COMFY_TOOLS.has(spec.name)) {
         throw new Error(`${spec.name} is not a media specialist tool`)
       }
-      const output = await executeInnerComfy(inner, spec.name, input, exec, controller)
-      captured.push({ toolName: spec.name, input, output })
-      return output
+      const { raw, slim } = await executeInnerComfy(inner, spec.name, input, exec, controller)
+      // The captured steps are the transcript's items: they keep the full
+      // generation settings. Only the value returned to the specialist's
+      // context is slim.
+      captured.push({ toolName: spec.name, input, output: raw })
+      return slim
     },
   )
   const agent = createToolAgent({

@@ -129,6 +129,9 @@ beforeEach(() => {
         imageUrl: 'aipg-media://castle.png',
         mode: 'imageGen',
         settings: { preset: 'W1', width: 512, height: 512, bulky: 'x'.repeat(40) },
+        dynamicSettings: [
+          { type: 'number', label: 'Guidance Scale', nodeInput: 'guidance', current: 7.5 },
+        ],
       },
     ],
   })
@@ -151,8 +154,10 @@ function mediaEvents() {
 describe('runMediaAgentInMain', () => {
   it('runs the nested loop with in-process Comfy and the nested history', async () => {
     let call = 0
+    const seen: unknown[] = []
     const model = new MockLanguageModelV3({
-      doStream: async () => {
+      doStream: async ({ prompt }) => {
+        seen.push(prompt)
         call++
         if (call === 1) return toolCallResponse('comfyUI', { workflow: 'W1' }, 'c1')
         return textResponse('Made the castle.')
@@ -174,6 +179,8 @@ describe('runMediaAgentInMain', () => {
 
     expect(result.text).toBe('Made the castle.')
     expect(result.steps).toHaveLength(1)
+    // The captured steps are the transcript's items: the full generation
+    // settings and dynamic inputs survive for the parent tool's details.
     expect(result.steps[0].output).toMatchObject({
       images: [
         {
@@ -183,10 +190,15 @@ describe('runMediaAgentInMain', () => {
           // The workflow name and requested size survive the slim, so a settled
           // turn can still name and frame its images.
           settings: { preset: 'W1', width: 512, height: 512 },
+          dynamicSettings: [
+            { type: 'number', label: 'Guidance Scale', nodeInput: 'guidance', current: 7.5 },
+          ],
         },
       ],
     })
-    expect(JSON.stringify(result.steps[0].output)).not.toContain('bulky')
+    // The specialist's own context sees only the slim result.
+    expect(JSON.stringify(seen[1])).not.toContain('bulky')
+    expect(JSON.stringify(seen[1])).not.toContain('dynamicSettings')
 
     const progress = mediaEvents()
     expect(progress.filter((e) => e.type === 'phase')).toEqual([
@@ -200,6 +212,31 @@ describe('runMediaAgentInMain', () => {
       progress.some((e) => e.type === 'narration-delta' && e.text === 'Made the castle.'),
     ).toBe(true)
     expect(progress.at(-1)).toEqual({ type: 'run-end', state: 'done' })
+  })
+
+  it('keeps the size report the inner tool produced visible to the specialist', async () => {
+    runInProcessComfyToolMock.mockResolvedValue({
+      images: [{ id: 'i1', type: 'image', imageUrl: 'aipg-media://castle.png', mode: 'imageGen' }],
+      size: '512x512',
+      sizeNotice:
+        'Requested 600x600, but the "W1" workflow supports a fixed set of sizes and used 512x512. Tell the user which size was actually used.',
+    })
+    let call = 0
+    const model = new MockLanguageModelV3({
+      doStream: async () => {
+        call++
+        if (call === 1) return toolCallResponse('comfyUI', { workflow: 'W1' }, 'c1')
+        return textResponse('Made the castle.')
+      },
+    })
+    vi.mocked(createMainChatModel).mockReturnValue(model)
+
+    const result = await runMediaAgentInMain(runRequest())
+
+    expect(result.steps[0].output).toMatchObject({
+      size: '512x512',
+      sizeNotice: expect.stringContaining('used 512x512'),
+    })
   })
 
   it('tags renderer-origin runs with the parent conversation key', async () => {
@@ -222,7 +259,25 @@ describe('runMediaAgentInMain', () => {
     })
   })
 
-  it('coerces a bogus workflow to the default via the shipped repair data', async () => {
+  it('fills the default workflow when the model sends a blank one', async () => {
+    let call = 0
+    const model = new MockLanguageModelV3({
+      doStream: async () => {
+        call++
+        if (call === 1) return toolCallResponse('comfyUI', { workflow: '' }, 'c1')
+        return textResponse('Done.')
+      },
+    })
+    vi.mocked(createMainChatModel).mockReturnValue(model)
+
+    await runMediaAgentInMain(runRequest())
+
+    expect(runInProcessComfyToolMock.mock.calls[0][0]).toMatchObject({
+      args: { workflow: 'W1' },
+    })
+  })
+
+  it('fails a named-but-unknown workflow visibly instead of coercing it to the default', async () => {
     let call = 0
     const model = new MockLanguageModelV3({
       doStream: async () => {
@@ -235,9 +290,11 @@ describe('runMediaAgentInMain', () => {
 
     await runMediaAgentInMain(runRequest())
 
-    expect(runInProcessComfyToolMock.mock.calls[0][0]).toMatchObject({
-      args: { workflow: 'W1' },
-    })
+    expect(runInProcessComfyToolMock).not.toHaveBeenCalled()
+    const followUp = JSON.stringify(model.doStreamCalls[1].prompt)
+    expect(followUp).toContain('Invalid workflow')
+    expect(followUp).toContain('bogus')
+    expect(followUp).toContain('Valid workflows: W1')
   })
 
   it("ships the turn's enabled workflows with each inner call, so main can refuse others", async () => {

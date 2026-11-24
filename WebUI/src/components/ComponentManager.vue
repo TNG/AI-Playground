@@ -180,6 +180,12 @@ function onUpdate(row: ComponentPanelOptionsRow) {
 function onShowError(row: ComponentPanelOptionsRow) {
   if (row.kind === 'backend') manager.showErrorLog(row.serviceName)
 }
+
+function onSaveDevice({ key, override }: { key: string; override: boolean }) {
+  const option = manager.deviceOptions.find((entry) => entry.key === key)
+  if (!option) return
+  void manager.setPreferredDevice(option.value, override)
+}
 </script>
 
 <template>
@@ -194,8 +200,8 @@ function onShowError(row: ComponentPanelOptionsRow) {
       :mode-options="modeOptions"
       :selected-mode="productModeStore.productMode"
       :recommended-mode="recommendedMode"
-      :device-options="wizard.preferredDeviceOptions"
-      :selected-device-key="wizard.preferredDeviceKey(wizard.pendingPreferredDevice)"
+      :device-options="manager.deviceOptions"
+      :selected-device-key="manager.selectedDeviceKey"
       :override-device-selection="false"
       :core-row="coreRowData"
       :core-dependent-rows="coreDependentRowData"
@@ -212,6 +218,7 @@ function onShowError(row: ComponentPanelOptionsRow) {
       @show-error="onShowError"
       @install="onInstall"
       @update="onUpdate"
+      @save-device="onSaveDevice"
       @toggle-phison="wizard.togglePhisonAidaptiv"
       @update:core-services-open="(value: boolean) => (coreServicesOpen = value)"
     >

@@ -1,14 +1,14 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
-import { computed, ref } from 'vue'
+import { computed, ref, toRaw } from 'vue'
 import {
   allBackendServiceNames,
   useBackendServices,
   type BackendServiceName,
 } from './backendServices'
 import { useProductMode } from './productMode'
+import { useSetupWizard } from './setupWizard'
 import { useI18N } from './i18n'
 import { useErrors } from './errors'
-import { useSetupWizard } from './setupWizard'
 import { compareVersions, mapServiceNameToDisplayName, mapStatusToColor } from '@/lib/utils'
 import { updateLocalSettingsReported } from '@/lib/localSettingsUpdate'
 import { setupProgressLabel } from '@/lib/setupProgress'
@@ -72,6 +72,20 @@ export const useComponentManager = defineStore('componentManager', () => {
 
   const disabledBackends = ref(new Set<BackendServiceName>())
   const hydrated = ref(false)
+
+  const deviceOptions = computed(() => wizard.preferredDeviceOptions)
+  const selectedDeviceKey = computed(() => wizard.preferredDeviceKey(wizard.pendingPreferredDevice))
+
+  async function setPreferredDevice(
+    pref: PreferredDevice,
+    overrideExisting: boolean,
+  ): Promise<void> {
+    const raw = toRaw(pref)
+    const saved = await updateLocalSettingsReported({ preferredDevice: raw })
+    if (!saved) return
+    wizard.setPendingPreferredDevice(raw)
+    if (overrideExisting) await wizard.applyPreferredDevice(raw)
+  }
 
   function label(key: string, fallback: string): string {
     return languages[key] || fallback
@@ -278,7 +292,10 @@ export const useComponentManager = defineStore('componentManager', () => {
     health,
     disabledBackends,
     hydrated,
+    deviceOptions,
+    selectedDeviceKey,
     hydrateFromSettings,
+    setPreferredDevice,
     setEnabled,
     install,
     repair,

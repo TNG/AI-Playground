@@ -16,10 +16,25 @@ const backendState = await vi.hoisted(async () => {
   }
 })
 
+const wizardState = await vi.hoisted(async () => {
+  const { ref } = await import('vue')
+  return {
+    preferredDeviceOptions: ref([] as Array<Record<string, unknown>>),
+    pendingPreferredDevice: ref(null as PreferredDevice | null),
+  }
+})
+
 const wizardInstall = vi.fn(async (_name: string) => {})
 const wizardRepair = vi.fn(async (_name: string) => {})
 const wizardUpdate = vi.fn(async (_name: string) => {})
 const wizardShowError = vi.fn((_name: string) => {})
+const preferredDeviceKey = vi.fn((pref: PreferredDevice | null) =>
+  pref ? `gpu:${pref.uuid ?? pref.instanceId ?? pref.gpuDeviceId ?? pref.name}` : null,
+)
+const setPendingPreferredDevice = vi.fn((pref: PreferredDevice) => {
+  wizardState.pendingPreferredDevice.value = pref
+})
+const applyPreferredDevice = vi.fn(async () => {})
 
 vi.mock('@/assets/js/store/setupWizard', () => ({
   useSetupWizard: () => ({
@@ -28,6 +43,15 @@ vi.mock('@/assets/js/store/setupWizard', () => ({
     updateBackend: wizardUpdate,
     showErrorModal: wizardShowError,
     isBusy: false,
+    get preferredDeviceOptions() {
+      return wizardState.preferredDeviceOptions.value
+    },
+    get pendingPreferredDevice() {
+      return wizardState.pendingPreferredDevice.value
+    },
+    preferredDeviceKey,
+    setPendingPreferredDevice,
+    applyPreferredDevice,
   }),
 }))
 
@@ -129,6 +153,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   localSettings.value = {}
   seed([])
+  wizardState.preferredDeviceOptions.value = []
+  wizardState.pendingPreferredDevice.value = null
 })
 
 describe('Component Manager row vocabulary', () => {
@@ -422,5 +448,69 @@ describe('Component Manager install progress', () => {
 
     expect(row(reopened, 'comfyui-backend').isInstalling).toBe(true)
     expect(row(reopened, 'comfyui-backend').installProgressText).toBe(before)
+  })
+})
+
+describe('Component Manager default GPU', () => {
+  const arc: PreferredDevice = {
+    name: 'Intel Arc B580',
+    gpuDeviceId: '0x56a0',
+    uuid: 'uuid-arc-b580',
+  }
+
+  function seedDeviceOptions(options: PreferredDevice[]) {
+    wizardState.preferredDeviceOptions.value = options.map((value) => ({
+      key: preferredDeviceKey(value)!,
+      label: value.name,
+      category: 'dgpu' as DeviceCategory,
+      value,
+    }))
+  }
+
+  it('saves a new default for new presets only when the override is off', async () => {
+    seedDeviceOptions([arc])
+    wizardState.pendingPreferredDevice.value = arc
+    const { useComponentManager } = await import('@/assets/js/store/componentManager')
+    const manager = useComponentManager()
+    await manager.hydrateFromSettings()
+
+    await manager.setPreferredDevice(arc, false)
+
+    expect(updateLocalSettings).toHaveBeenCalledWith({ preferredDevice: arc })
+    expect(setPendingPreferredDevice).toHaveBeenCalledWith(arc)
+    expect(applyPreferredDevice).not.toHaveBeenCalled()
+    expect(manager.selectedDeviceKey).toBe(`gpu:${arc.uuid}`)
+  })
+
+  it('rewrites existing preset device selections when the override is on', async () => {
+    seedDeviceOptions([arc])
+    const { useComponentManager } = await import('@/assets/js/store/componentManager')
+    const manager = useComponentManager()
+    await manager.hydrateFromSettings()
+
+    await manager.setPreferredDevice(arc, true)
+
+    expect(updateLocalSettings).toHaveBeenCalledWith({ preferredDevice: arc })
+    expect(applyPreferredDevice).toHaveBeenCalledWith(arc)
+  })
+
+  it('hides the default GPU section when no device options are detected', async () => {
+    const { useComponentManager } = await import('@/assets/js/store/componentManager')
+    const manager = useComponentManager()
+    await manager.hydrateFromSettings()
+
+    expect(manager.deviceOptions).toEqual([])
+    expect(manager.selectedDeviceKey).toBeNull()
+  })
+
+  it('shows the detected options when there are any', async () => {
+    seedDeviceOptions([arc])
+    wizardState.pendingPreferredDevice.value = arc
+    const { useComponentManager } = await import('@/assets/js/store/componentManager')
+    const manager = useComponentManager()
+    await manager.hydrateFromSettings()
+
+    expect(manager.deviceOptions).toHaveLength(1)
+    expect(manager.deviceOptions[0]?.label).toBe('Intel Arc B580')
   })
 })

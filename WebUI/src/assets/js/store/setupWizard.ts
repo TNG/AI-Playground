@@ -1135,6 +1135,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     preferredDeviceOptions,
     preferredDeviceKey,
     setPendingPreferredDevice,
+    applyPreferredDevice,
     overrideExistingDeviceSelection,
     installSelection,
     wizardDirty,

@@ -32,6 +32,24 @@ test('the Component Manager shows the machine as it is and toggles a Component',
     )
   })
 
+  await test.step('the default GPU row opens a change dialog when a GPU is detected', async () => {
+    if ((await app.components.defaultGpuRow.count()) === 0) return
+
+    await expect(app.components.defaultGpuRow).toBeVisible()
+    await app.components.openDefaultGpuDialog()
+
+    await expect(app.components.defaultGpuOptions.first()).toBeVisible()
+    await expect(app.components.overrideDeviceSwitch).toBeVisible()
+    await expect(app.components.defaultGpuDialog).toContainText(
+      'Existing Sessions keep the device they were set up with',
+    )
+
+    await app.components.defaultGpuDialog
+      .getByRole('button', { name: 'Cancel', exact: true })
+      .click()
+    await expect(app.components.defaultGpuDialog).toBeHidden()
+  })
+
   await test.step('the rows keep the wizard groups and read the row vocabulary', async () => {
     await expect(
       app.components.tabPanel.getByRole('group', { name: 'AI Playground', exact: true }),

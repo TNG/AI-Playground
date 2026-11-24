@@ -111,6 +111,37 @@ export class ComponentManagerPage {
       .click()
   }
 
+  /** The Default GPU row: the current default plus its Change button. Hidden with no GPU. */
+  get defaultGpuRow(): Locator {
+    return this.tabPanel.getByRole('group', { name: 'Default GPU', exact: true })
+  }
+
+  get changeDefaultGpuButton(): Locator {
+    return this.defaultGpuRow.getByRole('button', { name: 'Change', exact: true })
+  }
+
+  /** The change dialog is portaled, so it is looked up on the page, not in the tab. */
+  get defaultGpuDialog(): Locator {
+    return this.page.getByRole('dialog', { name: 'Default GPU', exact: true })
+  }
+
+  /** One radio per detected GPU, named after the device. */
+  get defaultGpuOptions(): Locator {
+    return this.defaultGpuDialog.getByRole('radio')
+  }
+
+  get overrideDeviceSwitch(): Locator {
+    return this.defaultGpuDialog.getByRole('switch', {
+      name: 'Override existing preset device selections',
+      exact: true,
+    })
+  }
+
+  async openDefaultGpuDialog(): Promise<void> {
+    await this.changeDefaultGpuButton.click()
+    await expect(this.defaultGpuDialog).toBeVisible()
+  }
+
   /** Switch a Component on or off, leaving it in the requested state. */
   async setEnabled(name: string, enabled: boolean): Promise<void> {
     const toggle = this.toggle(name)

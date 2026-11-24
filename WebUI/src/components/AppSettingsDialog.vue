@@ -114,6 +114,7 @@ import {
 } from '@heroicons/vue/24/outline'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useDemoMode } from '@/assets/js/store/demoMode'
+import { developerMode } from '@/assets/js/store/debugSettings'
 import { useI18N } from '@/assets/js/store/i18n'
 import { useModelLibrary } from '@/assets/js/store/modelLibrary'
 import { useUIStore, type AppSettingsTab } from '@/assets/js/store/ui'
@@ -172,7 +173,11 @@ const library = useModelLibrary()
 const ui = useUIStore()
 
 const sections = computed(() =>
-  appSettingsSections({ demoMode: demoMode.enabled, hasDemoPasscode: demoMode.hasPasscode }),
+  appSettingsSections({
+    demoMode: demoMode.enabled,
+    hasDemoPasscode: demoMode.hasPasscode,
+    developerMode: developerMode(),
+  }),
 )
 const sectionLabels = computed<Record<AppSettingsSectionId, string>>(() => ({
   language: languages.SETTINGS_BASIC_LANGUAGE,

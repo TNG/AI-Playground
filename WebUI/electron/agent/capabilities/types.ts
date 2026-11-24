@@ -5,6 +5,7 @@ import type { AgentToolSpec } from '@/types/agentIpc'
 import type { ChatModelConfig, ChatToolSpec, WorkflowRepairData } from '@/types/chatIpc'
 import type { ResolvedMountedFolder } from '@/lib/mountedFolders'
 import type { ModelToolUse } from '@/lib/modelToolUse'
+import type { OverviewChrome } from '@/types/overviewChrome'
 
 export type { AgentToolSpec }
 
@@ -63,10 +64,10 @@ export type CapabilityHost = {
   sessionMedia?: SessionMediaTarget
   /** What the model may be given; absent grants everything. */
   modelToolUse?: ModelToolUse
-  /** The Session's frozen language; a report's chrome follows the reader, not the reply. */
+  /** The Session's frozen language; an Overview's chrome follows the reader, not the reply. */
   responseLocale?: string
-  /** The Overview chrome, resolved by the renderer for `responseLocale`. */
-  overviewChrome?: Record<string, string>
+  /** The Overview chrome, resolved by the renderer for its own locale. */
+  overviewChrome?: OverviewChrome
 }
 
 /** A slash command a capability offers, runnable as a prompt of its own. */

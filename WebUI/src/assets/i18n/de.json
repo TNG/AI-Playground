@@ -167,6 +167,8 @@
   "OVERVIEW_SESSION_META": "{count} Durchgänge im Zeitraum",
   "OVERVIEW_SESSION_TRUNCATED": "Die neuesten {shown} von {total} Durchgängen werden angezeigt",
   "OVERVIEW_REPORT_TRUNCATED": "Dieser Überblick zeigt die neuesten {shown} von {total} Durchgängen aus allen Sitzungen",
+  "OVERVIEW_SESSIONS_OMITTED": "{sessions} Sitzungen mit Durchgängen in diesem Zeitraum werden in diesem Überblick nicht angezeigt",
+  "OVERVIEW_COVERS_TRUNCATED": "Bild aus den neuesten {shown} von {total} Kandidaten gewählt",
   "OVERVIEW_OPENING_TRUNCATED": "Der einleitende Absatz wurde auf die ersten {shown} von {total} Zeichen gekürzt",
   "OVERVIEW_STATUS_FAILED": "Fehlgeschlagen",
   "OVERVIEW_STATUS_CANCELLED": "Abgebrochen",

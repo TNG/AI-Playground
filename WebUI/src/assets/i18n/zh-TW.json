@@ -167,6 +167,8 @@
   "OVERVIEW_SESSION_META": "範圍內共 {count} 個回合",
   "OVERVIEW_SESSION_TRUNCATED": "顯示最新 {shown}/{total} 個回合",
   "OVERVIEW_REPORT_TRUNCATED": "此 Overview 顯示所有工作階段中最新 {shown}/{total} 個回合",
+  "OVERVIEW_SESSIONS_OMITTED": "此範圍內有回合的 {sessions} 個工作階段未在此 Overview 中顯示",
+  "OVERVIEW_COVERS_TRUNCATED": "已從最新 {shown}/{total} 個候選圖片中選擇",
   "OVERVIEW_OPENING_TRUNCATED": "開頭段落已縮短為前 {shown}/{total} 個字元",
   "OVERVIEW_STATUS_FAILED": "失敗",
   "OVERVIEW_STATUS_CANCELLED": "已取消",

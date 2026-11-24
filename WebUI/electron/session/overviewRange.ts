@@ -1,0 +1,80 @@
+const HOUR_MS = 60 * 60 * 1000
+const DAY_MS = 24 * HOUR_MS
+
+/** A named range, or an explicit local-date / ISO-timestamp window. */
+export type OverviewRangeInput =
+  'last-24h' | 'today' | 'yesterday' | 'last-7-days' | 'last-30-days' | { from: string; to: string }
+
+export type OverviewWindow = { from: number; to: number }
+
+export const OVERVIEW_NAMED_RANGES = [
+  'last-24h',
+  'today',
+  'yesterday',
+  'last-7-days',
+  'last-30-days',
+] as const satisfies readonly OverviewRangeInput[]
+
+/** A span wider than this is reported, not refused. */
+export const OVERVIEW_WIDE_RANGE_MS = 30 * DAY_MS
+
+function startOfLocalDay(ms: number): number {
+  const date = new Date(ms)
+  date.setHours(0, 0, 0, 0)
+  return date.getTime()
+}
+
+/** Adds calendar days in local time, so a DST change does not stretch a day. */
+function addLocalDays(ms: number, days: number): number {
+  const date = new Date(ms)
+  date.setDate(date.getDate() + days)
+  date.setHours(0, 0, 0, 0)
+  return date.getTime()
+}
+
+function parsePoint(value: string): number | null {
+  const trimmed = value.trim()
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed)
+  if (dateOnly) {
+    const [, year, month, day] = dateOnly
+    return new Date(Number(year), Number(month) - 1, Number(day)).getTime()
+  }
+  const parsed = Date.parse(trimmed)
+  return Number.isNaN(parsed) ? null : parsed
+}
+
+/**
+ * The concrete window a range names. `last-24h` rolls from now; `today` and
+ * `yesterday` are local calendar days; the day ranges are local-midnight aligned
+ * and end at now. Everything is the machine's local timezone.
+ */
+export function resolveOverviewWindow(
+  range: OverviewRangeInput,
+  now: number = Date.now(),
+): OverviewWindow {
+  switch (range) {
+    case 'last-24h':
+      return { from: now - DAY_MS, to: now }
+    case 'today': {
+      const start = startOfLocalDay(now)
+      return { from: start, to: addLocalDays(start, 1) }
+    }
+    case 'yesterday': {
+      const today = startOfLocalDay(now)
+      return { from: addLocalDays(today, -1), to: today }
+    }
+    case 'last-7-days':
+      return { from: addLocalDays(startOfLocalDay(now), -6), to: now }
+    case 'last-30-days':
+      return { from: addLocalDays(startOfLocalDay(now), -29), to: now }
+  }
+  if (typeof range === 'object' && range !== null) {
+    const from = parsePoint(range.from)
+    const to = parsePoint(range.to)
+    if (from === null) throw new Error(`Not a date: ${range.from}`)
+    if (to === null) throw new Error(`Not a date: ${range.to}`)
+    if (from >= to) throw new Error('The range must start before it ends.')
+    return { from, to }
+  }
+  throw new Error(`Unknown range: ${String(range)}`)
+}

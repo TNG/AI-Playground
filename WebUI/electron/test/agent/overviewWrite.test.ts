@@ -2,7 +2,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { HistoryEntry } from '@/types/sessionIpc'
+import type { OverviewChrome } from '@/types/overviewChrome'
 
 // The `overview_write` tool is the deliverable: it re-runs the query, renders the
 // page from code and writes one file into the reporting Session's Workspace. The
@@ -47,6 +47,7 @@ vi.mock('../../agent/piWorkspaceRuntime.ts', () => ({
   workspacePreviewRoot: () => preview.root || null,
   resolvePreviewUrl: (url: string | undefined) =>
     url && preview.base ? new URL(url, preview.base).toString() : url,
+  sameFolder: (a: string, b: string) => path.resolve(a) === path.resolve(b),
 }))
 
 const { overviewCapability } = await import('../../agent/capabilities/overview.ts')
@@ -60,15 +61,24 @@ const {
 } = await import('../../session/sessions')
 const { writeHistoryLines } = await import('../../persist/sessionFiles')
 const { OVERVIEW_CHROME_KEYS } = await import('@/types/overviewChrome')
+const {
+  NOW,
+  HOUR,
+  DAY,
+  historyEntry,
+  seedSession,
+  hostFor: fixtureHostFor,
+  textOf,
+  toolNamed,
+  write: writeJson,
+} = await import('../overviewFixtures')
 
-const HOUR = 60 * 60 * 1000
-const DAY = 24 * HOUR
-const NOW = new Date(2026, 10, 24, 15, 30).getTime()
-
-const CHROME = Object.fromEntries(OVERVIEW_CHROME_KEYS.map((key) => [key, key])) as Record<
-  string,
-  string
->
+const CHROME: OverviewChrome = {
+  locale: 'en-US',
+  strings: Object.fromEntries(
+    OVERVIEW_CHROME_KEYS.map((key) => [key, key]),
+  ) as OverviewChrome['strings'],
+}
 
 type Host = Parameters<NonNullable<typeof overviewCapability.buildTools>>[0]
 
@@ -77,30 +87,24 @@ type Tool = {
   execute: (toolCallId: string, params: Record<string, unknown>) => Promise<unknown>
 }
 
-function hostFor(overrides: Partial<Host> = {}): Host {
-  return {
-    sessionId: 'harness-1',
+function hostFor(
+  overrides: {
+    sessionRef?: string | null
+    responseLocale?: string
+    overviewChrome?: OverviewChrome
+  } = {},
+): Host {
+  return fixtureHostFor({
     workspaceDir: path.join(dirs.real, 'workspace'),
     agentDir: dirs.real,
-    toolSpecs: [],
-    keepModelsLoaded: false,
-    overviewChrome: CHROME,
-    responseLocale: 'en-US',
-    ...overrides,
-  } as unknown as Host
+    sessionRef: overrides.sessionRef,
+    overviewChrome: overrides.overviewChrome ?? CHROME,
+    responseLocale: overrides.responseLocale ?? 'en-US',
+  })
 }
 
 async function writeTool(host: Host): Promise<Tool> {
-  const tools = await overviewCapability.buildTools!(host)
-  const tool = tools.find((candidate) => candidate.name === 'overview_write')
-  if (!tool) throw new Error('overview_write is missing')
-  return tool as unknown as Tool
-}
-
-function textOf(result: unknown): string {
-  return ((result as { content: { text: string }[] }).content ?? [])
-    .map((part) => part.text)
-    .join('\n')
+  return toolNamed(await overviewCapability.buildTools!(host), 'overview_write')
 }
 
 async function write(
@@ -108,38 +112,7 @@ async function write(
   range: unknown,
   opening = 'A short opening.',
 ): Promise<Record<string, unknown>> {
-  return JSON.parse(textOf(await (await writeTool(host)).execute('call-1', { range, opening })))
-}
-
-let sessionCounter = 0
-
-function historyEntry(overrides: Partial<HistoryEntry>): HistoryEntry {
-  sessionCounter += 1
-  return {
-    id: `entry-${sessionCounter}`,
-    timestamp: NOW - HOUR,
-    preset: 'Assistant',
-    kind: 'chat',
-    prompt: `prompt ${sessionCounter}`,
-    status: 'completed',
-    artifacts: [],
-    ...overrides,
-  }
-}
-
-async function seedSession(
-  entries: HistoryEntry[],
-  options: { included?: boolean } = {},
-): Promise<string> {
-  const { id } = await createSession()
-  await writeHistoryLines(
-    id,
-    entries.map((entry) => JSON.stringify(entry)),
-  )
-  const newest = entries.reduce((max, entry) => Math.max(max, entry.timestamp), NOW)
-  await mutateSession(id, (file) => ({ ...file, updatedAt: newest }))
-  await setSessionIncludedInOverviews(id, options.included ?? true)
-  return id
+  return writeJson(await writeTool(host), { range, opening })
 }
 
 async function seedPictureSession(
@@ -227,7 +200,7 @@ describe('overview_write', () => {
 
     expect(result).toMatchObject({
       written: true,
-      path: 'overview-2026-11-23..2026-11-24.html',
+      path: 'overview-2026-11-23_1530..2026-11-24_1530.html',
       window: { from: NOW - DAY, to: NOW },
       sessions: 1,
       truncated: false,
@@ -246,13 +219,13 @@ describe('overview_write', () => {
     preview.base = 'http://127.0.0.1:4711/'
     const elsewhere = await write(host, 'last-24h')
     expect(elsewhere.written).toBe(true)
-    expect(elsewhere.path).toBe('overview-2026-11-23..2026-11-24.html')
+    expect(elsewhere.path).toBe('overview-2026-11-23_1530..2026-11-24_1530.html')
     expect(elsewhere.url).toBeUndefined()
 
     preview.root = host.workspaceDir
     preview.base = 'http://127.0.0.1:4711/'
     const served = await write(host, 'last-24h')
-    expect(served.url).toBe('http://127.0.0.1:4711/overview-2026-11-23..2026-11-24.html')
+    expect(served.url).toBe('http://127.0.0.1:4711/overview-2026-11-23_1530..2026-11-24_1530.html')
   })
 
   it('replaces the same range and leaves a different range alone', async () => {
@@ -332,9 +305,12 @@ describe('overview_write', () => {
     const host = hostFor({
       responseLocale: 'de',
       overviewChrome: {
-        ...CHROME,
-        OVERVIEW_PAGE_TITLE: 'Überblick: {from} bis {to}',
-        OVERVIEW_RANGE: 'Von {from} bis {to}',
+        locale: 'de',
+        strings: {
+          ...CHROME.strings,
+          OVERVIEW_PAGE_TITLE: 'Überblick: {from} bis {to}',
+          OVERVIEW_RANGE: 'Von {from} bis {to}',
+        },
       },
     })
 
@@ -342,6 +318,29 @@ describe('overview_write', () => {
     const html = await fs.readFile(path.join(host.workspaceDir, String(result.path)), 'utf8')
     expect(html).toContain('<html lang="de">')
     expect(html).toContain('Überblick: 2026-11-23 15:30 bis 2026-11-24 15:30')
+  })
+
+  it('refuses when the chrome did not reach the turn instead of rendering a raw key', async () => {
+    await seedSession([historyEntry({})])
+    const host = fixtureHostFor({
+      workspaceDir: path.join(dirs.real, 'workspace'),
+      agentDir: dirs.real,
+    })
+
+    const text = await writeText(host, 'last-24h', 'An opening.')
+
+    expect(text).toMatch(/Overview language/i)
+    expect(text).not.toContain('OVERVIEW_PAGE_TITLE')
+    expect(await htmlFiles()).toEqual([])
+  })
+
+  it('refuses when the turn has no Session to exclude, and writes no file', async () => {
+    await seedSession([historyEntry({})])
+
+    const text = await writeText(hostFor({ sessionRef: null }), 'last-24h', 'An opening.')
+
+    expect(text).toMatch(/not attached to a Session/i)
+    expect(await htmlFiles()).toEqual([])
   })
 
   it("refuses a picture that is another Session's candidate", async () => {
@@ -384,7 +383,7 @@ describe('overview_write', () => {
     expect(await htmlFiles()).toEqual([])
   })
 
-  it('refuses a Session the report does not show', async () => {
+  it('refuses a Session the Overview does not show', async () => {
     await seedPictureSession('shown')
     const quiet = await seedSession([historyEntry({ timestamp: NOW - 10 * DAY })])
     const host = hostFor()

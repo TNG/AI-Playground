@@ -2,7 +2,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { HistoryEntry } from '@/types/sessionIpc'
+import type { OverviewChrome } from '@/types/overviewChrome'
 
 // The pictures an Overview embeds are the tool's job, not the renderer's: each
 // Session's newest usable candidate is downscaled with Electron's decoder and
@@ -71,6 +71,7 @@ vi.mock('../../agent/piRuntime.ts', () => ({
 vi.mock('../../agent/piWorkspaceRuntime.ts', () => ({
   workspacePreviewRoot: () => null,
   resolvePreviewUrl: (url: string | undefined) => url,
+  sameFolder: (a: string, b: string) => path.resolve(a) === path.resolve(b),
 }))
 
 const { overviewCapability } = await import('../../agent/capabilities/overview.ts')
@@ -87,55 +88,45 @@ const { ensureWorkspaceEntry } = await import('../../session/appWorkspace')
 const { createGame, updateGame } = await import('../../agent/games/gameLibrary')
 const { sessionFolderMediaUrl } = await import('@/lib/comfyWorkflow')
 const { OVERVIEW_CHROME_KEYS } = await import('@/types/overviewChrome')
+const {
+  NOW,
+  HOUR,
+  historyEntry,
+  seedSession,
+  writeFile,
+  hostFor: fixtureHostFor,
+  toolNamed,
+  write: writeJson,
+} = await import('../overviewFixtures')
 
-const HOUR = 60 * 60 * 1000
-const NOW = new Date(2026, 10, 24, 15, 30).getTime()
-
-const CHROME = Object.fromEntries(OVERVIEW_CHROME_KEYS.map((key) => [key, key])) as Record<
-  string,
-  string
->
+const CHROME: OverviewChrome = {
+  locale: 'en-US',
+  strings: Object.fromEntries(
+    OVERVIEW_CHROME_KEYS.map((key) => [key, key]),
+  ) as OverviewChrome['strings'],
+}
 
 type Host = Parameters<NonNullable<typeof overviewCapability.buildTools>>[0]
 
-type Tool = {
-  name: string
-  execute: (toolCallId: string, params: Record<string, unknown>) => Promise<unknown>
-}
-
 function hostFor(): Host {
-  return {
-    sessionId: 'harness-1',
+  return fixtureHostFor({
     workspaceDir: path.join(dirs.real, 'workspace'),
     agentDir: dirs.real,
-    toolSpecs: [],
-    keepModelsLoaded: false,
     overviewChrome: CHROME,
     responseLocale: 'en-US',
-  } as unknown as Host
-}
-
-function textOf(result: unknown): string {
-  return ((result as { content: { text: string }[] }).content ?? [])
-    .map((part) => part.text)
-    .join('\n')
+  })
 }
 
 async function write(
   covers?: Record<string, string>,
 ): Promise<{ result: Record<string, unknown>; html: string }> {
   const host = hostFor()
-  const tools = await overviewCapability.buildTools!(host)
-  const tool = tools.find((candidate) => candidate.name === 'overview_write') as unknown as Tool
-  const result = JSON.parse(
-    textOf(
-      await tool.execute('call-1', {
-        range: 'last-24h',
-        opening: 'A quiet day.',
-        ...(covers ? { covers } : {}),
-      }),
-    ),
-  ) as Record<string, unknown>
+  const tool = toolNamed(await overviewCapability.buildTools!(host), 'overview_write')
+  const result = await writeJson(tool, {
+    range: 'last-24h',
+    opening: 'A quiet day.',
+    ...(covers ? { covers } : {}),
+  })
   const html = await fs.readFile(path.join(host.workspaceDir, String(result.path)), 'utf8')
   return { result, html }
 }
@@ -146,50 +137,6 @@ function imageSources(html: string): string[] {
 
 function dataUriOf(key: string, extraBytes = 8): string {
   return `data:image/png;base64,${Buffer.from(key).toString('base64')}${'A'.repeat(extraBytes)}`
-}
-
-let entryCounter = 0
-
-function historyEntry(overrides: Partial<HistoryEntry>): HistoryEntry {
-  entryCounter += 1
-  return {
-    id: `entry-${entryCounter}`,
-    timestamp: NOW - HOUR,
-    preset: 'Assistant',
-    kind: 'chat',
-    prompt: `prompt ${entryCounter}`,
-    status: 'completed',
-    artifacts: [],
-    ...overrides,
-  }
-}
-
-async function writeFile(hostPath: string, bytes: string): Promise<void> {
-  await fs.mkdir(path.dirname(hostPath), { recursive: true })
-  await fs.writeFile(hostPath, bytes)
-}
-
-async function seedSession(
-  entries: HistoryEntry[],
-  options: {
-    updatedAt?: number
-    timeline?: unknown[]
-    harnessWorkspaces?: Record<string, string>
-  } = {},
-): Promise<string> {
-  const { id } = await createSession()
-  await writeHistoryLines(
-    id,
-    entries.map((entry) => JSON.stringify(entry)),
-  )
-  await mutateSession(id, (file) => ({
-    ...file,
-    updatedAt: options.updatedAt ?? NOW,
-    ...(options.timeline ? { timeline: options.timeline } : {}),
-    ...(options.harnessWorkspaces ? { harnessWorkspaces: options.harnessWorkspaces } : {}),
-  }))
-  await setSessionIncludedInOverviews(id, true)
-  return id
 }
 
 async function seedImageSession(key: string, updatedAt = NOW): Promise<string> {

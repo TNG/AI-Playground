@@ -6,34 +6,37 @@ import { OVERVIEW_CHROME_KEYS, type OverviewChrome } from '@/types/overviewChrom
 import {
   overviewFileName,
   renderOverviewHtml,
-  type OverviewReport,
-  type OverviewReportSession,
+  type OverviewDocument,
+  type OverviewSection,
 } from '../../session/overviewHtml'
 import type { OverviewEntry } from '../../session/overviewData'
 
-// The Overview page is produced by code, never by the model: one resolved report
+// The Overview page is produced by code, never by the model: one resolved Overview
 // in, a self-contained HTML string out. These tests assert the page a reader gets
 // — escaping, day grouping, ordering and the truncation wording — without
 // snapshotting the whole template, so a styling change is not a failure.
 
 const FROM = new Date(2026, 10, 22).getTime()
 const TO = new Date(2026, 10, 25).getTime()
+const HOUR = 60 * 60 * 1000
 
 const localeDir = fileURLToPath(new URL('../../../src/assets/i18n', import.meta.url))
 
 const readLocale = (file: string): Record<string, string> =>
   JSON.parse(fs.readFileSync(path.join(localeDir, file), 'utf8')) as Record<string, string>
 
-const chromeOf = (strings: Record<string, string>): OverviewChrome =>
-  Object.fromEntries(
+const chromeOf = (locale: string, strings: Record<string, string>): OverviewChrome => ({
+  locale,
+  strings: Object.fromEntries(
     OVERVIEW_CHROME_KEYS.map((key) => {
       const value = strings[key]
       if (typeof value !== 'string') throw new Error(`missing chrome string ${key}`)
       return [key, value]
     }),
-  ) as OverviewChrome
+  ) as OverviewChrome['strings'],
+})
 
-const english = chromeOf(readLocale('en-US.json'))
+const english = chromeOf('en-US', readLocale('en-US.json'))
 
 function entry(overrides: Partial<OverviewEntry>): OverviewEntry {
   return {
@@ -46,18 +49,21 @@ function entry(overrides: Partial<OverviewEntry>): OverviewEntry {
   }
 }
 
-function session(overrides: Partial<OverviewReportSession>): OverviewReportSession {
+function section(overrides: Partial<OverviewSection>): OverviewSection {
   const entries = overrides.entries ?? []
   return {
     title: 'A Session',
     entries,
     totalEntries: entries.length,
     truncated: false,
+    shownCovers: 0,
+    totalCovers: 0,
+    coversTruncated: false,
     ...overrides,
   }
 }
 
-function reportOf(sessions: OverviewReportSession[], overrides: Partial<OverviewReport> = {}) {
+function documentOf(sessions: OverviewSection[], overrides: Partial<OverviewDocument> = {}) {
   return {
     window: { from: FROM, to: TO },
     locale: 'en-US',
@@ -65,17 +71,18 @@ function reportOf(sessions: OverviewReportSession[], overrides: Partial<Overview
     sessions,
     shownEntries: sessions.reduce((sum, item) => sum + item.entries.length, 0),
     totalEntries: sessions.reduce((sum, item) => sum + item.totalEntries, 0),
+    sessionsOmitted: 0,
     truncated: false,
     ...overrides,
-  } satisfies OverviewReport
+  } satisfies OverviewDocument
 }
 
 describe('overview HTML renderer', () => {
   it('escapes every interpolated string and carries no script', () => {
     const html = renderOverviewHtml(
-      reportOf(
+      documentOf(
         [
-          session({
+          section({
             title: '<img src=x onerror="alert(1)"> & "quoted"',
             entries: [
               entry({
@@ -106,15 +113,15 @@ describe('overview HTML renderer', () => {
 
   it('groups turns by local day across Sessions, in time order', () => {
     const html = renderOverviewHtml(
-      reportOf([
-        session({
+      documentOf([
+        section({
           title: 'Alpha',
           entries: [
             entry({ prompt: 'alpha next day', time: new Date(2026, 10, 24, 9).getTime() }),
             entry({ prompt: 'alpha morning', time: new Date(2026, 10, 23, 10).getTime() }),
           ],
         }),
-        session({
+        section({
           title: 'Beta',
           entries: [
             entry({ prompt: 'beta next day', time: new Date(2026, 10, 24, 8).getTime() }),
@@ -142,17 +149,17 @@ describe('overview HTML renderer', () => {
     expect(sections.indexOf('alpha morning')).toBeLessThan(sections.indexOf('alpha next day'))
   })
 
-  it('names the counts in both truncation sentences', () => {
+  it('names the counts in the truncation sentences and skips Sessions with no lines', () => {
     const html = renderOverviewHtml(
-      reportOf(
+      documentOf(
         [
-          session({
+          section({
             title: 'Busy',
             entries: [entry({ prompt: 'newest' }), entry({ prompt: 'second newest' })],
             totalEntries: 130,
             truncated: true,
           }),
-          session({
+          section({
             title: 'Quiet',
             entries: [
               entry({ prompt: 'one' }),
@@ -160,19 +167,23 @@ describe('overview HTML renderer', () => {
               entry({ prompt: 'three' }),
             ],
           }),
+          section({ title: 'Omitted', entries: [], totalEntries: 40 }),
         ],
-        { shownEntries: 5, totalEntries: 133, truncated: true },
+        { shownEntries: 5, totalEntries: 173, sessionsOmitted: 1, truncated: true },
       ),
       english,
     )
 
-    expect(html).toContain('newest 5 of 133')
+    expect(html).toContain('newest 5 of 173')
     expect(html).toContain('newest 2 of 130')
+    expect(html).toContain('1 Sessions with turns in this range are not shown')
+    expect(html).not.toContain('Omitted')
+    expect(html.match(/<section class="session">/g)).toHaveLength(2)
   })
 
   it('says when the opening paragraph was shortened', () => {
     const html = renderOverviewHtml(
-      reportOf([session({ entries: [entry({})] })], {
+      documentOf([section({ entries: [entry({})] })], {
         openingTruncated: { shown: 1200, total: 1500 },
       }),
       english,
@@ -181,12 +192,29 @@ describe('overview HTML renderer', () => {
     expect(html).toContain('first 1200 of 1500 characters')
   })
 
+  it('names the picture-candidate count where a Session’s covers were cut', () => {
+    const html = renderOverviewHtml(
+      documentOf([
+        section({
+          title: 'Pictured',
+          entries: [entry({})],
+          shownCovers: 8,
+          totalCovers: 10,
+          coversTruncated: true,
+        }),
+      ]),
+      english,
+    )
+
+    expect(html).toContain('newest 8 of 10 candidates')
+  })
+
   it('inlines a Session picture as a data URI and shows none without one', () => {
     const picture = 'data:image/png;base64,AAAA'
     const html = renderOverviewHtml(
-      reportOf([
-        session({ title: 'Pictured', picture, entries: [entry({})] }),
-        session({ title: 'Plain', entries: [entry({})] }),
+      documentOf([
+        section({ title: 'Pictured', picture, entries: [entry({})] }),
+        section({ title: 'Plain', entries: [entry({})] }),
       ]),
       english,
     )
@@ -199,10 +227,14 @@ describe('overview HTML renderer', () => {
 
   it('never renders a picture source that is not a data URI', () => {
     const html = renderOverviewHtml(
-      reportOf([
-        session({ title: 'Remote', picture: 'https://example.com/cat.png', entries: [entry({})] }),
-        session({ title: 'Local', picture: 'file:///tmp/cat.png', entries: [entry({})] }),
-        session({ title: 'Media', picture: 'aipg-media://games/x/icon.png', entries: [entry({})] }),
+      documentOf([
+        section({ title: 'Remote', picture: 'https://example.com/cat.png', entries: [entry({})] }),
+        section({ title: 'Local', picture: 'file:///tmp/cat.png', entries: [entry({})] }),
+        section({
+          title: 'Media',
+          picture: 'aipg-media://games/x/icon.png',
+          entries: [entry({})],
+        }),
       ]),
       english,
     )
@@ -213,10 +245,22 @@ describe('overview HTML renderer', () => {
     expect(html).not.toContain('aipg-media://games/x/icon.png')
   })
 
-  it('uses the local calendar dates in the file name', () => {
-    const from = new Date(2026, 10, 23, 15, 30).getTime()
-    const to = new Date(2026, 10, 24, 15, 30).getTime()
-    expect(overviewFileName({ from, to })).toBe('overview-2026-11-23..2026-11-24.html')
+  it('names a day range by date and a rolling range by its exact time', () => {
+    const day = {
+      from: new Date(2026, 10, 23).getTime(),
+      to: new Date(2026, 10, 24).getTime(),
+    }
+    expect(overviewFileName(day)).toBe('overview-2026-11-23..2026-11-24.html')
+
+    const rolling = {
+      from: new Date(2026, 10, 23, 10, 0).getTime(),
+      to: new Date(2026, 10, 24, 10, 0).getTime(),
+    }
+    expect(overviewFileName(rolling)).toBe('overview-2026-11-23_1000..2026-11-24_1000.html')
+
+    const later = { from: rolling.from + 2 * HOUR, to: rolling.to + 2 * HOUR }
+    expect(overviewFileName(later)).not.toBe(overviewFileName(rolling))
+    expect(overviewFileName(later)).toBe('overview-2026-11-23_1200..2026-11-24_1200.html')
   })
 
   it('resolves every placeholder in every locale', () => {
@@ -228,22 +272,26 @@ describe('overview HTML renderer', () => {
 
     for (const file of locales) {
       const locale = file.replace(/\.json$/, '')
-      const chrome = chromeOf(readLocale(file))
+      const chrome = chromeOf(locale, readLocale(file))
       const html = renderOverviewHtml(
-        reportOf(
+        documentOf(
           [
-            session({
+            section({
               title: 'A Session',
               entries: [entry({ status: 'failed' })],
               totalEntries: 3,
               truncated: true,
+              shownCovers: 8,
+              totalCovers: 10,
+              coversTruncated: true,
             }),
-            session({ entries: [entry({ status: 'cancelled' })] }),
+            section({ entries: [entry({ status: 'cancelled' })] }),
           ],
           {
             locale,
             shownEntries: 2,
             totalEntries: 5,
+            sessionsOmitted: 1,
             truncated: true,
             openingTruncated: { shown: 1200, total: 1500 },
           },
@@ -259,7 +307,7 @@ describe('overview HTML renderer', () => {
 
       // The locale's own words are in the page, not the key that named them.
       for (const key of OVERVIEW_CHROME_KEYS) {
-        const parts = chrome[key]
+        const parts = chrome.strings[key]
           .split(/\{\w+\}/)
           .map((part) => part.trim())
           .filter((part) => part.length > 2)

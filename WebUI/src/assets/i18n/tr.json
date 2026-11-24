@@ -167,6 +167,8 @@
   "OVERVIEW_SESSION_META": "Aralıkta {count} tur",
   "OVERVIEW_SESSION_TRUNCATED": "En yeni {shown}/{total} tur gösteriliyor",
   "OVERVIEW_REPORT_TRUNCATED": "Bu Overview tüm oturumlardaki en yeni {shown}/{total} turu gösterir",
+  "OVERVIEW_SESSIONS_OMITTED": "Bu aralıkta turu olan {sessions} oturum bu Overview'da gösterilmez",
+  "OVERVIEW_COVERS_TRUNCATED": "Görsel, en yeni {shown}/{total} aday arasından seçildi",
   "OVERVIEW_OPENING_TRUNCATED": "Açılış paragrafı ilk {shown}/{total} karaktere kısaltıldı",
   "OVERVIEW_STATUS_FAILED": "Başarısız",
   "OVERVIEW_STATUS_CANCELLED": "İptal edildi",

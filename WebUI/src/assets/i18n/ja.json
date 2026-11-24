@@ -167,6 +167,8 @@
   "OVERVIEW_SESSION_META": "期間内の {count} ターン",
   "OVERVIEW_SESSION_TRUNCATED": "最新の {shown} / {total} ターンを表示中",
   "OVERVIEW_REPORT_TRUNCATED": "この Overview は全セッションの最新 {shown} / {total} ターンを表示しています",
+  "OVERVIEW_SESSIONS_OMITTED": "この期間にターンがある {sessions} セッションは、この Overview に表示されません",
+  "OVERVIEW_COVERS_TRUNCATED": "最新の {shown} / {total} 候補から画像を選択しました",
   "OVERVIEW_OPENING_TRUNCATED": "冒頭の段落は先頭 {shown} / {total} 文字に短縮されました",
   "OVERVIEW_STATUS_FAILED": "失敗",
   "OVERVIEW_STATUS_CANCELLED": "キャンセル済み",

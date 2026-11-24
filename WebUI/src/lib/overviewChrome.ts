@@ -1,11 +1,9 @@
 import { OVERVIEW_CHROME_KEYS, type OverviewChrome } from '@/types/overviewChrome'
 
-/**
- * The Overview chrome resolved from the app's locale files. The loader merges
- * en-US under the active locale, so `state` already holds every key.
- */
-export function overviewChromeOf(state: Record<string, string>): OverviewChrome {
-  return Object.fromEntries(
-    OVERVIEW_CHROME_KEYS.map((key) => [key, state[key] ?? key]),
-  ) as OverviewChrome
+/** The Overview chrome the loader already resolved (en-US merged under the active locale). */
+export function overviewChromeOf(locale: string, state: Record<string, string>): OverviewChrome {
+  const strings = Object.fromEntries(
+    OVERVIEW_CHROME_KEYS.map((key) => [key, state[key] ?? '']),
+  ) as OverviewChrome['strings']
+  return { locale, strings }
 }

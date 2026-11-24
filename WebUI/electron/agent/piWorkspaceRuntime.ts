@@ -244,7 +244,7 @@ function settledPath(candidate: string): string {
 }
 
 /** Whether two paths name the same folder, tolerating symlinks and a path that no longer exists. */
-function sameFolder(a: string, b: string): boolean {
+export function sameFolder(a: string, b: string): boolean {
   if (path.resolve(a) === path.resolve(b)) return true
   return (
     settledPath(path.dirname(a)) === settledPath(path.dirname(b)) &&

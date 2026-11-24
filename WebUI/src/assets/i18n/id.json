@@ -167,6 +167,8 @@
   "OVERVIEW_SESSION_META": "{count} aktivitas dalam rentang",
   "OVERVIEW_SESSION_TRUNCATED": "Menampilkan {shown} dari {total} aktivitas terbaru",
   "OVERVIEW_REPORT_TRUNCATED": "Overview ini menampilkan {shown} dari {total} aktivitas terbaru dari semua Sesi",
+  "OVERVIEW_SESSIONS_OMITTED": "{sessions} Sesi dengan aktivitas dalam rentang ini tidak ditampilkan di Overview ini",
+  "OVERVIEW_COVERS_TRUNCATED": "Gambar dipilih dari {shown} dari {total} kandidat terbaru",
   "OVERVIEW_OPENING_TRUNCATED": "Paragraf pembuka dipersingkat menjadi {shown} dari {total} karakter pertama",
   "OVERVIEW_STATUS_FAILED": "Gagal",
   "OVERVIEW_STATUS_CANCELLED": "Dibatalkan",

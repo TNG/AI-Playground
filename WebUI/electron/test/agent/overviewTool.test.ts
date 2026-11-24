@@ -55,12 +55,18 @@ const { addSessionFolder } = await import('../../session/sessionFolders')
 const { ensureWorkspaceEntry } = await import('../../session/appWorkspace')
 const { createGame, updateGame } = await import('../../agent/games/gameLibrary')
 const { sessionFolderMediaUrl } = await import('@/lib/comfyWorkflow')
+const {
+  NOW,
+  HOUR,
+  DAY,
+  TODAY,
+  historyEntry,
+  seedSession,
+  writeFile,
+  hostFor: fixtureHostFor,
+  textOf,
+} = await import('../overviewFixtures')
 import type { HistoryEntry } from '@/types/sessionIpc'
-
-const HOUR = 60 * 60 * 1000
-const DAY = 24 * HOUR
-const NOW = new Date(2026, 10, 24, 15, 30).getTime()
-const TODAY = new Date(2026, 10, 24).getTime()
 
 type Host = Parameters<NonNullable<typeof overviewCapability.buildTools>>[0]
 
@@ -69,15 +75,13 @@ type Tool = {
   execute: (toolCallId: string, params: Record<string, unknown>) => Promise<unknown>
 }
 
-function hostFor(sessionRef?: string): Host {
-  return {
-    sessionId: 'harness-1',
-    ...(sessionRef ? { sessionRef } : {}),
+/** `null` is a turn with no reporting Session, as a Trial Run would have. */
+function hostFor(sessionRef?: string | null): Host {
+  return fixtureHostFor({
     workspaceDir: path.join(dirs.real, 'workspace'),
     agentDir: dirs.real,
-    toolSpecs: [],
-    keepModelsLoaded: false,
-  } as unknown as Host
+    sessionRef,
+  })
 }
 
 async function overviewTool(host: Host): Promise<Tool> {
@@ -85,54 +89,9 @@ async function overviewTool(host: Host): Promise<Tool> {
   return tools[0] as unknown as Tool
 }
 
-function textOf(result: unknown): string {
-  return ((result as { content: { text: string }[] }).content ?? [])
-    .map((part) => part.text)
-    .join('\n')
-}
-
 async function dataFrom(host: Host, range: unknown): Promise<Record<string, unknown>> {
   const result = await (await overviewTool(host)).execute('call-1', { range })
   return JSON.parse(textOf(result))
-}
-
-let sessionCounter = 0
-
-function historyEntry(overrides: Partial<HistoryEntry>): HistoryEntry {
-  sessionCounter += 1
-  return {
-    id: `entry-${sessionCounter}`,
-    timestamp: NOW - HOUR,
-    preset: 'Assistant',
-    kind: 'chat',
-    prompt: `prompt ${sessionCounter}`,
-    status: 'completed',
-    artifacts: [],
-    ...overrides,
-  }
-}
-
-async function seedSession(
-  entries: HistoryEntry[],
-  options: { included?: boolean; updatedAt?: number } = {},
-): Promise<string> {
-  const { id } = await createSession()
-  await writeHistoryLines(
-    id,
-    entries.map((entry) => JSON.stringify(entry)),
-  )
-  const newest = entries.reduce(
-    (max, entry) => Math.max(max, entry.timestamp),
-    options.updatedAt ?? NOW,
-  )
-  await mutateSession(id, (file) => ({ ...file, updatedAt: newest }))
-  await setSessionIncludedInOverviews(id, options.included ?? true)
-  return id
-}
-
-async function writeFile(hostPath: string): Promise<void> {
-  await fs.mkdir(path.dirname(hostPath), { recursive: true })
-  await fs.writeFile(hostPath, 'bytes')
 }
 
 beforeAll(async () => {
@@ -302,7 +261,7 @@ describe('overview_data', () => {
     expect(session.coversTruncated).toBe(true)
   })
 
-  it('keeps 400 turn lines across the whole report', async () => {
+  it('keeps 400 turn lines and omits whole Sessions from the Overview', async () => {
     for (let index = 0; index < 11; index++) {
       const entries = Array.from({ length: 40 }, (_, line) =>
         historyEntry({
@@ -314,12 +273,13 @@ describe('overview_data', () => {
     }
 
     const data = await dataFrom(hostFor(), 'last-24h')
-    const sessions = data.sessions as { entries: unknown[]; truncated: boolean }[]
+    const sessions = data.sessions as { entries: unknown[] }[]
 
     expect(sessions.reduce((sum, session) => sum + session.entries.length, 0)).toBe(400)
+    expect(sessions).toHaveLength(10)
+    expect(data.sessionsOmitted).toBe(1)
+    expect(data.totalEntries).toBe(440)
     expect(data.truncated).toBe(true)
-    expect(sessions.at(-1)?.entries).toEqual([])
-    expect(sessions.at(-1)?.truncated).toBe(true)
   })
 
   it("offers an image Artifact, a video's timeline thumbnail and a game's icon", async () => {
@@ -465,5 +425,17 @@ describe('overview_data', () => {
       range: 'since forever',
     })
     expect(textOf(result)).toMatch(/range|date/i)
+  })
+
+  it('refuses when the turn has no Session to exclude', async () => {
+    await seedSession([historyEntry({})])
+
+    const result = await (
+      await overviewTool(hostFor(null))
+    ).execute('call-1', {
+      range: 'last-24h',
+    })
+
+    expect(textOf(result)).toMatch(/not attached to a Session/i)
   })
 })

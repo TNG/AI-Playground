@@ -167,6 +167,8 @@
   "OVERVIEW_SESSION_META": "범위 내 턴 {count}개",
   "OVERVIEW_SESSION_TRUNCATED": "최신 {shown}/{total}개 턴 표시 중",
   "OVERVIEW_REPORT_TRUNCATED": "이 Overview는 모든 세션의 최신 {shown}/{total}개 턴을 표시합니다",
+  "OVERVIEW_SESSIONS_OMITTED": "이 범위에 턴이 있는 세션 {sessions}개는 이 Overview에 표시되지 않습니다",
+  "OVERVIEW_COVERS_TRUNCATED": "최신 후보 {shown}/{total}개 중에서 사진을 선택했습니다",
   "OVERVIEW_OPENING_TRUNCATED": "여는 단락이 처음 {shown}/{total}자로 줄었습니다",
   "OVERVIEW_STATUS_FAILED": "실패",
   "OVERVIEW_STATUS_CANCELLED": "취소됨",

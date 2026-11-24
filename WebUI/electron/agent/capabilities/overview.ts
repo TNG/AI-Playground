@@ -4,31 +4,25 @@ import { nativeImage } from 'electron'
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent'
 import {
   collectOverviewData,
-  OVERVIEW_NAMED_RANGES,
   type OverviewData,
-  type OverviewRangeInput,
   type OverviewSessionData,
 } from '../../session/overviewData.ts'
+import { OVERVIEW_NAMED_RANGES, type OverviewRangeInput } from '../../session/overviewRange.ts'
 import {
   OVERVIEW_OPENING_CAP,
   overviewFileName,
   renderOverviewHtml,
-  type OverviewReport,
+  type OverviewDocument,
 } from '../../session/overviewHtml.ts'
-import { resolvePreviewUrl, workspacePreviewRoot } from '../piWorkspaceRuntime.ts'
+import { resolvePreviewUrl, sameFolder, workspacePreviewRoot } from '../piWorkspaceRuntime.ts'
 import { jsonResult, jsonSchemaParameters, textResult } from '../piCustomTools.ts'
 import { loadPi } from '../piRuntime.ts'
+import { isRecord } from '@/lib/isRecord'
 import type { AgentCapability, CapabilityHost } from './types.ts'
 import { OVERVIEW_CAPABILITY_ID } from '@/types/agentCapabilities'
 import type { OverviewChrome } from '@/types/overviewChrome'
 
-// ── overview capability ──────────────────────────────────────────────────────
-//
-// One range in, the History of the Sessions the user included out, and one HTML
-// file back. The inclusion switch is the boundary (ADR-0019) — this capability
-// cannot widen it, and the reporting Session never appears in its own Overview.
-// The model supplies the opening paragraph and picture choices; the page itself
-// is code's (overviewHtml.ts), never markup the model writes.
+// One range in, the included Sessions' History out, and one HTML file back.
 
 const OVERVIEW_DATA_TOOL = 'overview_data'
 const OVERVIEW_WRITE_TOOL = 'overview_write'
@@ -77,15 +71,25 @@ const OVERVIEW_WRITE_SCHEMA: Record<string, unknown> = {
         'Optional. Maps a Session id from `overview_data` to one of the cover paths it returned ' +
         'for that Session, to choose the picture that fits what you wrote. Leave a Session out ' +
         'and its newest picture is used. A path from another Session, from outside the range, ' +
-        'or a Session the report does not show is refused.',
+        'or a Session the Overview does not show is refused.',
       additionalProperties: { type: 'string' },
     },
   },
   required: ['range', 'opening'],
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null
+function overviewMissingSession(): string {
+  return (
+    'This turn is not attached to a Session, so it cannot leave its own Session out of the ' +
+    'Overview. Start the Overview from a Session rather than a Trial Run, then try again.'
+  )
+}
+
+function overviewMissingChrome(): string {
+  return (
+    'The Overview language did not reach this turn. Ask again from the desktop app so its ' +
+    'strings can be resolved for your language.'
+  )
 }
 
 function rangeOf(value: unknown): OverviewRangeInput | null {
@@ -107,17 +111,17 @@ function invalidRange(): string {
   )
 }
 
-function reportOf(
+function overviewOf(
   data: OverviewData,
   opening: string,
-  locale: string,
+  chrome: OverviewChrome,
   pictures: Map<string, string>,
-): OverviewReport {
+): OverviewDocument {
   const trimmed = opening.trim()
   const shortened = trimmed.length > OVERVIEW_OPENING_CAP
   return {
     window: data.window,
-    locale,
+    locale: chrome.locale,
     opening: shortened ? trimmed.slice(0, OVERVIEW_OPENING_CAP) : trimmed,
     sessions: data.sessions.map((session) => {
       const picture = pictures.get(session.id)
@@ -126,11 +130,15 @@ function reportOf(
         entries: session.entries,
         totalEntries: session.totalEntries,
         truncated: session.truncated,
+        shownCovers: session.covers.length,
+        totalCovers: session.totalCovers,
+        coversTruncated: session.coversTruncated,
         ...(picture ? { picture } : {}),
       }
     }),
     shownEntries: data.sessions.reduce((sum, session) => sum + session.entries.length, 0),
-    totalEntries: data.sessions.reduce((sum, session) => sum + session.totalEntries, 0),
+    totalEntries: data.totalEntries,
+    sessionsOmitted: data.sessionsOmitted,
     truncated: data.truncated,
     ...(shortened
       ? { openingTruncated: { shown: OVERVIEW_OPENING_CAP, total: trimmed.length } }
@@ -204,13 +212,6 @@ function coverSelectionOf(data: OverviewData, value: unknown): CoverSelection {
     }
   }
   return { ok: true, bySession }
-}
-
-function sameFolder(a: string, b: string): boolean {
-  const normalize = (value: string) => path.resolve(value).replace(/\\/g, '/')
-  const left = normalize(a)
-  const right = normalize(b)
-  return process.platform === 'win32' ? left.toLowerCase() === right.toLowerCase() : left === right
 }
 
 /** The live preview URL, but only when that server is serving the folder the file went into. */
@@ -295,13 +296,14 @@ async function buildOverviewTools(host: CapabilityHost): Promise<ToolDefinition[
         'resolved window and any truncation in your answer.',
       parameters: jsonSchemaParameters(OVERVIEW_DATA_SCHEMA),
       execute: async (_toolCallId, params) => {
+        if (!host.sessionRef) return textResult(overviewMissingSession())
         const { range } = params as { range?: unknown }
         const input = rangeOf(range)
         if (!input) return textResult(invalidRange())
         try {
           const data = await collectOverviewData({
             range: input,
-            ...(host.sessionRef ? { excludingSessionId: host.sessionRef } : {}),
+            excludingSessionId: host.sessionRef,
           })
           return jsonResult(data)
         } catch (error) {
@@ -318,10 +320,11 @@ async function buildOverviewTools(host: CapabilityHost): Promise<ToolDefinition[
         'with the same range, the opening paragraph you wrote, and optionally `covers` to pick ' +
         'each Session’s picture that fits the text (a Session left out uses its newest picture). ' +
         'It re-reads the range itself, so you cannot disagree with the page, and it accepts no ' +
-        'picture it did not offer for that Session. When the range has nothing to report it ' +
+        'picture it did not offer for that Session. When the range has nothing to show it ' +
         'writes no file and tells you why. Never write the HTML yourself: this tool owns the page.',
       parameters: jsonSchemaParameters(OVERVIEW_WRITE_SCHEMA),
       execute: async (_toolCallId, params) => {
+        if (!host.sessionRef) return textResult(overviewMissingSession())
         const { range, opening, covers } = params as {
           range?: unknown
           opening?: unknown
@@ -332,10 +335,12 @@ async function buildOverviewTools(host: CapabilityHost): Promise<ToolDefinition[
         if (typeof opening !== 'string') {
           return textResult('"opening" must be the paragraph you want the Overview to open with.')
         }
+        const chrome = host.overviewChrome
+        if (!chrome) return textResult(overviewMissingChrome())
         try {
           const data = await collectOverviewData({
             range: input,
-            ...(host.sessionRef ? { excludingSessionId: host.sessionRef } : {}),
+            excludingSessionId: host.sessionRef,
           })
           if (data.outcome !== 'ok') {
             return jsonResult({
@@ -347,14 +352,13 @@ async function buildOverviewTools(host: CapabilityHost): Promise<ToolDefinition[
           }
           const selection = coverSelectionOf(data, covers)
           if (!selection.ok) return textResult(selection.message)
-          const chrome = (host.overviewChrome ?? {}) as OverviewChrome
           const pictures = await resolvePictures(data.sessions, selection.bySession)
-          const report = reportOf(data, opening, host.responseLocale ?? 'en-US', pictures.bySession)
+          const overview = overviewOf(data, opening, chrome, pictures.bySession)
           const fileName = overviewFileName(data.window)
           await fs.mkdir(host.workspaceDir, { recursive: true })
           await fs.writeFile(
             path.join(host.workspaceDir, fileName),
-            renderOverviewHtml(report, chrome),
+            renderOverviewHtml(overview, chrome),
             'utf8',
           )
           const url = previewUrlOf(host.workspaceDir, fileName)
@@ -364,12 +368,13 @@ async function buildOverviewTools(host: CapabilityHost): Promise<ToolDefinition[
             ...(url ? { url } : {}),
             window: data.window,
             sessions: data.sessions.length,
-            shownEntries: report.shownEntries,
-            totalEntries: report.totalEntries,
-            truncated: report.truncated,
+            sessionsOmitted: data.sessionsOmitted,
+            shownEntries: overview.shownEntries,
+            totalEntries: overview.totalEntries,
+            truncated: overview.truncated,
             pictures: pictures.bySession.size,
             picturesOmitted: pictures.omitted,
-            ...(report.openingTruncated ? { openingTruncated: report.openingTruncated } : {}),
+            ...(overview.openingTruncated ? { openingTruncated: overview.openingTruncated } : {}),
           })
         } catch (error) {
           return textResult(error instanceof Error ? error.message : String(error))

@@ -2,7 +2,6 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { HistoryEntry } from '@/types/sessionIpc'
 
 const dirs = vi.hoisted(() => ({ real: '', demo: '', games: '', mediaRecords: '' }))
 
@@ -27,7 +26,8 @@ vi.mock('../../kernel/kernelBus', () => ({
   emitSessionGroupsChanged: vi.fn(),
 }))
 
-const { resolveOverviewWindow, collectOverviewData } = await import('../../session/overviewData')
+const { resolveOverviewWindow } = await import('../../session/overviewRange')
+const { collectOverviewData } = await import('../../session/overviewData')
 const {
   createSession,
   mutateSession,
@@ -41,12 +41,9 @@ const { addSessionFolder } = await import('../../session/sessionFolders')
 const { ensureWorkspaceEntry } = await import('../../session/appWorkspace')
 const { createGame, updateGame } = await import('../../agent/games/gameLibrary')
 const { sessionFolderMediaUrl } = await import('@/lib/comfyWorkflow')
+const { NOW, HOUR, DAY, TODAY, historyEntry, seedSession, writeFile } =
+  await import('../overviewFixtures')
 
-const HOUR = 60 * 60 * 1000
-const DAY = 24 * HOUR
-
-const NOW = new Date(2026, 10, 24, 15, 30).getTime()
-const TODAY = new Date(2026, 10, 24).getTime()
 const YESTERDAY = new Date(2026, 10, 23).getTime()
 
 beforeAll(async () => {
@@ -105,46 +102,7 @@ describe('range resolution', () => {
   })
 })
 
-let promptCounter = 0
-
-function historyEntry(overrides: Partial<HistoryEntry>): HistoryEntry {
-  promptCounter += 1
-  return {
-    id: `entry-${promptCounter}`,
-    timestamp: NOW - HOUR,
-    preset: 'Assistant',
-    kind: 'chat',
-    prompt: `prompt ${promptCounter}`,
-    status: 'completed',
-    artifacts: [],
-    ...overrides,
-  }
-}
-
-async function seedSession(
-  entries: HistoryEntry[],
-  options: { included?: boolean; updatedAt?: number } = {},
-): Promise<string> {
-  const { id } = await createSession()
-  await writeHistoryLines(
-    id,
-    entries.map((entry) => JSON.stringify(entry)),
-  )
-  const newest = entries.reduce(
-    (max, entry) => Math.max(max, entry.timestamp),
-    options.updatedAt ?? NOW,
-  )
-  await mutateSession(id, (file) => ({ ...file, updatedAt: newest }))
-  await setSessionIncludedInOverviews(id, options.included ?? true)
-  return id
-}
-
-async function writeFile(hostPath: string, bytes = 'bytes'): Promise<void> {
-  await fs.mkdir(path.dirname(hostPath), { recursive: true })
-  await fs.writeFile(hostPath, bytes)
-}
-
-async function query(overrides: Partial<Parameters<typeof collectOverviewData>[0]> = {}) {
+function query(overrides: Partial<Parameters<typeof collectOverviewData>[0]> = {}) {
   return collectOverviewData({ range: 'last-24h', now: NOW, ...overrides })
 }
 
@@ -291,7 +249,7 @@ describe('caps and counters', () => {
     expect(data.truncated).toBe(true)
   })
 
-  it('keeps 400 turn lines across the whole report', async () => {
+  it('keeps 400 turn lines and omits whole Sessions from the Overview', async () => {
     for (let index = 0; index < 11; index++) {
       const entries = Array.from({ length: 40 }, (_, line) =>
         historyEntry({
@@ -306,11 +264,11 @@ describe('caps and counters', () => {
 
     const shown = data.sessions.reduce((sum, session) => sum + session.entries.length, 0)
     expect(shown).toBe(400)
+    expect(data.sessions).toHaveLength(10)
+    expect(data.sessions.every((session) => session.entries.length > 0)).toBe(true)
+    expect(data.sessionsOmitted).toBe(1)
+    expect(data.totalEntries).toBe(440)
     expect(data.truncated).toBe(true)
-    const last = data.sessions.at(-1)!
-    expect(last.entries).toEqual([])
-    expect(last.totalEntries).toBe(40)
-    expect(last.truncated).toBe(true)
   })
 
   it('offers at most 8 pictures per Session, newest first', async () => {

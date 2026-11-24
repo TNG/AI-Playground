@@ -1,32 +1,35 @@
 import { fillTemplate } from '@/lib/fillTemplate'
 import type { OverviewChrome, OverviewChromeKey } from '@/types/overviewChrome'
-import type { OverviewEntry, OverviewWindow } from './overviewData'
+import type { OverviewEntry } from './overviewData'
+import type { OverviewWindow } from './overviewRange'
 
-// ── Overviews: the page ──────────────────────────────────────────────────────
-//
-// The model writes the opening paragraph and chooses pictures; the layout, the
-// day grouping and every interpolation are code's. Escaping is unconditional
-// because the page quotes prompts from many Sessions, and nothing here touches
-// the filesystem or Electron, so a template change is testable on its own.
+// The page: fixed template, code-owned layout, every interpolation escaped.
 
-export type OverviewReportSession = {
+export type OverviewSection = {
   title: string
   entries: OverviewEntry[]
   totalEntries: number
   truncated: boolean
   /** A ready `data:image/…` URI, downscaled by the tool that read the file. */
   picture?: string
+  /** How many picture candidates this Session offered before the cap. */
+  shownCovers: number
+  totalCovers: number
+  coversTruncated: boolean
 }
 
-export type OverviewReport = {
+export type OverviewDocument = {
   window: OverviewWindow
   /** The language the chrome strings were resolved for. */
   locale: string
   opening: string
   /** The query's order: most recently updated Session first. */
-  sessions: OverviewReportSession[]
+  sessions: OverviewSection[]
   shownEntries: number
+  /** Every turn in range, including those the Overview's line budget left out. */
   totalEntries: number
+  /** Sessions with turns in range that the line budget left out entirely. */
+  sessionsOmitted: number
   truncated: boolean
   openingTruncated?: { shown: number; total: number }
 }
@@ -61,15 +64,27 @@ function overviewClock(ms: number): string {
   return `${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
+function overviewStamp(ms: number): string {
+  const date = new Date(ms)
+  return `${pad(date.getHours())}${pad(date.getMinutes())}`
+}
+
 function overviewDateTime(ms: number): string {
   return `${overviewDate(ms)} ${overviewClock(ms)}`
 }
 
-export function overviewFileName(window: OverviewWindow): string {
-  return `overview-${overviewDate(window.from)}..${overviewDate(window.to)}.html`
+/** A date alone only when the bound is local midnight; otherwise the exact time too. */
+function overviewBoundary(ms: number): string {
+  const midnight = new Date(ms)
+  midnight.setHours(0, 0, 0, 0)
+  return midnight.getTime() === ms ? overviewDate(ms) : `${overviewDate(ms)}_${overviewStamp(ms)}`
 }
 
-function textOf(
+export function overviewFileName(window: OverviewWindow): string {
+  return `overview-${overviewBoundary(window.from)}..${overviewBoundary(window.to)}.html`
+}
+
+function chromeHtml(
   chrome: OverviewChrome,
   key: OverviewChromeKey,
   values: Record<string, string | number> = {},
@@ -77,15 +92,15 @@ function textOf(
   const escaped = Object.fromEntries(
     Object.entries(values).map(([name, value]) => [name, escapeHtml(String(value))]),
   )
-  return fillTemplate(chrome[key] ?? key, escaped)
+  return fillTemplate(chrome.strings[key], escaped)
 }
 
-function outcomeOf(entry: OverviewEntry, chrome: OverviewChrome): string {
+function outcomeHtml(entry: OverviewEntry, chrome: OverviewChrome): string {
   const parts: string[] = []
   if (entry.status === 'failed') {
-    parts.push(`<span class="status">${textOf(chrome, 'OVERVIEW_STATUS_FAILED')}</span>`)
+    parts.push(`<span class="status">${chromeHtml(chrome, 'OVERVIEW_STATUS_FAILED')}</span>`)
   } else if (entry.status === 'cancelled') {
-    parts.push(`<span class="status">${textOf(chrome, 'OVERVIEW_STATUS_CANCELLED')}</span>`)
+    parts.push(`<span class="status">${chromeHtml(chrome, 'OVERVIEW_STATUS_CANCELLED')}</span>`)
   }
   if (entry.artifacts.length > 0) {
     parts.push(
@@ -102,7 +117,7 @@ function outcomeOf(entry: OverviewEntry, chrome: OverviewChrome): string {
 function turnLine(entry: OverviewEntry, chrome: OverviewChrome, sessionTitle?: string): string {
   const label = entry.agent ?? entry.preset
   const session = sessionTitle ? `<span class="session">${escapeHtml(sessionTitle)}</span> ` : ''
-  const outcome = outcomeOf(entry, chrome)
+  const outcome = outcomeHtml(entry, chrome)
   return (
     `<li class="turn">${session}<time>${overviewClock(entry.time)}</time> ` +
     `<span class="label">${escapeHtml(label)}</span> ` +
@@ -118,7 +133,7 @@ type DayGroup = {
 }
 
 /** The range's turns read as one timeline: days ascending, then time within a day. */
-function dayGroups(sessions: readonly OverviewReportSession[]): DayGroup[] {
+function dayGroups(sessions: readonly OverviewSection[]): DayGroup[] {
   const groups = new Map<string, DayGroup>()
   for (const session of sessions) {
     for (const entry of session.entries) {
@@ -142,7 +157,7 @@ function daySection(group: DayGroup, chrome: OverviewChrome): string {
   )
 }
 
-function sessionSection(session: OverviewReportSession, chrome: OverviewChrome): string {
+function sessionSection(session: OverviewSection, chrome: OverviewChrome): string {
   const entries = [...session.entries].sort((a, b) => a.time - b.time)
   // Only an inlined picture may reach the page: a URL scheme would not resolve
   // once the file is copied, and the CSP allows nothing but `data:`.
@@ -150,8 +165,14 @@ function sessionSection(session: OverviewReportSession, chrome: OverviewChrome):
     session.picture?.startsWith('data:image/') === true
       ? `<img class="picture" src="${escapeHtml(session.picture)}" alt="">\n`
       : ''
+  const coversTruncation = session.coversTruncated
+    ? `<p class="note">${chromeHtml(chrome, 'OVERVIEW_COVERS_TRUNCATED', {
+        shown: session.shownCovers,
+        total: session.totalCovers,
+      })}</p>\n`
+    : ''
   const truncation = session.truncated
-    ? `<p class="note">${textOf(chrome, 'OVERVIEW_SESSION_TRUNCATED', {
+    ? `<p class="note">${chromeHtml(chrome, 'OVERVIEW_SESSION_TRUNCATED', {
         shown: entries.length,
         total: session.totalEntries,
       })}</p>\n`
@@ -159,7 +180,8 @@ function sessionSection(session: OverviewReportSession, chrome: OverviewChrome):
   return (
     `<section class="session">\n<h3>${escapeHtml(session.title)}</h3>\n` +
     picture +
-    `<p class="meta">${textOf(chrome, 'OVERVIEW_SESSION_META', {
+    coversTruncation +
+    `<p class="meta">${chromeHtml(chrome, 'OVERVIEW_SESSION_META', {
       count: session.totalEntries,
     })}</p>\n` +
     truncation +
@@ -186,27 +208,34 @@ time { opacity: .75; font-variant-numeric: tabular-nums; }
 .picture { display: block; max-width: 100%; max-height: 20rem; margin: .5rem 0; border-radius: .5rem; }
 `
 
-export function renderOverviewHtml(report: OverviewReport, chrome: OverviewChrome): string {
-  const from = overviewDateTime(report.window.from)
-  const to = overviewDateTime(report.window.to)
-  const title = textOf(chrome, 'OVERVIEW_PAGE_TITLE', { from, to })
-  const range = textOf(chrome, 'OVERVIEW_RANGE', { from, to })
-  const opening = report.opening.trim()
-  const openingNote = report.openingTruncated
-    ? `<p class="note">${textOf(chrome, 'OVERVIEW_OPENING_TRUNCATED', {
-        shown: report.openingTruncated.shown,
-        total: report.openingTruncated.total,
+export function renderOverviewHtml(overview: OverviewDocument, chrome: OverviewChrome): string {
+  const from = overviewDateTime(overview.window.from)
+  const to = overviewDateTime(overview.window.to)
+  const title = chromeHtml(chrome, 'OVERVIEW_PAGE_TITLE', { from, to })
+  const range = chromeHtml(chrome, 'OVERVIEW_RANGE', { from, to })
+  const opening = overview.opening.trim()
+  const openingNote = overview.openingTruncated
+    ? `<p class="note">${chromeHtml(chrome, 'OVERVIEW_OPENING_TRUNCATED', {
+        shown: overview.openingTruncated.shown,
+        total: overview.openingTruncated.total,
       })}</p>`
     : ''
-  const reportNote = report.truncated
-    ? `<p class="note">${textOf(chrome, 'OVERVIEW_REPORT_TRUNCATED', {
-        shown: report.shownEntries,
-        total: report.totalEntries,
+  const overviewNote = overview.truncated
+    ? `<p class="note">${chromeHtml(chrome, 'OVERVIEW_REPORT_TRUNCATED', {
+        shown: overview.shownEntries,
+        total: overview.totalEntries,
       })}</p>`
     : ''
+  const omittedNote =
+    overview.sessionsOmitted > 0
+      ? `<p class="note">${chromeHtml(chrome, 'OVERVIEW_SESSIONS_OMITTED', {
+          sessions: overview.sessionsOmitted,
+        })}</p>`
+      : ''
+  const sessions = overview.sessions.filter((session) => session.entries.length > 0)
 
   return `<!doctype html>
-<html lang="${escapeHtml(report.locale)}">
+<html lang="${escapeHtml(overview.locale)}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -218,14 +247,15 @@ export function renderOverviewHtml(report: OverviewReport, chrome: OverviewChrom
 <main>
 <h1>${title}</h1>
 <p class="range">${range}</p>
-${opening ? `<p class="opening">${escapeHtml(opening)}</p>\n` : ''}${reportNote}
+${opening ? `<p class="opening">${escapeHtml(opening)}</p>\n` : ''}${overviewNote}
+${omittedNote}
 ${openingNote}
-<h2>${textOf(chrome, 'OVERVIEW_BY_DAY')}</h2>
-${dayGroups(report.sessions)
+<h2>${chromeHtml(chrome, 'OVERVIEW_BY_DAY')}</h2>
+${dayGroups(sessions)
   .map((group) => daySection(group, chrome))
   .join('\n')}
-<h2>${textOf(chrome, 'OVERVIEW_SESSIONS')}</h2>
-${report.sessions.map((session) => sessionSection(session, chrome)).join('\n')}
+<h2>${chromeHtml(chrome, 'OVERVIEW_SESSIONS')}</h2>
+${sessions.map((session) => sessionSection(session, chrome)).join('\n')}
 </main>
 </body>
 </html>

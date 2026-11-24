@@ -167,6 +167,8 @@
   "OVERVIEW_SESSION_META": "{count} turns in range",
   "OVERVIEW_SESSION_TRUNCATED": "Showing the newest {shown} of {total} turns",
   "OVERVIEW_REPORT_TRUNCATED": "This Overview shows the newest {shown} of {total} turns across all Sessions",
+  "OVERVIEW_SESSIONS_OMITTED": "{sessions} Sessions with turns in this range are not shown in this Overview",
+  "OVERVIEW_COVERS_TRUNCATED": "Picture chosen from the newest {shown} of {total} candidates",
   "OVERVIEW_OPENING_TRUNCATED": "The opening paragraph was shortened to the first {shown} of {total} characters",
   "OVERVIEW_STATUS_FAILED": "Failed",
   "OVERVIEW_STATUS_CANCELLED": "Cancelled",

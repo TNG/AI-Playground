@@ -167,6 +167,8 @@
   "OVERVIEW_SESSION_META": "{count} turni nell'intervallo",
   "OVERVIEW_SESSION_TRUNCATED": "Vengono mostrati i {shown} turni più recenti di {total}",
   "OVERVIEW_REPORT_TRUNCATED": "Questa Overview mostra i {shown} turni più recenti di {total} di tutte le sessioni",
+  "OVERVIEW_SESSIONS_OMITTED": "{sessions} sessioni con turni in questo intervallo non sono mostrate in questa Overview",
+  "OVERVIEW_COVERS_TRUNCATED": "Immagine scelta tra le {shown} più recenti di {total} candidate",
   "OVERVIEW_OPENING_TRUNCATED": "Il paragrafo introduttivo è stato ridotto ai primi {shown} di {total} caratteri",
   "OVERVIEW_STATUS_FAILED": "Non riuscito",
   "OVERVIEW_STATUS_CANCELLED": "Annullato",

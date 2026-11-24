@@ -167,6 +167,8 @@
   "OVERVIEW_SESSION_META": "范围内共 {count} 个轮次",
   "OVERVIEW_SESSION_TRUNCATED": "显示最新 {shown}/{total} 个轮次",
   "OVERVIEW_REPORT_TRUNCATED": "此 Overview 显示所有会话中最新 {shown}/{total} 个轮次",
+  "OVERVIEW_SESSIONS_OMITTED": "此范围内有轮次的 {sessions} 个会话未在此 Overview 中显示",
+  "OVERVIEW_COVERS_TRUNCATED": "已从最新 {shown}/{total} 个候选图片中选择",
   "OVERVIEW_OPENING_TRUNCATED": "开头段落已缩短为前 {shown}/{total} 个字符",
   "OVERVIEW_STATUS_FAILED": "失败",
   "OVERVIEW_STATUS_CANCELLED": "已取消",

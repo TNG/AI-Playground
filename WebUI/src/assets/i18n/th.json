@@ -167,6 +167,8 @@
   "OVERVIEW_SESSION_META": "{count} เทิร์นในช่วง",
   "OVERVIEW_SESSION_TRUNCATED": "กำลังแสดง {shown} จาก {total} เทิร์นล่าสุด",
   "OVERVIEW_REPORT_TRUNCATED": "Overviews นี้แสดง {shown} จาก {total} เทิร์นล่าสุดจากทุกเซสชัน",
+  "OVERVIEW_SESSIONS_OMITTED": "เซสชัน {sessions} เซสชันที่มีเทิร์นในช่วงนี้ไม่ถูกแสดงใน Overviews นี้",
+  "OVERVIEW_COVERS_TRUNCATED": "เลือกรูปภาพจาก {shown} จาก {total} ตัวเลือกใหม่ล่าสุด",
   "OVERVIEW_OPENING_TRUNCATED": "ย่อหน้าต้นถูกย่อเหลือ {shown} จาก {total} อักขระแรก",
   "OVERVIEW_STATUS_FAILED": "ล้มเหลว",
   "OVERVIEW_STATUS_CANCELLED": "ยกเลิกแล้ว",

@@ -167,6 +167,8 @@
   "OVERVIEW_SESSION_META": "{count} lượt trong khoảng",
   "OVERVIEW_SESSION_TRUNCATED": "Đang hiển thị {shown}/{total} lượt mới nhất",
   "OVERVIEW_REPORT_TRUNCATED": "Overviews này hiển thị {shown}/{total} lượt mới nhất từ tất cả các phiên",
+  "OVERVIEW_SESSIONS_OMITTED": "{sessions} phiên có lượt trong khoảng này không được hiển thị trong Overviews này",
+  "OVERVIEW_COVERS_TRUNCATED": "Ảnh được chọn từ {shown}/{total} ứng viên mới nhất",
   "OVERVIEW_OPENING_TRUNCATED": "Đoạn mở đầu đã được rút gọn còn {shown}/{total} ký tự đầu",
   "OVERVIEW_STATUS_FAILED": "Thất bại",
   "OVERVIEW_STATUS_CANCELLED": "Đã hủy",

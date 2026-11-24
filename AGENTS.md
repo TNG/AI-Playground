@@ -1024,7 +1024,7 @@ env var, which stays only as a one-shot override for a launch with no UI yet.
 
 **Presets**: `components/PresetSelector.vue`, `components/VariantSelector.vue` → stores: `presets`, `presetSwitching`
 
-**Service Management**: `components/InstallationManagement.vue` → store: `backendServices` → electron: `apiServiceRegistry.ts`, `electron/adapters/backends/*.ts`
+**Service Management**: `components/ComponentPanel.vue` (the Setup Wizard's shared panel) → store: `setupWizard` / `backendServices` → electron: `apiServiceRegistry.ts`, `electron/adapters/backends/*.ts`
 
 ### Electron Main Process Files
 

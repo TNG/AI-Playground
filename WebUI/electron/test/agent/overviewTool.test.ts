@@ -94,6 +94,14 @@ async function dataFrom(host: Host, range: unknown): Promise<Record<string, unkn
   return JSON.parse(textOf(result))
 }
 
+async function dataWith(
+  host: Host,
+  params: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const result = await (await overviewTool(host)).execute('call-1', params)
+  return JSON.parse(textOf(result))
+}
+
 beforeAll(async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'aipg-overview-tool-'))
   dirs.real = path.join(root, 'sessions')
@@ -155,6 +163,23 @@ describe('overview_data', () => {
     const day = await dataFrom(hostFor(), { lastHours: 24 })
     const named = await dataFrom(hostFor(), 'last-24h')
     expect(day.window).toEqual(named.window)
+  })
+
+  it('takes the window as flat arguments, and returns its label', async () => {
+    const flat = await dataWith(hostFor(), { lastHours: 1 })
+    expect(flat.window).toEqual({ from: NOW - HOUR, to: NOW })
+    expect(String(flat.windowLabel)).toMatch(/2026/)
+
+    const named = await dataWith(hostFor(), { range: 'today' })
+    expect(named.window).toEqual({ from: TODAY, to: TODAY + DAY })
+  })
+
+  it('accepts a window a model sent as a JSON string or a string number', async () => {
+    const nested = await dataWith(hostFor(), { range: JSON.stringify({ lastHours: 2 }) })
+    expect(nested.window).toEqual({ from: NOW - 2 * HOUR, to: NOW })
+
+    const stringy = await dataWith(hostFor(), { lastHours: '3' })
+    expect(stringy.window).toEqual({ from: NOW - 3 * HOUR, to: NOW })
   })
 
   it('is from-inclusive and to-exclusive', async () => {

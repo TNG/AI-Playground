@@ -11,6 +11,7 @@ import {
   OVERVIEW_MAX_LAST_HOURS,
   OVERVIEW_NAMED_RANGES,
   type OverviewRangeInput,
+  type OverviewWindow,
 } from '../../session/overviewRange.ts'
 import {
   overviewFileName,
@@ -33,52 +34,52 @@ const OVERVIEW_WRITE_TOOL = 'overview_write'
 /** One Session's summary is aimed at two to four sentences and never longer than this. */
 export const OVERVIEW_SUMMARY_CAP = 600
 
-const RANGE_SCHEMA: Record<string, unknown> = {
-  description:
-    'The window to report on: one of the named ranges, a number of hours back, or an explicit ' +
-    'window. "last-24h" rolls back 24 hours from now; "today" and "yesterday" are local calendar ' +
-    'days; "last-7-days" and "last-30-days" start at local midnight. {"lastHours": N} rolls back ' +
-    'N whole hours from now, for any number of hours the user names. An explicit window takes ' +
-    'local dates (YYYY-MM-DD) or ISO timestamps, includes "from" and excludes "to".',
-  anyOf: [
-    { type: 'string', enum: [...OVERVIEW_NAMED_RANGES] },
-    {
-      type: 'object',
-      additionalProperties: false,
-      properties: {
-        lastHours: {
-          type: 'integer',
-          minimum: 1,
-          maximum: OVERVIEW_MAX_LAST_HOURS,
-          description: 'Whole hours back from now, inclusive of the present.',
-        },
-      },
-      required: ['lastHours'],
-    },
-    {
-      type: 'object',
-      additionalProperties: false,
-      properties: {
-        from: { type: 'string', description: 'Start of the window, inclusive.' },
-        to: { type: 'string', description: 'End of the window, exclusive.' },
-      },
-      required: ['from', 'to'],
-    },
-  ],
+/**
+ * Flat on purpose: a local model's grammar handles three sibling fields far better
+ * than an `anyOf`, so the window is given as `range`, or `lastHours`, or `from`+`to`.
+ */
+const RANGE_PROPERTIES: Record<string, unknown> = {
+  range: {
+    type: 'string',
+    enum: [...OVERVIEW_NAMED_RANGES],
+    description:
+      'A named range: "last-24h" rolls back 24 hours from now, "today" and "yesterday" are ' +
+      'local calendar days, "last-7-days" and "last-30-days" start at local midnight. Use this, ' +
+      'or lastHours, or from+to — never more than one.',
+  },
+  lastHours: {
+    type: 'integer',
+    minimum: 1,
+    maximum: OVERVIEW_MAX_LAST_HOURS,
+    description:
+      'N whole hours back from now, up to now. Use this for "the last N hours"; do not compute ' +
+      'or pass timestamps for it.',
+  },
+  from: {
+    type: 'string',
+    description:
+      'Start of an explicit window, inclusive: a local date (YYYY-MM-DD) or an ISO timestamp. ' +
+      'Use only with to.',
+  },
+  to: {
+    type: 'string',
+    description:
+      'End of an explicit window, exclusive: a local date (YYYY-MM-DD) or an ISO timestamp. ' +
+      'Use only with from.',
+  },
 }
 
 const OVERVIEW_DATA_SCHEMA: Record<string, unknown> = {
   type: 'object',
   additionalProperties: false,
-  properties: { range: RANGE_SCHEMA },
-  required: ['range'],
+  properties: { ...RANGE_PROPERTIES },
 }
 
 const OVERVIEW_WRITE_SCHEMA: Record<string, unknown> = {
   type: 'object',
   additionalProperties: false,
   properties: {
-    range: RANGE_SCHEMA,
+    ...RANGE_PROPERTIES,
     summaries: {
       type: 'object',
       description:
@@ -97,7 +98,7 @@ const OVERVIEW_WRITE_SCHEMA: Record<string, unknown> = {
       additionalProperties: { type: 'string' },
     },
   },
-  required: ['range', 'summaries'],
+  required: ['summaries'],
 }
 
 function overviewMissingSession(): string {
@@ -114,16 +115,39 @@ function overviewMissingChrome(): string {
   )
 }
 
+/** Parse a JSON-encoded window a model occasionally sends instead of an object. */
+function jsonObjectOf(value: string): Record<string, unknown> | null {
+  if (!value.trim().startsWith('{')) return null
+  try {
+    const parsed: unknown = JSON.parse(value)
+    return isRecord(parsed) ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+/** A whole hour count, tolerating the string a model sometimes sends for a number. */
+function hoursOf(value: unknown): number | null {
+  const hours = typeof value === 'string' && value.trim() !== '' ? Number(value) : value
+  const whole =
+    typeof hours === 'number' &&
+    Number.isInteger(hours) &&
+    hours >= 1 &&
+    hours <= OVERVIEW_MAX_LAST_HOURS
+  return whole ? (hours as number) : null
+}
+
 function rangeOf(value: unknown): OverviewRangeInput | null {
   if (typeof value === 'string') {
-    return (OVERVIEW_NAMED_RANGES as readonly string[]).includes(value)
-      ? (value as OverviewRangeInput)
-      : null
+    if ((OVERVIEW_NAMED_RANGES as readonly string[]).includes(value)) {
+      return value as OverviewRangeInput
+    }
+    const parsed = jsonObjectOf(value)
+    return parsed ? rangeOf(parsed) : null
   }
-  if (isRecord(value) && typeof value.lastHours === 'number') {
-    const { lastHours } = value
-    const whole = Number.isInteger(lastHours) && lastHours >= 1 && lastHours <= OVERVIEW_MAX_LAST_HOURS
-    return whole ? { lastHours } : null
+  if (isRecord(value) && value.lastHours !== undefined) {
+    const hours = hoursOf(value.lastHours)
+    return hours === null ? null : { lastHours: hours }
   }
   if (isRecord(value) && typeof value.from === 'string' && typeof value.to === 'string') {
     return { from: value.from, to: value.to }
@@ -131,12 +155,37 @@ function rangeOf(value: unknown): OverviewRangeInput | null {
   return null
 }
 
+/** The window as the tool's arguments carry it: the flat fields, or one `range` value. */
+function rangeOfParams(params: Record<string, unknown>): OverviewRangeInput | null {
+  const viaRange = rangeOf(params.range)
+  if (viaRange) return viaRange
+  const hours = hoursOf(params.lastHours)
+  if (hours !== null) return { lastHours: hours }
+  if (typeof params.from === 'string' && typeof params.to === 'string') {
+    return { from: params.from, to: params.to }
+  }
+  return null
+}
+
 function invalidRange(): string {
   return (
-    `"range" must be one of ${OVERVIEW_NAMED_RANGES.join(', ')}, {"lastHours": N} with a whole ` +
-    'number of hours from 1 to ' +
-    `${OVERVIEW_MAX_LAST_HOURS}, or an object with "from" and "to" (local dates or ISO timestamps).`
+    'Name the window as `range` (one of ' +
+    OVERVIEW_NAMED_RANGES.join(', ') +
+    '), or `lastHours` (a whole number from 1 to ' +
+    OVERVIEW_MAX_LAST_HOURS +
+    ', which is how "the last N hours" is asked for), or `from` and `to` (local dates or ISO ' +
+    'timestamps). Never compute timestamps: lastHours already covers a number of hours.'
   )
+}
+
+/** The window in the reader's language, so the agent never has to convert timestamps. */
+function windowLabelOf(window: OverviewWindow, locale: string): string {
+  const format = new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' })
+  return `${format.format(window.from)} – ${format.format(window.to)}`
+}
+
+function localeOf(host: CapabilityHost): string {
+  return host.overviewChrome?.locale ?? host.responseLocale ?? 'en-US'
 }
 
 function overviewOf(
@@ -379,19 +428,19 @@ async function buildOverviewTools(host: CapabilityHost): Promise<ToolDefinition[
         'turns in it with those turns newest first, per-Session totals and truncation, and the ' +
         'pictures that could represent each Session. Sessions without the switch never appear, ' +
         'and neither does the Session asking. Call it before writing anything, and quote the ' +
-        'resolved window and any truncation in your answer.',
+        'resolved `windowLabel` and any truncation in your answer unchanged — never compute or ' +
+        'convert times yourself.',
       parameters: jsonSchemaParameters(OVERVIEW_DATA_SCHEMA),
       execute: async (_toolCallId, params) => {
         if (!host.sessionRef) return textResult(overviewMissingSession())
-        const { range } = params as { range?: unknown }
-        const input = rangeOf(range)
+        const input = rangeOfParams(params as Record<string, unknown>)
         if (!input) return textResult(invalidRange())
         try {
           const data = await collectOverviewData({
             range: input,
             excludingSessionId: host.sessionRef,
           })
-          return jsonResult(data)
+          return jsonResult({ ...data, windowLabel: windowLabelOf(data.window, localeOf(host)) })
         } catch (error) {
           return textResult(error instanceof Error ? error.message : String(error))
         }
@@ -414,12 +463,11 @@ async function buildOverviewTools(host: CapabilityHost): Promise<ToolDefinition[
       parameters: jsonSchemaParameters(OVERVIEW_WRITE_SCHEMA),
       execute: async (_toolCallId, params) => {
         if (!host.sessionRef) return textResult(overviewMissingSession())
-        const { range, summaries, covers } = params as {
-          range?: unknown
+        const { summaries, covers } = params as {
           summaries?: unknown
           covers?: unknown
         }
-        const input = rangeOf(range)
+        const input = rangeOfParams(params as Record<string, unknown>)
         if (!input) return textResult(invalidRange())
         const chrome = host.overviewChrome
         if (!chrome) return textResult(overviewMissingChrome())
@@ -433,6 +481,7 @@ async function buildOverviewTools(host: CapabilityHost): Promise<ToolDefinition[
               written: false,
               outcome: data.outcome,
               window: data.window,
+              windowLabel: windowLabelOf(data.window, chrome.locale),
               message: data.message,
             })
           }
@@ -455,6 +504,7 @@ async function buildOverviewTools(host: CapabilityHost): Promise<ToolDefinition[
             path: fileName,
             ...(url ? { url } : {}),
             window: data.window,
+            windowLabel: windowLabelOf(data.window, chrome.locale),
             sessions: data.sessions.length,
             sessionsOmitted: data.sessionsOmitted,
             shownEntries: overview.shownEntries,

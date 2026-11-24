@@ -252,6 +252,45 @@ describe('game tool, 3D models', () => {
     expect(Buffer.from(models.enemy, 'base64').equals(GLB)).toBe(true)
   })
 
+  // WebGL refuses an image file on a file:// page, so 3D scenes take images as data URIs.
+  it('embeds a generated image as a sprite script the 3D scene can use', async () => {
+    const png = Buffer.from('\x89PNG fake', 'binary')
+    fs.mkdirSync(path.join(workspaceDir, 'generated'), { recursive: true })
+    fs.writeFileSync(path.join(workspaceDir, 'generated/AIPG_Image_00001_.png'), png)
+    noteGeneratedMedia(workspaceDir, ['generated/AIPG_Image_00001_.png'])
+    const tool = await gameToolFor(workspaceDir)
+
+    const result = textOf(
+      await tool.execute('call-1', {
+        action: 'import_sprite',
+        path: 'generated/AIPG_Image_00001_.png',
+        modelName: 'rock',
+      }),
+    )
+
+    expect(result).toContain('<script src="sprites/rock.js"></script>')
+    expect(result).toContain("sprite: 'rock'")
+    const script = fs.readFileSync(path.join(workspaceDir, 'sprites/rock.js'), 'utf-8')
+    const sprites: Record<string, string> = {}
+    new Function('window', script)({ GAME_SPRITES: sprites })
+    expect(sprites.rock).toBe(`data:image/png;base64,${png.toString('base64')}`)
+  })
+
+  it('refuses a sprite no media call produced, or a file that is not an image', async () => {
+    writeWorkspaceFile('generated/made-up.png')
+    writeModel('attachments/ship.glb')
+    const tool = await gameToolFor(workspaceDir)
+    const run = async (params: Record<string, unknown>) =>
+      textOf(await tool.execute('call-1', { action: 'import_sprite', ...params }))
+
+    expect(await run({ path: 'generated/made-up.png', modelName: 'rock' })).toMatch(
+      /not an image this session produced/,
+    )
+    expect(await run({ path: 'attachments/ship.glb', modelName: 'ship' })).toMatch(
+      /not a PNG, JPEG or WebP/,
+    )
+  })
+
   it('refuses a model no media call produced', async () => {
     writeModel('generated/made-up.glb')
     const tool = await gameToolFor(workspaceDir)
@@ -275,7 +314,7 @@ describe('game tool, 3D models', () => {
 
     expect(await run({ path: 'attachments/ship.glb' })).toMatch(/modelName/)
     expect(await run({ path: 'attachments/ship.glb', modelName: 'Big Ship' })).toMatch(
-      /cannot be a model name/,
+      /cannot be a name for it/,
     )
     expect(await run({ path: 'attachments/ship.png', modelName: 'ship' })).toMatch(/not a \.glb/)
     expect(await run({ path: 'attachments/ship.glb', modelName: 'ship' })).toContain(

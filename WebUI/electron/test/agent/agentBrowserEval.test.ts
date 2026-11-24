@@ -12,6 +12,7 @@ class FakeBrowserWindow {
   webContents = {
     executeJavaScript,
     setAudioMuted: vi.fn(),
+    setFrameRate: vi.fn(),
     debugger: {
       attach: () => {
         throw new Error('no debugger in tests')
@@ -57,6 +58,13 @@ describe("browser 'eval'", () => {
   // unwrapped script used to fail to compile at all.
   it('runs a statement list with a top-level return', async () => {
     expect(await evaluate('const a = 2; const b = 3; return a * b')).toEqual({ text: '6' })
+  })
+
+  // Agents read a bare "undefined" as the game being broken and debugged it.
+  it('says so when a statement list returned nothing', async () => {
+    const { text } = await evaluate('const a = 1\nconst b = a + 1\nb')
+    expect(text).toMatch(/returned nothing/)
+    expect(text).toContain('return <value>')
   })
 
   it('reports what the script threw, not that something did', async () => {

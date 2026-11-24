@@ -41,6 +41,13 @@ describe('3D game scaffold', () => {
     expect(script).toContain('THREE.addGameEnvironment(renderer, scene)')
   })
 
+  it('turns an imported model or sprite into the objects of its kind', () => {
+    const script = SCAFFOLD_3D_FILES['game.js']
+    expect(script).toContain('player: { name: null, sprite: null')
+    expect(script).toContain('THREE.makeGameSprite(spec.sprite, spec.size)')
+    expect(script).toContain('templates[kind].clone()')
+  })
+
   it('loads three.js, then the models, then the game, as classic scripts', () => {
     const page = SCAFFOLD_3D_FILES['index.html']
     const lib = page.indexOf('<script src="lib/three-game.js"></script>')

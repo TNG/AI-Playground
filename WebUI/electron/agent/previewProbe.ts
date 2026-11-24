@@ -239,7 +239,7 @@ export const PROBE_SCRIPT = `(function () {
       await wait(${KEY_HOLD_MS})
       var after = samplePixels(canvas)
       target.dispatchEvent(keyEvent('keyup', key))
-      report.keys.push({ key: key, delta: pixelDelta(before, after) })
+      report.keys.push({ key: key, delta: pixelDelta(before, after), game: readGameHook() })
     }
     report.errorCount = errors.length
     report.errors = errors.slice(0, 5)
@@ -249,10 +249,13 @@ export const PROBE_SCRIPT = `(function () {
 `
 
 /** Evaluated in the page by the browser tool's `probe` action. */
-export const PROBE_CALL = `
+export function probeCall(keys?: string[]): string {
+  const options = keys && keys.length > 0 ? { keys: keys.slice(0, 8).map(String) } : {}
+  return `
   if (!window.__aipgProbe) return { installed: false }
-  return await window.__aipgProbe({})
+  return await window.__aipgProbe(${JSON.stringify(options)})
 `
+}
 
 export type ProbeReport = {
   installed: boolean
@@ -262,7 +265,7 @@ export type ProbeReport = {
   seconds?: number
   canvas?: { count: number; width: number; height: number; ink: number | null } | null
   listeners?: string[]
-  keys?: { key: string; delta: number | null }[]
+  keys?: { key: string; delta: number | null; game?: Record<string, string | number> | null }[]
   game?: Record<string, string | number> | null
   errors?: string[]
   errorCount?: number
@@ -349,12 +352,16 @@ export function formatProbeReport(report: ProbeReport): string {
       : 'Input listeners: none — the page cannot be played',
   )
 
+  let previousGame = report.game ?? null
   for (const key of report.keys ?? []) {
     const label = key.key === ' ' ? 'Space' : key.key
+    const changed = gameChanges(previousGame, key.game ?? null)
+    if (key.game) previousGame = key.game
     lines.push(
-      key.delta === null
+      (key.delta === null
         ? `Pressed ${label}: could not compare pixels`
-        : `Pressed ${label}: ${percent(key.delta)} of pixels changed`,
+        : `Pressed ${label}: ${percent(key.delta)} of pixels changed`) +
+        (changed ? `; game hook ${changed}` : ''),
     )
   }
 
@@ -369,6 +376,18 @@ export function formatProbeReport(report: ProbeReport): string {
 
   lines.push(`Verdict: ${verdict(report)}`)
   return lines.join('\n')
+}
+
+/** "state title→playing, entities 0→2", or nothing when no field moved. */
+function gameChanges(
+  before: Record<string, string | number> | null,
+  after: Record<string, string | number> | null,
+): string {
+  if (!before || !after) return ''
+  return Object.keys(after)
+    .filter((name) => before[name] !== after[name])
+    .map((name) => `${name} ${before[name]}→${after[name]}`)
+    .join(', ')
 }
 
 function verdict(report: ProbeReport): string {

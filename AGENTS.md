@@ -1175,7 +1175,12 @@ on Windows, `~/AI-Playground/games` elsewhere — and every game folder holds it
   swaps in the 3D scaffold (`SCAFFOLD_3D_FILES`: same section markers plus `scene` and `models`,
   a `MODELS` map that `makeObject(kind)` reads, boxes until a model is named) — models used to
   stall turning the 2D canvas page into a WebGL one. `import_model` writes a generated `.glb` as
-  `models/<name>.js` (base64 into `window.GAME_MODELS`). Models come from Pixel3D-Trellis's `Fast` ("Game-ready")
+  `models/<name>.js` (base64 into `window.GAME_MODELS`); `import_sprite` writes an image as
+  `sprites/<name>.js` (a data URI in `window.GAME_SPRITES`) for `THREE.makeGameSprite` and the
+  `MODELS` entries' `sprite:` — WebGL refuses an image _file_ on a `file://` page, which the HTTP
+  preview hides. The agent's preview browser (`agentBrowser.ts`) renders **offscreen**: on Windows a
+  hidden window drawing WebGL gets ~2 fps whatever `backgroundThrottling` says, and agents then
+  tore apart working 3D games (deleting the generated model) chasing a "frozen loop". Models come from Pixel3D-Trellis's `Fast` ("Game-ready")
   variant — 1024 textures, 50k faces — which agent tools pick when no variant is named. The probe
   reads a WebGL canvas only when the renderer has `preserveDrawingBuffer: true`.
 - The agent fills the library card itself with the `game` tool (`set_metadata`, `set_icon`),

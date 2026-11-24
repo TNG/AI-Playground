@@ -206,7 +206,7 @@ const INDEX_HTML_3D = `<!doctype html>
 <!-- Classic scripts on purpose: this page is opened as a file:// page when the
      user plays it, and there ES modules and fetch() of a sibling file are blocked. -->
 <script src="lib/three-game.js"></script>
-<!-- models: one <script src="models/<name>.js"></script> per imported model, here -->
+<!-- models: one <script src="models/<name>.js"></script> or sprites/<name>.js per import, here -->
 <script src="game.js"></script>
 </body>
 </html>
@@ -259,11 +259,12 @@ function resize() {
 }
 
 // === models ===
-// One entry per kind of object. name: a model imported with the game tool's
-// import_model (also add its script tag to index.html); null keeps a box.
-// size: its largest side in world units.
+// One entry per kind of object. name: a 3D model imported with the game tool's
+// import_model; sprite: an image imported with import_sprite, drawn facing the
+// camera. Add the script tag each import names to index.html. With neither, the
+// kind is a box. size: its largest side in world units.
 const MODELS = {
-  player: { name: null, size: 1.5, color: CONFIG.accent },
+  player: { name: null, sprite: null, size: 1.5, color: CONFIG.accent },
 }
 const templates = {}
 
@@ -288,6 +289,10 @@ function makeObject(kind) {
   const spec = MODELS[kind]
   if (templates[kind]) {
     holder.add(templates[kind].clone())
+  } else if (spec && spec.sprite) {
+    const sprite = THREE.makeGameSprite(spec.sprite, spec.size)
+    sprite.position.y = spec.size / 2
+    holder.add(sprite)
   } else {
     const size = spec ? spec.size : 1
     const box = new THREE.Mesh(

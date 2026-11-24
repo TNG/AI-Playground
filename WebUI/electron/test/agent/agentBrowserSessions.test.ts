@@ -13,6 +13,7 @@ class FakeBrowserWindow {
   webContents = {
     executeJavaScript: vi.fn(async () => ''),
     setAudioMuted: vi.fn(),
+    setFrameRate: vi.fn(),
     debugger: {
       attach: vi.fn(),
       detach: vi.fn(),

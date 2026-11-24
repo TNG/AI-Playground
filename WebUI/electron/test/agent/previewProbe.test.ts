@@ -4,6 +4,7 @@ import {
   injectProbe,
   PROBE_PATH,
   PROBE_SCRIPT,
+  probeCall,
   type ProbeReport,
 } from '../../agent/previewProbe.ts'
 
@@ -60,6 +61,13 @@ const HEALTHY: ProbeReport = {
   errorCount: 0,
 }
 
+describe('probeCall', () => {
+  it('presses the keys the agent chose, and the defaults otherwise', () => {
+    expect(probeCall([' ', 'ArrowRight'])).toContain('__aipgProbe({"keys":[" ","ArrowRight"]})')
+    expect(probeCall()).toContain('__aipgProbe({})')
+  })
+})
+
 describe('formatProbeReport', () => {
   it('reports a working game as working', () => {
     const text = formatProbeReport(HEALTHY)
@@ -70,6 +78,22 @@ describe('formatProbeReport', () => {
     expect(text).toContain('Input listeners: keydown, keyup, pointerdown')
     expect(text).toContain('Game hook: state=playing score=42 entities=7')
     expect(text).toContain('Verdict: running, drawing and listening for input.')
+  })
+
+  // A title screen that Space starts reads as "nothing happened" without this.
+  it('says what each key press changed in the game hook', () => {
+    const text = formatProbeReport({
+      ...HEALTHY,
+      game: { state: 'title', score: 0, entities: 0 },
+      keys: [
+        { key: ' ', delta: 0.4, game: { state: 'playing', score: 0, entities: 2 } },
+        { key: 'ArrowLeft', delta: 0.02, game: { state: 'playing', score: 0, entities: 2 } },
+      ],
+    })
+    expect(text).toContain(
+      'Pressed Space: 40.0% of pixels changed; game hook state title→playing, entities 0→2',
+    )
+    expect(text).toMatch(/Pressed ArrowLeft: 2\.0% of pixels changed\n/)
   })
 
   it('leaves out the resize listener, which says nothing about playability', () => {

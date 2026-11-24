@@ -48,6 +48,14 @@ const BROWSER_INPUT_SCHEMA: Record<string, unknown> = {
         '(resolved against the workspace preview server) or a full http URL.',
     },
     script: { type: 'string', description: 'JavaScript to evaluate (action=eval).' },
+    keys: {
+      type: 'array',
+      items: { type: 'string' },
+      description:
+        'Keys the probe presses one after another (action=probe), e.g. [" ", "ArrowRight"]; ' +
+        'default ArrowLeft then Space. Each reports what it changed on screen and in ' +
+        'window.__game.',
+    },
   },
   required: ['action'],
 }
@@ -69,13 +77,18 @@ const BROWSER_DEBUGGING_SKILL: SkillSource = {
     '   an animation loop is running, how much of the canvas is actually drawn on, which input',
     '   events the page listens for, what pressing a key changes, and `window.__game` when the',
     '   page exposes it. It ends with a verdict naming the one thing to fix next.',
+    '   Choose the keys it presses with `keys` — e.g. `{"action":"probe","keys":[" ","ArrowLeft"]}`',
+    '   to start the game and then steer — and it reports what each one changed in',
+    '   `window.__game` (`state title→playing`). Drive input this way rather than dispatching',
+    '   events yourself: an event you dispatch reaches a window listener only if it bubbles.',
     '3. browser {"action":"console"} — the raw log, when the probe\'s first few errors are not',
     '   enough.',
     '4. Edit the workspace file (relative path, e.g. "game.js") to fix the root cause, then',
     '   open + probe again. Repeat until the verdict is clean.',
     '5. browser {"action":"eval","script":"document.title"} — run JS to inspect page state;',
-    '   either an expression or statements ending in `return`. A script that throws comes back',
-    '   with its own error message, so read that instead of guessing another script.',
+    '   either an expression or statements ending in `return` (without one, it says it returned',
+    '   nothing). A script that throws comes back with its own error message, so read that',
+    '   instead of guessing another script.',
     '6. browser {"action":"screenshot"} — save a PNG into the workspace and get its path. It is',
     '   shown to the user; do NOT read it back as an image, the probe already told you what is',
     '   on the page in words.',

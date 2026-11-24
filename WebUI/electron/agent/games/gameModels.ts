@@ -16,9 +16,9 @@ const MODEL_NAME = /^[a-z][a-z0-9_-]{0,39}$/
 // Base64 grows a model by a third, and every byte is decoded before the first frame.
 const MAX_MODEL_BYTES = 40 * 1024 * 1024
 
-export type ImportedModel = {
+export type ImportedAsset = {
   name: string
-  modelScriptPath: string
+  scriptPath: string
   libPath: string
   bytes: number
 }
@@ -50,16 +50,60 @@ export function ensureThreeLib(workspaceDir: string): void {
   fs.copyFileSync(source, target)
 }
 
+function assertAssetName(name: string): void {
+  if (!MODEL_NAME.test(name)) {
+    throw new Error(
+      `'${name}' cannot be a name for it: use lowercase letters, digits, - and _, starting with a letter.`,
+    )
+  }
+}
+
+const SPRITE_TYPES: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+}
+const MAX_SPRITE_BYTES = 8 * 1024 * 1024
+
+/** An image as sprites/<name>.js, for THREE.loadGameTexture / THREE.makeGameSprite. */
+export function importGameSprite(
+  workspaceDir: string,
+  imagePath: string,
+  name: string,
+): ImportedAsset {
+  assertAssetName(name)
+  const normalized = normalizeWorkspacePath(imagePath)
+  const mime = SPRITE_TYPES[path.posix.extname(normalized).toLowerCase()]
+  if (!mime) throw new Error(`'${imagePath}' is not a PNG, JPEG or WebP image.`)
+  const source = insideWorkspace(workspaceDir, normalized)
+  if (!fs.existsSync(source)) throw new Error(`'${imagePath}' does not exist.`)
+  const image = fs.readFileSync(source)
+  if (image.length > MAX_SPRITE_BYTES) {
+    throw new Error(
+      `'${imagePath}' is ${Math.round(image.length / 1048576)} MB, too large for a sprite.`,
+    )
+  }
+
+  ensureThreeLib(workspaceDir)
+  const scriptPath = `sprites/${name}.js`
+  const target = path.join(workspaceDir, scriptPath)
+  fs.mkdirSync(path.dirname(target), { recursive: true })
+  fs.writeFileSync(
+    target,
+    `// ${normalized}, embedded so THREE.makeGameSprite('${name}') works on a file:// page.\n` +
+      `;(window.GAME_SPRITES = window.GAME_SPRITES || {})[${JSON.stringify(name)}] =\n` +
+      `  'data:${mime};base64,${image.toString('base64')}'\n`,
+  )
+  return { name, scriptPath, libPath: THREE_LIB_PATH, bytes: image.length }
+}
+
 export function importGameModel(
   workspaceDir: string,
   modelPath: string,
   name: string,
-): ImportedModel {
-  if (!MODEL_NAME.test(name)) {
-    throw new Error(
-      `'${name}' cannot be a model name: use lowercase letters, digits, - and _, starting with a letter.`,
-    )
-  }
+): ImportedAsset {
+  assertAssetName(name)
   const normalized = normalizeWorkspacePath(modelPath)
   if (path.posix.extname(normalized).toLowerCase() !== '.glb') {
     throw new Error(`'${modelPath}' is not a .glb model.`)
@@ -75,8 +119,8 @@ export function importGameModel(
   }
 
   ensureThreeLib(workspaceDir)
-  const modelScriptPath = `models/${name}.js`
-  const target = path.join(workspaceDir, modelScriptPath)
+  const scriptPath = `models/${name}.js`
+  const target = path.join(workspaceDir, scriptPath)
   fs.mkdirSync(path.dirname(target), { recursive: true })
   fs.writeFileSync(
     target,
@@ -84,5 +128,5 @@ export function importGameModel(
       `;(window.GAME_MODELS = window.GAME_MODELS || {})[${JSON.stringify(name)}] =\n` +
       `  '${glb.toString('base64')}'\n`,
   )
-  return { name, modelScriptPath, libPath: THREE_LIB_PATH, bytes: glb.length }
+  return { name, scriptPath, libPath: THREE_LIB_PATH, bytes: glb.length }
 }

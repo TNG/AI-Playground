@@ -29,6 +29,30 @@ THREE.addGameEnvironment = function addGameEnvironment(renderer, scene) {
   return scene.environment
 }
 
+// Images are shipped as sprites/<name>.js scripts setting GAME_SPRITES[name] to a
+// data URI: WebGL refuses an image file loaded into a file:// page, a data URI it takes.
+THREE.loadGameTexture = function loadGameTexture(name, onLoad) {
+  const uri = window.GAME_SPRITES && window.GAME_SPRITES[name]
+  if (!uri) throw new Error('No sprite "' + name + '": is sprites/' + name + '.js loaded?')
+  const texture = new core.TextureLoader().load(uri, onLoad)
+  texture.colorSpace = core.SRGBColorSpace
+  return texture
+}
+
+// A camera-facing sprite whose larger side is \`size\`, keeping the image's aspect.
+THREE.makeGameSprite = function makeGameSprite(name, size) {
+  const side = size || 1
+  const sprite = new core.Sprite(new core.SpriteMaterial({ transparent: true }))
+  sprite.scale.set(side, side, 1)
+  sprite.material.map = THREE.loadGameTexture(name, (texture) => {
+    const { width, height } = texture.image
+    const longest = Math.max(width, height)
+    sprite.scale.set((side * width) / longest, (side * height) / longest, 1)
+  })
+  sprite.material.needsUpdate = true
+  return sprite
+}
+
 // Scales an object so its largest side is \`size\`, centred on x/z, feet on y = 0.
 THREE.fitGameModel = function fitGameModel(object, size) {
   const box = new core.Box3().setFromObject(object)

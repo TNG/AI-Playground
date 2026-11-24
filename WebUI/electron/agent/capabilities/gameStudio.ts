@@ -12,8 +12,9 @@ import { writeScaffold3d } from '../games/gameScaffold.ts'
 import {
   ensureThreeLib,
   importGameModel,
+  importGameSprite,
   THREE_LIB_PATH,
-  type ImportedModel,
+  type ImportedAsset,
 } from '../games/gameModels.ts'
 import { isGeneratedMedia, normalizeWorkspacePath } from '../generatedMedia.ts'
 import { mediaToolNames } from './media.ts'
@@ -138,18 +139,27 @@ function gameStudioSkill(mediaTools: string[]): SkillSource {
       '  scaffold, it becomes a 3D one that already runs: renderer, camera, lights, a ground, input',
       '  as a point on the ground, an HTML `#hud` for text, and a `models` section. Then `read',
       '  game.js` and plan against those sections. Entities live on the ground as `{ x, z, object }`,',
-      '  and `makeObject(kind)` gives you the object for one — a box until that kind has a model.',
+      '  and `makeObject(kind)` gives you the object for one — a box until that kind has a model or',
+      '  a sprite.',
       "- The canvas holds a WebGL context, so it can never get a 2D one: no `getContext('2d')`. Score,",
       '  lives and buttons go in HTML over it.',
-      '- Play-test the mechanic with the boxes before any model exists.',
+      '- Play-test the mechanic with the boxes before any art exists. A game that waits on a title',
+      '  screen gets started by the probe: `browser {"action":"probe","keys":[" ","ArrowLeft"]}`',
+      '  presses Space, then steers, and reports `state title→playing` when that worked.',
       `- The model comes once the game plays: concept art first, with ${MEDIA_TOOL} — one object,`,
       '  whole and centred, in a three-quarter view on a plain light background, with no ground,',
       '  shadow or text. Then the image-to-3D workflow the tool lists (for example Pixel3D-Trellis),',
       '  with that image as the source: no prompt needed, the game-ready variant is chosen for you,',
       '  and it takes several minutes. Then',
       '  `game {"action":"import_model","path":"<the .glb from savedFiles>","modelName":"enemy"}`',
-      '  and do what it answers: a script tag at the `models:` comment in `index.html` and the name',
-      '  on that kind in the `MODELS` map. Every `makeObject` of that kind is then the model.',
+      '  and do what it answers: a script tag below the `models:` comment in `index.html` and the',
+      '  name on that kind in the `MODELS` map. Every `makeObject` of that kind is then the model.',
+      `- Sprites (towers, pickups, obstacles) are images from ${MEDIA_TOOL}: ask for them on a plain`,
+      '  background, cut out with the Remove Background workflow, so no box shows around them. Then',
+      '  `game {"action":"import_sprite","path":"<the .png>","modelName":"rock"}`, its script tag,',
+      '  and `sprite: "rock"` on that kind in `MODELS`. Never hand an image path to',
+      '  `THREE.TextureLoader`: WebGL refuses an image file once the game is played from disk, and',
+      '  the preview hides that, so it breaks only for the user.',
       '- One or two models per game: every conversion holds the GPU for minutes.',
       '- Keep `window.__game` on the game state (wave, lives, enemies alive): the probe can see that',
       '  pixels changed, but only your hook says whether the game is being played.',
@@ -196,12 +206,13 @@ const GAME_INPUT_SCHEMA: Record<string, unknown> = {
   properties: {
     action: {
       type: 'string',
-      enum: ['set_metadata', 'set_icon', 'add_threejs', 'import_model', 'get'],
+      enum: ['set_metadata', 'set_icon', 'add_threejs', 'import_model', 'import_sprite', 'get'],
       description:
         'set_metadata: set the title and/or description shown in the library; ' +
         'set_icon: use a generated image as the cover; add_threejs: copy three.js into the ' +
         'game for a 3D scene; import_model: make a generated .glb loadable by the game (adds ' +
-        'three.js too); get: read the current card.',
+        'three.js too); import_sprite: make a generated image usable in the 3D scene; get: ' +
+        'read the current card.',
     },
     name: { type: 'string', description: 'Title of the game (action=set_metadata).' },
     description: {
@@ -211,22 +222,23 @@ const GAME_INPUT_SCHEMA: Record<string, unknown> = {
     path: {
       type: 'string',
       description:
-        'Workspace-relative file: the image to use as the cover (action=set_icon) or the .glb ' +
-        'model to import (action=import_model). A path a media call reported under ' +
-        '"savedFiles", or a file the user attached under "attachments/".',
+        'Workspace-relative file: the image to use as the cover (action=set_icon), the .glb ' +
+        'model to import (action=import_model) or the image to import (action=import_sprite). ' +
+        'A path a media call reported under "savedFiles", or a file the user attached under ' +
+        '"attachments/".',
     },
     modelName: {
       type: 'string',
       description:
-        'What the game calls the model, e.g. "enemy" (action=import_model): lowercase letters, ' +
-        'digits, - and _. The game loads it with THREE.loadGameModel("<modelName>").',
+        'What the game calls the model or sprite, e.g. "enemy" (action=import_model / ' +
+        'import_sprite): lowercase letters, digits, - and _.',
     },
   },
   required: ['action'],
 }
 
 type GameToolParams = {
-  action: 'set_metadata' | 'set_icon' | 'add_threejs' | 'import_model' | 'get'
+  action: 'set_metadata' | 'set_icon' | 'add_threejs' | 'import_model' | 'import_sprite' | 'get'
   name?: string
   description?: string
   path?: string
@@ -287,15 +299,29 @@ function threeSetupText(scaffold: 'written' | 'already-3d' | 'kept'): string {
   ].join('\n')
 }
 
-function importedModelText(imported: ImportedModel): string {
+function importedSpriteText(imported: ImportedAsset): string {
+  const kilobytes = Math.round(imported.bytes / 1024)
+  return [
+    `Imported '${imported.name}' (${kilobytes} KB) as ${imported.scriptPath}.`,
+    `In the 3D scaffold: add <script src="${imported.scriptPath}"></script> to index.html on a line`,
+    `below its "models:" comment (keep the comment), then set sprite: '${imported.name}' on the`,
+    'matching entry of the MODELS map in game.js (add an entry if the kind is new).',
+    'makeObject(kind) then hands out a camera-facing sprite of it instead of a box.',
+    `Without the scaffold: THREE.makeGameSprite('${imported.name}', size) after loading that script.`,
+    'Never load the image file itself into the 3D scene: WebGL refuses it once the game is',
+    'played from disk, even though the preview shows it.',
+  ].join('\n')
+}
+
+function importedModelText(imported: ImportedAsset): string {
   const megabytes = (imported.bytes / 1048576).toFixed(1)
   return [
-    `Imported '${imported.name}' (${megabytes} MB) as ${imported.modelScriptPath}; three.js is at ${imported.libPath}.`,
-    `In the 3D scaffold: add <script src="${imported.modelScriptPath}"></script> to index.html at`,
-    'its "models:" comment, then set name to ' +
+    `Imported '${imported.name}' (${megabytes} MB) as ${imported.scriptPath}; three.js is at ${imported.libPath}.`,
+    `In the 3D scaffold: add <script src="${imported.scriptPath}"></script> to index.html on a`,
+    'line below its "models:" comment (keep the comment), then set name to ' +
       `'${imported.name}' on the matching entry of the MODELS map in game.js (add an entry if the`,
     'kind is new). makeObject(kind) then hands out fitted copies of the model instead of boxes.',
-    `Without the scaffold: load ${imported.libPath} and then ${imported.modelScriptPath} with plain`,
+    `Without the scaffold: load ${imported.libPath} and then ${imported.scriptPath} with plain`,
     `script tags; THREE.loadGameModel('${imported.name}') resolves to the parsed glTF — fit it with`,
     'THREE.fitGameModel(gltf.scene, size), clone it per copy, and call',
     'THREE.addGameEnvironment(renderer, scene) once, or its metallic materials render black.',
@@ -365,6 +391,20 @@ async function buildGameTool(host: CapabilityHost): Promise<ToolDefinition[]> {
             try {
               return textResult(
                 importedModelText(importGameModel(host.workspaceDir, iconPath, modelName)),
+              )
+            } catch (error) {
+              return textResult(error instanceof Error ? error.message : String(error))
+            }
+          }
+          case 'import_sprite': {
+            if (!iconPath || !modelName) {
+              return textResult('Provide the path of the image and a modelName for the game.')
+            }
+            const refusal = coverRefusal(host, iconPath)
+            if (refusal) return textResult(refusal)
+            try {
+              return textResult(
+                importedSpriteText(importGameSprite(host.workspaceDir, iconPath, modelName)),
               )
             } catch (error) {
               return textResult(error instanceof Error ? error.message : String(error))

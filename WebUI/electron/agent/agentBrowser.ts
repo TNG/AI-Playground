@@ -2,7 +2,7 @@ import { BrowserWindow } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs'
 import { appLoggerInstance } from '../observability/logger.ts'
-import { formatProbeReport, PROBE_CALL, type ProbeReport } from './previewProbe.ts'
+import { formatProbeReport, probeCall, type ProbeReport } from './previewProbe.ts'
 
 // ── Agent browser (Electron-native) ──────────────────────────────────────────
 //
@@ -42,12 +42,21 @@ function ensureBrowserSession(sessionId: string): BrowserSession {
   const existing = sessions.get(sessionId)
   if (existing && !existing.win.isDestroyed()) return existing
 
+  // Offscreen: on Windows a hidden window that draws WebGL gets ~2 frames a
+  // second (backgroundThrottling does not change that), so every 3D game probed
+  // as frozen and agents tore working games apart looking for the cause.
   const win = new BrowserWindow({
     show: false,
     width: 1280,
     height: 800,
-    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      offscreen: true,
+    },
   })
+  win.webContents.setFrameRate(60)
   // This window is never shown, so a game's sound would come from nowhere and
   // outlive the play-test that started it — the page stays loaded all session.
   win.webContents.setAudioMuted(true)
@@ -106,13 +115,16 @@ function wrapForEval(script: string): string {
     const compile = Object.getPrototypeOf(async function () {}).constructor
     try {
       let runner
+      let statements = false
       try {
         runner = new compile('return (\\n' + script + '\\n)')
       } catch (error) {
         if (!(error instanceof SyntaxError)) throw error
         runner = new compile(script)
+        statements = true
       }
       const value = await runner()
+      if (statements && value === undefined) return { ok: true, noReturn: true }
       // Stringified in the page: the result may be a DOM node or a cycle, which
       // could not cross the IPC boundary as-is.
       try {
@@ -130,6 +142,7 @@ export type BrowserToolInput = {
   action: 'open' | 'console' | 'eval' | 'screenshot' | 'probe'
   url?: string
   script?: string
+  keys?: string[]
 }
 
 export type BrowserActionResult = {
@@ -201,15 +214,22 @@ export async function runBrowserAction(
       const outcome = (await session.win.webContents.executeJavaScript(
         wrapForEval(input.script),
         true,
-      )) as { ok: boolean; text?: string; error?: string }
+      )) as { ok: boolean; text?: string; error?: string; noReturn?: boolean }
       if (!outcome?.ok) {
         throw new Error(`The script threw: ${outcome?.error ?? 'unknown error'}`)
+      }
+      if (outcome.noReturn) {
+        return {
+          text:
+            'The script ran but returned nothing: a script of several statements only reports ' +
+            'what it returns. End it with `return <value>`.',
+        }
       }
       return { text: outcome.text ?? 'undefined' }
     }
     case 'probe': {
       const raw = (await session.win.webContents.executeJavaScript(
-        wrapForEval(PROBE_CALL),
+        wrapForEval(probeCall(input.keys)),
         true,
       )) as { ok: boolean; text?: string; error?: string }
       if (!raw?.ok) {

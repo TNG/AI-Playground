@@ -162,6 +162,7 @@
   "SESSIONS_IN_OVERVIEWS_OFF": "此会话不包含在 Overviews 中。点击以包含。",
   "OVERVIEW_PAGE_TITLE": "Overviews：{from} 至 {to}",
   "OVERVIEW_REPORT_TRUNCATED": "这些摘要涵盖所有会话中最新 {shown}/{total} 个轮次",
+  "OVERVIEW_SUBTITLE": "每个会话在这段时间里做了什么，以及产出了什么。",
   "SESSIONS_SCHEDULE_PAUSED": "此会话中的智能体有一个已暂停的计划",
   "SESSIONS_COLLAPSE": "折叠会话面板",
   "SESSIONS_EXPAND": "展开会话面板",

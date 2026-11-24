@@ -162,6 +162,7 @@
   "SESSIONS_IN_OVERVIEWS_OFF": "Diese Sitzung bleibt aus Overviews heraus. Klicke, um sie aufzunehmen.",
   "OVERVIEW_PAGE_TITLE": "Überblick: {from} bis {to}",
   "OVERVIEW_REPORT_TRUNCATED": "Diese Zusammenfassungen decken die neuesten {shown} von {total} Durchgängen aus allen Sitzungen ab",
+  "OVERVIEW_SUBTITLE": "Was jede Sitzung in diesem Zeitraum getan hat und was dabei entstanden ist.",
   "SESSIONS_SCHEDULE_PAUSED": "Ein Agent in dieser Sitzung hat einen pausierten Zeitplan",
   "SESSIONS_COLLAPSE": "Sitzungsbereich einklappen",
   "SESSIONS_EXPAND": "Sitzungsbereich ausklappen",

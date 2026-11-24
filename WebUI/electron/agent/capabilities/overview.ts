@@ -25,6 +25,7 @@ import { isRecord } from '@/lib/isRecord'
 import type { AgentCapability, CapabilityHost } from './types.ts'
 import { OVERVIEW_CAPABILITY_ID } from '@/types/agentCapabilities'
 import type { OverviewChrome } from '@/types/overviewChrome'
+import type { ArtifactMediaType } from '@/types/sessionIpc'
 
 // One range in, the included Sessions' History out, and one HTML file back.
 
@@ -198,11 +199,29 @@ function localeOf(host: CapabilityHost): string {
   return host.overviewChrome?.locale ?? host.responseLocale ?? 'en-US'
 }
 
+const MEDIA_ICONS: Record<ArtifactMediaType, string> = {
+  image: '🎨',
+  video: '🎬',
+  audio: '🔊',
+  model3d: '🧊',
+}
+
+/** What the Session worked on, from what it produced in the range. */
+function iconOf(session: OverviewSessionData, chosenPath?: string): string {
+  const cover = session.covers.find((candidate) => candidate.path === chosenPath) ?? session.covers[0]
+  if (cover?.source === 'game-icon') return '🎮'
+  if (cover?.source === 'video-thumbnail') return '🎬'
+  const artifact = session.entries.flatMap((entry) => entry.artifacts)[0]
+  const media = artifact?.mediaType ?? cover?.mediaType
+  return media ? MEDIA_ICONS[media] : '💬'
+}
+
 function overviewOf(
   data: OverviewData,
   summaries: ReadonlyMap<string, string>,
   chrome: OverviewChrome,
   pictures: Map<string, string>,
+  chosenCovers: ReadonlyMap<string, string>,
 ): OverviewDocument {
   return {
     window: data.window,
@@ -212,6 +231,7 @@ function overviewOf(
       return {
         title: session.title,
         summary: summaries.get(session.id) ?? '',
+        icon: iconOf(session, chosenCovers.get(session.id)),
         ...(picture ? { picture } : {}),
       }
     }),
@@ -500,7 +520,13 @@ async function buildOverviewTools(host: CapabilityHost): Promise<ToolDefinition[
           const selection = coverSelectionOf(data, covers)
           if (!selection.ok) return textResult(selection.message)
           const pictures = await resolvePictures(data.sessions, selection.bySession)
-          const overview = overviewOf(data, summarySelection.bySession, chrome, pictures.bySession)
+          const overview = overviewOf(
+            data,
+            summarySelection.bySession,
+            chrome,
+            pictures.bySession,
+            selection.bySession,
+          )
           const fileName = overviewFileName(data.window)
           await fs.mkdir(host.workspaceDir, { recursive: true })
           await fs.writeFile(

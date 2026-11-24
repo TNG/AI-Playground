@@ -162,6 +162,7 @@
   "SESSIONS_IN_OVERVIEWS_OFF": "Ta sesja pozostaje poza Overviews. Kliknij, aby ją uwzględnić.",
   "OVERVIEW_PAGE_TITLE": "Overviews: od {from} do {to}",
   "OVERVIEW_REPORT_TRUNCATED": "Te podsumowania obejmują najnowsze {shown} z {total} tur ze wszystkich sesji",
+  "OVERVIEW_SUBTITLE": "Co każda sesja zrobiła w tym okresie i co wytworzyła.",
   "SESSIONS_SCHEDULE_PAUSED": "Agent w tej sesji ma wstrzymany harmonogram",
   "SESSIONS_COLLAPSE": "Zwiń panel sesji",
   "SESSIONS_EXPAND": "Rozwiń panel sesji",

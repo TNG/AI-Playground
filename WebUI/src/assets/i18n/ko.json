@@ -162,6 +162,7 @@
   "SESSIONS_IN_OVERVIEWS_OFF": "이 세션은 Overviews에서 제외됩니다. 클릭하면 포함됩니다.",
   "OVERVIEW_PAGE_TITLE": "Overviews: {from} ~ {to}",
   "OVERVIEW_REPORT_TRUNCATED": "이 요약은 모든 세션의 최신 {shown}/{total}개 턴을 다룹니다",
+  "OVERVIEW_SUBTITLE": "이 기간에 각 세션이 한 일과 만들어 낸 것.",
   "SESSIONS_SCHEDULE_PAUSED": "이 세션의 에이전트 일정이 일시 중지되었습니다",
   "SESSIONS_COLLAPSE": "세션 패널 접기",
   "SESSIONS_EXPAND": "세션 패널 펼치기",

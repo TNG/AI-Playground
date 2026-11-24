@@ -162,6 +162,7 @@
   "SESSIONS_IN_OVERVIEWS_OFF": "Phiên này nằm ngoài Overviews. Bấm để gồm vào.",
   "OVERVIEW_PAGE_TITLE": "Overviews: {from} đến {to}",
   "OVERVIEW_REPORT_TRUNCATED": "Các bản tóm tắt này bao gồm {shown}/{total} lượt mới nhất từ tất cả các phiên",
+  "OVERVIEW_SUBTITLE": "Mỗi phiên đã làm gì trong khoảng thời gian này và đã tạo ra gì.",
   "SESSIONS_SCHEDULE_PAUSED": "Một tác tử trong phiên này có lịch đang tạm dừng",
   "SESSIONS_COLLAPSE": "Thu gọn bảng Phiên",
   "SESSIONS_EXPAND": "Mở rộng bảng Phiên",

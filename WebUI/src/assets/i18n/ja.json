@@ -162,6 +162,7 @@
   "SESSIONS_IN_OVERVIEWS_OFF": "このセッションは Overviews に含まれません。クリックすると含めます。",
   "OVERVIEW_PAGE_TITLE": "Overviews: {from} から {to}",
   "OVERVIEW_REPORT_TRUNCATED": "この要約は、全セッションの最新 {shown} / {total} ターンを対象にしています",
+  "OVERVIEW_SUBTITLE": "この期間に各セッションが行ったことと、生み出したもの。",
   "SESSIONS_SCHEDULE_PAUSED": "このセッションのエージェントのスケジュールは一時停止中です",
   "SESSIONS_COLLAPSE": "セッションパネルを折りたたむ",
   "SESSIONS_EXPAND": "セッションパネルを展開",

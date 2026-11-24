@@ -162,6 +162,7 @@
   "SESSIONS_IN_OVERVIEWS_OFF": "This Session stays out of Overviews. Click to include it.",
   "OVERVIEW_PAGE_TITLE": "Overview: {from} to {to}",
   "OVERVIEW_REPORT_TRUNCATED": "These summaries cover the newest {shown} of {total} turns across all Sessions",
+  "OVERVIEW_SUBTITLE": "What each Session did in this window, and what it produced.",
   "SESSIONS_SCHEDULE_PAUSED": "An Agent in this Session has a paused schedule",
   "SESSIONS_COLLAPSE": "Collapse Sessions panel",
   "SESSIONS_EXPAND": "Expand Sessions panel",

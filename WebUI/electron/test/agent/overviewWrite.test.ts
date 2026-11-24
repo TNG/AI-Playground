@@ -235,6 +235,9 @@ describe('overview_write', () => {
     const html = await fs.readFile(path.join(host.workspaceDir, String(result.path)), 'utf8')
     expect(html).toContain('Shipped the thing')
     expect(html).toContain('A quiet day.')
+    expect(html).toContain(
+      '<p class="title"><span class="icon" aria-hidden="true">💬</span>Shipped the thing</p>',
+    )
     expect(html).not.toMatch(/<script/i)
     expect(html.match(/<h1>/g)).toHaveLength(1)
     expect(html).not.toContain('<ol')

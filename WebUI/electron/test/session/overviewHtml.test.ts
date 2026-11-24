@@ -97,6 +97,15 @@ describe('overview HTML renderer', () => {
     expect(html).not.toContain('By day')
   })
 
+  it('places the Session icon beside its Title and keeps the page subtitle', () => {
+    const html = renderOverviewHtml(documentOf([section({ title: 'Art', icon: '🎨' })]), english)
+
+    expect(html).toContain(
+      '<p class="title"><span class="icon" aria-hidden="true">🎨</span>Art</p>',
+    )
+    expect(html).toContain('<p class="subtitle">')
+  })
+
   it('states the window in the document title and in the headline', () => {
     const html = renderOverviewHtml(documentOf([section({})]), english)
 
@@ -148,8 +157,8 @@ describe('overview HTML renderer', () => {
 
     expect(html).toContain(`<img class="picture" src="${picture}" alt="">`)
     expect(html.match(/<img\b/g)).toHaveLength(1)
-    // The text sits beside the picture, in the same card.
-    expect(html.indexOf('class="picture"')).toBeLessThan(html.indexOf('class="text"'))
+    // The picture sits to the right of the text, in the same card.
+    expect(html.indexOf('class="text"')).toBeLessThan(html.indexOf('class="picture"'))
   })
 
   it('never renders a picture source that is not a data URI', () => {

@@ -162,6 +162,7 @@
   "SESSIONS_IN_OVERVIEWS_OFF": "เซสชันนี้จะไม่ปรากฏใน Overviews คลิกเพื่อรวม",
   "OVERVIEW_PAGE_TITLE": "Overviews: {from} ถึง {to}",
   "OVERVIEW_REPORT_TRUNCATED": "สรุปเหล่านี้ครอบคลุม {shown} จาก {total} เทิร์นล่าสุดจากทุกเซสชัน",
+  "OVERVIEW_SUBTITLE": "สิ่งที่แต่ละเซสชันทำในช่วงนี้และสิ่งที่สร้างขึ้น",
   "SESSIONS_SCHEDULE_PAUSED": "เอเจนต์ในเซสชันนี้มีกำหนดเวลาที่หยุดชั่วคราว",
   "SESSIONS_COLLAPSE": "ยุบแผงเซสชัน",
   "SESSIONS_EXPAND": "ขยายแผงเซสชัน",

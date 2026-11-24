@@ -162,6 +162,7 @@
   "SESSIONS_IN_OVERVIEWS_OFF": "Bu oturum Overviews dışında kalır. Dahil etmek için tıklayın.",
   "OVERVIEW_PAGE_TITLE": "Overviews: {from} – {to}",
   "OVERVIEW_REPORT_TRUNCATED": "Bu özetler tüm oturumlardaki en yeni {shown}/{total} turu kapsar",
+  "OVERVIEW_SUBTITLE": "Bu aralıkta her oturumun ne yaptığı ve ne ürettiği.",
   "SESSIONS_SCHEDULE_PAUSED": "Bu oturumdaki bir ajanın zamanlaması duraklatıldı",
   "SESSIONS_COLLAPSE": "Oturumlar panelini daralt",
   "SESSIONS_EXPAND": "Oturumlar panelini genişlet",

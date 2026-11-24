@@ -9,6 +9,8 @@ export type OverviewSection = {
   summary: string
   /** A ready `data:image/…` URI, downscaled by the tool that read the file. */
   picture?: string
+  /** What the Session worked on, as an emoji; the renderer only places it. */
+  icon?: string
 }
 
 export type OverviewDocument = {
@@ -88,25 +90,35 @@ function sessionCard(session: OverviewSection): string {
     session.picture?.startsWith('data:image/') === true
       ? `<img class="picture" src="${escapeHtml(session.picture)}" alt="">\n`
       : ''
+  const icon =
+    session.icon ? `<span class="icon" aria-hidden="true">${escapeHtml(session.icon)}</span>` : ''
   return (
-    `<article class="card">\n${picture}<div class="text">\n` +
-    `<p class="title">${escapeHtml(session.title)}</p>\n` +
-    `<p class="summary">${escapeHtml(session.summary)}</p>\n</div>\n</article>`
+    `<article class="card">\n` +
+    `<header class="card-head"><p class="title">${icon}${escapeHtml(session.title)}</p></header>\n` +
+    `<div class="card-body">\n<div class="text">\n` +
+    `<p class="summary">${escapeHtml(session.summary)}</p>\n</div>\n` +
+    picture +
+    `</div>\n</article>`
   )
 }
 
 const STYLE = `
-:root { color-scheme: light dark; }
-body { margin: 0; font: 16px/1.5 system-ui, sans-serif; }
-main { max-width: 68rem; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; }
+:root { color-scheme: light dark; --accent: #5b4be6; }
+@media (prefers-color-scheme: dark) { :root { --accent: #a99bff; } }
+body { margin: 0; font: 16px/1.6 system-ui, sans-serif; }
+main { max-width: 68rem; margin: 0 auto; padding: 3rem 1.5rem 4rem; }
 .head { margin: 0 0 2rem; }
-h1 { margin: 0; font-size: 1.5rem; line-height: 1.25; font-weight: 600; letter-spacing: -.01em; }
+h1 { margin: 0; font-size: 1.75rem; line-height: 1.25; font-weight: 650; letter-spacing: -.02em; color: var(--accent); }
+.subtitle { margin: .4rem 0 0; opacity: .7; }
 .cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.25rem; }
-.card { display: flex; gap: 1.1rem; align-items: flex-start; min-height: 12.5rem; padding: 1.25rem; border: 1px solid rgba(127, 127, 127, .28); border-radius: 1rem; background: rgba(127, 127, 127, .06); box-shadow: 0 1px 2px rgba(0, 0, 0, .05); }
-.text { min-width: 0; }
-.picture { flex: none; width: 8rem; height: 8rem; object-fit: cover; border-radius: .75rem; background: rgba(127, 127, 127, .12); }
-.title { margin: 0; font-size: 1.1rem; line-height: 1.35; font-weight: 600; }
-.summary { margin: .4rem 0 0; opacity: .9; white-space: pre-wrap; }
+.card { display: flex; flex-direction: column; min-height: 13rem; padding: 1.15rem 1.35rem 1.35rem; border: 1px solid rgba(127, 127, 127, .25); border-radius: 1rem; background: rgba(127, 127, 127, .06); background: color-mix(in srgb, var(--accent) 6%, transparent); box-shadow: 0 1px 2px rgba(0, 0, 0, .05); }
+.card-head { padding-bottom: .65rem; margin-bottom: .85rem; border-bottom: 1px solid rgba(127, 127, 127, .2); }
+.title { margin: 0; font-size: 1.05rem; line-height: 1.35; font-weight: 600; color: var(--accent); }
+.icon { margin-right: .4rem; }
+.card-body { display: flex; gap: 1rem; align-items: flex-start; }
+.text { flex: 1; min-width: 0; }
+.picture { flex: none; width: 7.5rem; height: 7.5rem; object-fit: cover; border-radius: .65rem; background: rgba(127, 127, 127, .12); }
+.summary { margin: 0; opacity: .92; white-space: pre-wrap; }
 .note { opacity: .75; margin: 0 0 1.75rem; }
 @media (max-width: 48rem) { .cards { grid-template-columns: minmax(0, 1fr); } }
 @media print { .cards { display: block; } .card { break-inside: avoid; margin-bottom: 1rem; } }
@@ -116,6 +128,7 @@ export function renderOverviewHtml(overview: OverviewDocument, chrome: OverviewC
   const from = overviewDateTime(overview.window.from)
   const to = overviewDateTime(overview.window.to)
   const title = chromeHtml(chrome, 'OVERVIEW_PAGE_TITLE', { from, to })
+  const subtitle = chromeHtml(chrome, 'OVERVIEW_SUBTITLE')
   const note = overview.truncated
     ? `<p class="note">${chromeHtml(chrome, 'OVERVIEW_REPORT_TRUNCATED', {
         shown: overview.shownEntries,
@@ -134,7 +147,7 @@ export function renderOverviewHtml(overview: OverviewDocument, chrome: OverviewC
 </head>
 <body>
 <main>
-<header class="head"><h1>${title}</h1></header>
+<header class="head"><h1>${title}</h1><p class="subtitle">${subtitle}</p></header>
 ${note}<div class="cards">
 ${overview.sessions.map((session) => sessionCard(session)).join('\n')}
 </div>

@@ -162,6 +162,7 @@
   "SESSIONS_IN_OVERVIEWS_OFF": "Sesi ini tetap di luar Overviews. Klik untuk menyertakannya.",
   "OVERVIEW_PAGE_TITLE": "Overviews: {from} sampai {to}",
   "OVERVIEW_REPORT_TRUNCATED": "Ringkasan ini mencakup {shown} dari {total} aktivitas terbaru dari semua Sesi",
+  "OVERVIEW_SUBTITLE": "Apa yang dilakukan setiap Sesi dalam rentang ini dan apa yang dihasilkannya.",
   "SESSIONS_SCHEDULE_PAUSED": "Sebuah agen di sesi ini memiliki jadwal yang dijeda",
   "SESSIONS_COLLAPSE": "Ciutkan panel Sesi",
   "SESSIONS_EXPAND": "Luaskan panel Sesi",

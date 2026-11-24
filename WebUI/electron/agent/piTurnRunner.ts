@@ -81,7 +81,13 @@ import {
 import { turnAttachments, withAttachmentReferences } from './workspaceAttachments.ts'
 import { collectAgentCallTimings, turnTimings } from './piCallTiming.ts'
 import { markHarnessTurn, rewindHarnessTurn } from './harnessTurns.ts'
-import { beginTurnJournal, deleteSessionJournals, endTurnJournal } from './workspaceJournal.ts'
+import {
+  beginTurnJournal,
+  deleteSessionJournals,
+  deleteTurnJournal,
+  endTurnJournal,
+  restoreTurnJournal,
+} from './workspaceJournal.ts'
 import { computeWindowSince } from '../adapters/hardware/computeMetrics.ts'
 import type { LlamaCppTimings } from '../chat/turnEngine.ts'
 import { documentsLine } from './sessionDocuments.ts'
@@ -574,9 +580,14 @@ export async function startAgentTurn(
       lastSample = fingerprint
       translator.update(summary)
     }
-    const rewound = config.rewindTurnId
-      ? rewindHarnessTurn(current.session, config.rewindTurnId)
-      : undefined
+    const rewindId = config.rewindTurnId
+    const rewound = rewindId ? rewindHarnessTurn(current.session, rewindId) : undefined
+    // The replaced turn's diary is spent here: the workspace goes back as that
+    // turn found it before the re-run writes over it.
+    if (rewindId) {
+      restoreTurnJournal(sessionId, rewindId)
+      deleteTurnJournal(sessionId, rewindId)
+    }
     // The turn's workspace diary (workspaceJournal.ts): every workspace write
     // from here on is recorded so a later regenerate/delete of this turn can
     // restore what it found. Its writable roots are the session's own mounts,
@@ -612,14 +623,17 @@ export async function startAgentTurn(
       }
       await collectAgentCallTimings(calls, async () => {
         const note = current.mountedFoldersNote
-        // A regenerated turn resends what the replaced one was sent, so its request is the same.
-        const sent = rewound?.text ?? withAttachmentReferences(prompt, current.attachments)
+        // A plain regenerate replays what the replaced turn was sent, so its request is the
+        // same; an edited one sends the new prompt the renderer shipped instead.
+        const replay = rewound !== undefined && config.editedPrompt !== true ? rewound : null
+        const sent = replay ? replay.text : withAttachmentReferences(prompt, current.attachments)
         const withUpdate = await withSessionUpdate(sent, config, current)
-        const images =
-          rewound?.images ??
-          turnAttachments(current.files, prompt, config.modelConfig.supportsVision === true).images
+        const images = replay
+          ? replay.images
+          : turnAttachments(current.files, prompt, config.modelConfig.supportsVision === true)
+              .images
         const documents =
-          current.documentSearch && !rewound ? documentsLine(current.attachments) : ''
+          current.documentSearch && !replay ? documentsLine(current.attachments) : ''
         const text = [note, withUpdate, documents].filter(Boolean).join('\n\n')
         await current.session.prompt(text, { images, expandPromptTemplates: !rewound })
         if (current.mountedFoldersNote === note) current.mountedFoldersNote = undefined

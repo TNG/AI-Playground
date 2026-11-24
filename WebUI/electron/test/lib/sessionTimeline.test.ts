@@ -119,6 +119,7 @@ describe('an Agent Run in the timeline', () => {
   })
   const runPrompt =
     'Carry out these steps.\n\n1. Search the news\n2. Ask me which city\n3. Summarise'
+  const actionsOf = (item: unknown) => (item as { footer: { actions: string[] } }).footer.actions
 
   it('starts with a bubble saying it ran the Agent by hand, then its reply as an ordinary Turn', () => {
     const turns = timelineTurns([
@@ -444,6 +445,60 @@ describe('an Agent Run in the timeline', () => {
       expect(agentRunControls(chat)).toBeNull()
       expect(agentRunControls(trial)).toBeNull()
     })
+  })
+
+  it('offers Regenerate, Edit and Delete on the latest Agent Run turn', () => {
+    const items = sessionTimelineItems(
+      [
+        runMessage('r1', 'user', [{ type: 'text', text: runPrompt }]),
+        {
+          ...runMessage('r2', 'assistant', [{ type: 'text', text: 'Digest ready.' }]),
+          metadata: { agentTurn: runTag, harnessTurnId: 't1' },
+        },
+      ],
+      {},
+    )
+
+    expect(items[0]).toMatchObject({
+      footer: {
+        actions: ['copy', 'speak', 'regenerate', 'edit', 'delete', 'hide'],
+        harnessTurn: {
+          harnessSessionId: 'aipg-agent-run',
+          promptId: 'r1',
+          messageIds: ['r1', 'r2'],
+          turnIds: ['t1'],
+        },
+      },
+    })
+  })
+
+  it('offers no Regenerate or Delete on an Agent Run turn a later turn followed', () => {
+    const items = sessionTimelineItems(
+      [
+        runMessage('r1', 'user', [{ type: 'text', text: runPrompt }]),
+        {
+          ...runMessage('r2', 'assistant', [{ type: 'text', text: 'Digest ready.' }]),
+          metadata: { agentTurn: runTag, harnessTurnId: 't1' },
+        },
+        agentMessage('u1', 'user', 'meanwhile'),
+        agentMessage('b1', 'assistant', 'sure'),
+      ],
+      {},
+    )
+
+    expect(actionsOf(items[0])).toEqual(['copy', 'speak', 'hide'])
+  })
+
+  it('offers no Delete on an Agent Run turn from before turns were marked', () => {
+    const items = sessionTimelineItems(
+      [
+        runMessage('r1', 'user', [{ type: 'text', text: runPrompt }]),
+        runMessage('r2', 'assistant', [{ type: 'text', text: 'Digest ready.' }]),
+      ],
+      {},
+    )
+
+    expect(actionsOf(items[0])).toEqual(['copy', 'speak', 'hide'])
   })
 
   it('keeps every turn in the order it happened when another turn lands in between', () => {
@@ -1821,7 +1876,7 @@ describe('the footer of every Turn', () => {
     expect(actionsOf(items[0])).not.toContain('delete')
   })
 
-  it('offers no Speak and no Delete on a Game Agent Turn', () => {
+  it('offers Copy and Delete but no Speak on a Game Agent Turn', () => {
     const gameTurn = { presetName: 'Game Agent', harnessSessionId: 'aipg-agent-3' }
     const answer = {
       id: 'a1',
@@ -1831,8 +1886,44 @@ describe('the footer of every Turn', () => {
     }
     const items = sessionTimelineItems([answer], {})
 
+    expect(actionsOf(items[0])).toEqual(['copy', 'delete', 'hide'])
+    expect(items[0]).toMatchObject({
+      footer: {
+        harnessTurn: { harnessSessionId: 'aipg-agent-3', messageIds: ['a1'], turnIds: [] },
+      },
+    })
+  })
+
+  it('offers Regenerate, Edit and Delete on the latest Game Agent Turn, and none on an earlier one', () => {
+    const gameTurn = { presetName: 'Game Agent', harnessSessionId: 'aipg-agent-3' }
+    const gameMessage = (id: string, role: 'user' | 'assistant', text: string, meta = {}) => ({
+      id,
+      role,
+      parts: [{ type: 'text', text }],
+      metadata: { agentTurn: gameTurn, ...meta },
+    })
+    const items = sessionTimelineItems(
+      [
+        gameMessage('u1', 'user', 'make pong'),
+        gameMessage('a1', 'assistant', 'built pong', { harnessTurnId: 't1' }),
+        gameMessage('u2', 'user', 'add a score'),
+        gameMessage('a2', 'assistant', 'added it', { harnessTurnId: 't2' }),
+      ],
+      {},
+    )
+
     expect(actionsOf(items[0])).toEqual(['copy', 'hide'])
-    expect(items[0]).not.toHaveProperty('footer.harnessTurn')
+    expect(items[1]).toMatchObject({
+      footer: {
+        actions: ['copy', 'regenerate', 'edit', 'delete', 'hide'],
+        harnessTurn: {
+          harnessSessionId: 'aipg-agent-3',
+          promptId: 'u2',
+          messageIds: ['u2', 'a2'],
+          turnIds: ['t2'],
+        },
+      },
+    })
   })
 
   it('offers no Copy on an Agent Preset Turn still streaming its answer', () => {
@@ -1864,7 +1955,7 @@ describe('the footer of every Turn', () => {
     })
   })
 
-  it('offers only Hide on a Game Agent Turn with no text yet', () => {
+  it('offers Delete and Hide on a Game Agent Turn with no text yet', () => {
     const gameTurn = { presetName: 'Game Agent', harnessSessionId: 'aipg-agent-3' }
     const prompt = {
       ...agentMessage('u1', 'user', 'make a game'),
@@ -1872,7 +1963,7 @@ describe('the footer of every Turn', () => {
     }
     const items = sessionTimelineItems([prompt], {})
 
-    expect(actionsOf(items[0])).toEqual(['hide'])
+    expect(actionsOf(items[0])).toEqual(['delete', 'hide'])
   })
 
   it('offers Copy of the transcript, and Delete, on a speech-to-text Turn', () => {

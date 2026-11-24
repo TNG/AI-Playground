@@ -167,6 +167,8 @@ export const AgentModeTurnConfigSchema = z.object({
   followedRun: AgentRunTagSchema.pick({ taskName: true, startedAt: true }).optional(),
   /** Regenerate: the latest harness turn, which this one replaces from just before it. */
   rewindTurnId: z.string().optional(),
+  /** The rewind carries an edited prompt: send it instead of replaying the stored one. */
+  editedPrompt: z.boolean().optional(),
 })
 
 export type AgentModeModelConfig = z.infer<typeof AgentModeModelConfigSchema>

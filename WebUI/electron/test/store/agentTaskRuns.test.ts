@@ -595,6 +595,65 @@ describe('running a Task', () => {
     expect(agentMode.sessions[sentConfig(1).sessionId].taskRun).not.toHaveProperty('input')
   })
 
+  it('regenerates the run turn under its own taskRun tag', async () => {
+    const { agentMode, tasks } = await readyStores(task('t1', ['one']))
+    await tasks.runTask('t1')
+    const sessionId = sentConfig(0).sessionId
+    await turnIdOf(0)
+    await finishTurn(0)
+    await settledOutcome(tasks, 't1')
+    const messages = agentMode.sessions[sessionId]?.messages ?? []
+    const promptId = messages.find((message) => message.role === 'user')?.id
+    const answerIds = messages
+      .filter((message) => message.role === 'assistant')
+      .map((message) => message.id)
+
+    await agentMode.regenerateTurn({
+      harnessSessionId: sessionId,
+      promptId: promptId!,
+      messageIds: [promptId!, ...answerIds],
+      turnIds: ['t1'],
+    })
+    await turnIdOf(1)
+
+    expect(sentConfig(1).taskRun).toMatchObject({
+      taskId: 't1',
+      taskName: 'Task t1',
+      trigger: 'manual',
+    })
+    expect(sentConfig(1).editedPrompt).toBeUndefined()
+  })
+
+  it('rebuilds an edited run turn around its Steps, carrying the new Start Prompt', async () => {
+    const { agentMode, tasks } = await readyStores(task('t1', ['one', 'two']))
+    await tasks.runTask('t1', 'only news from Germany')
+    const sessionId = sentConfig(0).sessionId
+    await turnIdOf(0)
+    await finishTurn(0)
+    await settledOutcome(tasks, 't1')
+    const messages = agentMode.sessions[sessionId]?.messages ?? []
+    const promptId = messages.find((message) => message.role === 'user')?.id
+    const answerIds = messages
+      .filter((message) => message.role === 'assistant')
+      .map((message) => message.id)
+
+    await agentMode.regenerateTurnWithPrompt(
+      {
+        harnessSessionId: sessionId,
+        promptId: promptId!,
+        messageIds: [promptId!, ...answerIds],
+        turnIds: ['t1'],
+      },
+      'only news from Austria',
+    )
+    await turnIdOf(1)
+
+    expect(sentPrompts()[1]).toBe(runPrompt('only news from Austria', ['one', 'two']))
+    expect(sentConfig(1).editedPrompt).toBe(true)
+    expect(sentConfig(1).taskRun?.input).toBe('only news from Austria')
+    expect(agentMode.sessions[sessionId].taskRun?.input).toBe('only news from Austria')
+  })
+
   it('files the Agent Run under Assistant', async () => {
     const { agentMode } = await readyStores(task('t-news', ['one']))
     const tasks = useAgentTasks(pinia)

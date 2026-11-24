@@ -4,7 +4,12 @@ import { loadPi } from './piRuntime.ts'
 import { piSessionDir, readSessionStore } from './piSessionStore.ts'
 import { active, agentTurns } from './piAgentState.ts'
 import { removeTimelineMessages } from '../session/sessionTimeline.ts'
+import { deleteTurnJournal, restoreTurnJournal } from './workspaceJournal.ts'
+import { appLoggerInstance } from '../observability/logger.ts'
 import { HARNESS_TURN_REFUSALS, type DeleteAgentTurnsRequest } from '@/types/agentIpc'
+
+const logger = appLoggerInstance
+const LOG_SOURCE = 'harnessTurns'
 
 /** Opens each turn in the Harness Session; it is not model context, so the KV cache is kept. */
 export const HARNESS_TURN_ENTRY = 'aipg-turn'
@@ -40,6 +45,28 @@ function omitHarnessTurns(manager: SessionManager, turnIds: ReadonlySet<string>)
   }
   for (const id of omit) manager.appendContextEdit(id, null)
   return omit.length > 0
+}
+
+/** The turn markers of a branch, in the order the turns ran. */
+function harnessTurnMarkers(manager: SessionManager): string[] {
+  return manager.getBranch().flatMap((entry) => {
+    const marker = turnMarkerId(entry)
+    return marker === undefined || marker === '' ? [] : [marker]
+  })
+}
+
+/**
+ * Delete joins Regenerate and Edit on the trailing turns only: rolling back an
+ * earlier one would put the workspace back under the work built on top of it.
+ * The requested turns must therefore be the session's newest; they come back
+ * here in the order they ran.
+ */
+function trailingTurns(markers: string[], turnIds: ReadonlySet<string>): string[] {
+  const trailing = markers.slice(-turnIds.size)
+  if (trailing.length !== turnIds.size || trailing.some((id) => !turnIds.has(id))) {
+    throw new Error(HARNESS_TURN_REFUSALS.notLatest)
+  }
+  return trailing
 }
 
 type PromptImages = NonNullable<NonNullable<Parameters<AgentSession['prompt']>[1]>['images']>
@@ -80,16 +107,33 @@ export async function deleteAgentTurns(request: DeleteAgentTurnsRequest): Promis
   if (agentTurns.has(harnessSessionId)) throw new Error(HARNESS_TURN_REFUSALS.running)
   const turnIds = new Set(request.turnIds)
   if (turnIds.size > 0) {
+    let trailing: string[] = []
     if (active?.sessionId === harnessSessionId) {
-      if (omitHarnessTurns(active.session.sessionManager, turnIds)) {
+      const manager = active.session.sessionManager
+      trailing = trailingTurns(harnessTurnMarkers(manager), turnIds)
+      if (omitHarnessTurns(manager, turnIds)) {
         active.session.refreshContext()
       }
     } else {
       const file = readSessionStore()[harnessSessionId]?.sessionFilePath
       if (file && fs.existsSync(file)) {
         const pi = await loadPi()
-        omitHarnessTurns(pi.SessionManager.open(file, piSessionDir()), turnIds)
+        const manager = pi.SessionManager.open(file, piSessionDir())
+        trailing = trailingTurns(harnessTurnMarkers(manager), turnIds)
+        omitHarnessTurns(manager, turnIds)
       }
+    }
+    // The workspace goes back as the deleted turns found it, newest first, so
+    // each restore undoes the turn that ran on top of it.
+    for (const turnId of [...trailing].reverse()) {
+      const report = restoreTurnJournal(harnessSessionId, turnId)
+      if (report?.unrestorable.length) {
+        logger.warn(
+          `journal restore of ${turnId} could not put back: ${report.unrestorable.join(', ')}`,
+          LOG_SOURCE,
+        )
+      }
+      deleteTurnJournal(harnessSessionId, turnId)
     }
   }
   if (sessionRef && request.messageIds.length > 0) {

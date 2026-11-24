@@ -497,25 +497,19 @@ function withAnswers(
       const run = turn.runKey ? runs.get(turn.runKey) : undefined
       turn.hint = agentHint(run?.name ?? turn.presetName, turn.answers)
       if (run?.lastTurn === turn) turn.result = [...turn.result, ...runEndFailure(run.end)]
-      turn.footer = agentFooter(
-        resultText(turn),
-        agentTurnHasChatAffordances(turn.presetName)
-          ? {
-              answer: turn.answers.at(-1),
-              harnessTurn: harnessTurnOf(turn),
-              latest: turn === turns.at(-1),
-            }
-          : undefined,
-      )
+      turn.footer = agentFooter(resultText(turn), {
+        answer: turn.answers.at(-1),
+        harnessTurn: harnessTurnOf(turn),
+        latest: turn === turns.at(-1),
+        canSpeak: agentTurnHasChatAffordances(turn.presetName),
+      })
     }
     if (turn.kind !== 'message') turn.footer = withHide(turn.footer, turn)
   }
   return turns
 }
 
-/** An Agent Run's turns live in a Harness Session of their own, which Delete leaves alone. */
 function harnessTurnOf(turn: AgentTurn): HarnessTurnRef | undefined {
-  if (turn.runKey) return undefined
   return {
     harnessSessionId: turn.harnessSessionId,
     ...(turn.prompt ? { promptId: turn.id } : {}),

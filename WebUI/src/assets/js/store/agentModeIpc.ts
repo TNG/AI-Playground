@@ -7,7 +7,12 @@
 // is a request the renderer answers, not a notification.
 
 import { connectKernelEventStream } from '@/assets/js/projection/kernelProjection'
-import type { AgentTurnState, KernelSnapshot, PauseReason } from '@/types/kernelEvents'
+import type {
+  AgentTurnOrigin,
+  AgentTurnState,
+  KernelSnapshot,
+  PauseReason,
+} from '@/types/kernelEvents'
 
 type AgentTurnRef = { sessionId: string; turnId: string }
 
@@ -15,7 +20,13 @@ type AgentModeIpcHandlers = {
   onStreamChunk: (data: AgentTurnRef & { chunk: unknown }) => void
   onToolProgress: (data: AgentToolProgress) => void
   onToolImage: (data: AgentToolImage) => void
-  onTurnState: (data: AgentTurnRef & { state: AgentTurnState; pauseReason?: PauseReason }) => void
+  onTurnState: (
+    data: AgentTurnRef & {
+      state: AgentTurnState
+      pauseReason?: PauseReason
+      origin?: AgentTurnOrigin
+    },
+  ) => void
   onTurnDone: (data: AgentTurnRef) => void
   /** A text run's Turn Queue position; `position` is absent once it holds the place. */
   onQueuePosition: (data: AgentTurnRef & { position?: number }) => void
@@ -67,6 +78,7 @@ export function registerAgentModeIpc(handlers: AgentModeIpcHandlers): void {
             turnId: event.turnId,
             state: event.state,
             pauseReason: event.pauseReason,
+            origin: event.origin,
           })
           break
         case 'agent-turn-done':

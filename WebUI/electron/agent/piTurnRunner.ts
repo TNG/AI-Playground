@@ -472,7 +472,13 @@ export async function startAgentTurn(
     )
   } else if (config.taskRun?.notifiesResult) noteResultTurn(sessionId, turnId, config.workspaceDir)
   beginAgentTurnSnapshot(sessionId, turnId)
-  emitAgentTurnState(sessionId, turnId, 'queued')
+  emitAgentTurnState(
+    sessionId,
+    turnId,
+    'queued',
+    undefined,
+    config.userMessageId ? { prompt, userMessageId: config.userMessageId } : undefined,
+  )
   const verbose = verboseLogging()
   // The journal and the answer stamp record the shell the turn really runs
   // with, after developer mode has had its say on the persisted opt-in.

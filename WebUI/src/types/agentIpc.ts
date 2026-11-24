@@ -170,6 +170,8 @@ export const AgentModeTurnConfigSchema = z.object({
   rewindTurnId: z.string().optional(),
   /** The rewind carries an edited prompt: send it instead of replaying the stored one. */
   editedPrompt: z.boolean().optional(),
+  /** The id of the user message that asked; another window watching the turn shows the same one. */
+  userMessageId: z.string().min(1).optional(),
 })
 
 export type AgentModeModelConfig = z.infer<typeof AgentModeModelConfigSchema>

@@ -114,6 +114,7 @@ import {
 } from '@heroicons/vue/24/outline'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useDemoMode } from '@/assets/js/store/demoMode'
+import { developerMode } from '@/assets/js/store/debugSettings'
 import { useI18N } from '@/assets/js/store/i18n'
 import { useModelLibrary } from '@/assets/js/store/modelLibrary'
 import { useUIStore, type AppSettingsTab } from '@/assets/js/store/ui'
@@ -127,6 +128,7 @@ import AppSettingsMediaModes from '@/components/AppSettingsMediaModes.vue'
 import AppSettingsMcp from '@/components/AppSettingsMcp.vue'
 import AppSettingsPermissions from '@/components/AppSettingsPermissions.vue'
 import AppSettingsHide from '@/components/AppSettingsHide.vue'
+import AppSettingsRemoteKernel from '@/components/AppSettingsRemoteKernel.vue'
 import AppSettingsDeveloper from '@/components/AppSettingsDeveloper.vue'
 import DemoModeBlocker from '@/components/DemoModeBlocker.vue'
 import DemoModeSettings from '@/components/DemoModeSettings.vue'
@@ -150,6 +152,7 @@ const partComponents: Record<AppSettingsPartId, Component> = {
   mcp: AppSettingsMcp,
   permissions: AppSettingsPermissions,
   hideMessages: AppSettingsHide,
+  remoteKernel: AppSettingsRemoteKernel,
   backendStatus: AppSettingsBackendStatus,
   developer: AppSettingsDeveloper,
   demoMode: DemoModeSettings,
@@ -170,7 +173,11 @@ const library = useModelLibrary()
 const ui = useUIStore()
 
 const sections = computed(() =>
-  appSettingsSections({ demoMode: demoMode.enabled, hasDemoPasscode: demoMode.hasPasscode }),
+  appSettingsSections({
+    demoMode: demoMode.enabled,
+    hasDemoPasscode: demoMode.hasPasscode,
+    developerMode: developerMode(),
+  }),
 )
 const sectionLabels = computed<Record<AppSettingsSectionId, string>>(() => ({
   language: languages.SETTINGS_BASIC_LANGUAGE,
@@ -182,6 +189,7 @@ const sectionLabels = computed<Record<AppSettingsSectionId, string>>(() => ({
   mcp: languages.SETTINGS_MCP_SERVERS,
   permissions: languages.SETTINGS_PERMISSIONS,
   hide: languages.SETTINGS_HIDE_MESSAGES,
+  remoteKernel: languages.SETTINGS_REMOTE_KERNEL,
   advanced: languages.SETTINGS_ADVANCED,
 }))
 

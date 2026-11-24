@@ -148,6 +148,15 @@ describe('overview_data', () => {
     expect(tool.name).toBe('overview_data')
   })
 
+  it('accepts a number of hours the user named', async () => {
+    const data = await dataFrom(hostFor(), { lastHours: 12 })
+    expect(data.window).toEqual({ from: NOW - 12 * HOUR, to: NOW })
+
+    const day = await dataFrom(hostFor(), { lastHours: 24 })
+    const named = await dataFrom(hostFor(), 'last-24h')
+    expect(day.window).toEqual(named.window)
+  })
+
   it('is from-inclusive and to-exclusive', async () => {
     const from = new Date(2026, 10, 24, 10).getTime()
     const to = new Date(2026, 10, 24, 12).getTime()
@@ -419,12 +428,14 @@ describe('overview_data', () => {
   })
 
   it('answers a nonsense range as text, not a thrown error', async () => {
-    const result = await (
-      await overviewTool(hostFor())
-    ).execute('call-1', {
-      range: 'since forever',
-    })
-    expect(textOf(result)).toMatch(/range|date/i)
+    for (const range of ['since forever', { lastHours: 0 }, { lastHours: 1.5 }, { lastHours: 9000 }]) {
+      const result = await (
+        await overviewTool(hostFor())
+      ).execute('call-1', {
+        range,
+      })
+      expect(textOf(result)).toMatch(/range|date|hour/i)
+    }
   })
 
   it('refuses when the turn has no Session to exclude', async () => {

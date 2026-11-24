@@ -1,9 +1,15 @@
 const HOUR_MS = 60 * 60 * 1000
 const DAY_MS = 24 * HOUR_MS
 
-/** A named range, or an explicit local-date / ISO-timestamp window. */
+/** A named range, a whole number of hours back, or an explicit local-date / ISO-timestamp window. */
 export type OverviewRangeInput =
-  'last-24h' | 'today' | 'yesterday' | 'last-7-days' | 'last-30-days' | { from: string; to: string }
+  | 'last-24h'
+  | 'today'
+  | 'yesterday'
+  | 'last-7-days'
+  | 'last-30-days'
+  | { from: string; to: string }
+  | { lastHours: number }
 
 export type OverviewWindow = { from: number; to: number }
 
@@ -17,6 +23,9 @@ export const OVERVIEW_NAMED_RANGES = [
 
 /** A span wider than this is reported, not refused. */
 export const OVERVIEW_WIDE_RANGE_MS = 30 * DAY_MS
+
+/** The longest `{ lastHours }` window accepted: a year of hours. */
+export const OVERVIEW_MAX_LAST_HOURS = 8760
 
 function startOfLocalDay(ms: number): number {
   const date = new Date(ms)
@@ -67,6 +76,13 @@ export function resolveOverviewWindow(
       return { from: addLocalDays(startOfLocalDay(now), -6), to: now }
     case 'last-30-days':
       return { from: addLocalDays(startOfLocalDay(now), -29), to: now }
+  }
+  if (typeof range === 'object' && range !== null && 'lastHours' in range) {
+    const { lastHours } = range
+    if (!Number.isInteger(lastHours) || lastHours < 1 || lastHours > OVERVIEW_MAX_LAST_HOURS) {
+      throw new Error(`The hour count must be a whole number from 1 to ${OVERVIEW_MAX_LAST_HOURS}.`)
+    }
+    return { from: now - lastHours * HOUR_MS, to: now }
   }
   if (typeof range === 'object' && range !== null) {
     const from = parsePoint(range.from)

@@ -7,7 +7,11 @@ import {
   type OverviewData,
   type OverviewSessionData,
 } from '../../session/overviewData.ts'
-import { OVERVIEW_NAMED_RANGES, type OverviewRangeInput } from '../../session/overviewRange.ts'
+import {
+  OVERVIEW_MAX_LAST_HOURS,
+  OVERVIEW_NAMED_RANGES,
+  type OverviewRangeInput,
+} from '../../session/overviewRange.ts'
 import {
   overviewFileName,
   renderOverviewHtml,
@@ -31,12 +35,26 @@ export const OVERVIEW_SUMMARY_CAP = 600
 
 const RANGE_SCHEMA: Record<string, unknown> = {
   description:
-    'The window to report on: one of the named ranges, or an explicit window. ' +
-    '"last-24h" rolls back 24 hours from now; "today" and "yesterday" are local calendar ' +
-    'days; "last-7-days" and "last-30-days" start at local midnight. An explicit window ' +
-    'takes local dates (YYYY-MM-DD) or ISO timestamps, includes "from" and excludes "to".',
+    'The window to report on: one of the named ranges, a number of hours back, or an explicit ' +
+    'window. "last-24h" rolls back 24 hours from now; "today" and "yesterday" are local calendar ' +
+    'days; "last-7-days" and "last-30-days" start at local midnight. {"lastHours": N} rolls back ' +
+    'N whole hours from now, for any number of hours the user names. An explicit window takes ' +
+    'local dates (YYYY-MM-DD) or ISO timestamps, includes "from" and excludes "to".',
   anyOf: [
     { type: 'string', enum: [...OVERVIEW_NAMED_RANGES] },
+    {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        lastHours: {
+          type: 'integer',
+          minimum: 1,
+          maximum: OVERVIEW_MAX_LAST_HOURS,
+          description: 'Whole hours back from now, inclusive of the present.',
+        },
+      },
+      required: ['lastHours'],
+    },
     {
       type: 'object',
       additionalProperties: false,
@@ -102,6 +120,11 @@ function rangeOf(value: unknown): OverviewRangeInput | null {
       ? (value as OverviewRangeInput)
       : null
   }
+  if (isRecord(value) && typeof value.lastHours === 'number') {
+    const { lastHours } = value
+    const whole = Number.isInteger(lastHours) && lastHours >= 1 && lastHours <= OVERVIEW_MAX_LAST_HOURS
+    return whole ? { lastHours } : null
+  }
   if (isRecord(value) && typeof value.from === 'string' && typeof value.to === 'string') {
     return { from: value.from, to: value.to }
   }
@@ -110,8 +133,9 @@ function rangeOf(value: unknown): OverviewRangeInput | null {
 
 function invalidRange(): string {
   return (
-    `"range" must be one of ${OVERVIEW_NAMED_RANGES.join(', ')} or an object with ` +
-    '"from" and "to" (local dates or ISO timestamps).'
+    `"range" must be one of ${OVERVIEW_NAMED_RANGES.join(', ')}, {"lastHours": N} with a whole ` +
+    'number of hours from 1 to ' +
+    `${OVERVIEW_MAX_LAST_HOURS}, or an object with "from" and "to" (local dates or ISO timestamps).`
   )
 }
 

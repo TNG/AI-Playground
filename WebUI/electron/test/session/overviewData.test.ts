@@ -69,6 +69,19 @@ describe('range resolution', () => {
     expect(resolveOverviewWindow('last-24h', NOW)).toEqual({ from: NOW - DAY, to: NOW })
   })
 
+  it('rolls a named number of hours back from now', () => {
+    expect(resolveOverviewWindow({ lastHours: 12 }, NOW)).toEqual({ from: NOW - 12 * HOUR, to: NOW })
+    expect(resolveOverviewWindow({ lastHours: 24 }, NOW)).toEqual(
+      resolveOverviewWindow('last-24h', NOW),
+    )
+  })
+
+  it('refuses an hour count that is not a whole number of hours it supports', () => {
+    for (const lastHours of [0, -1, 1.5, 8761]) {
+      expect(() => resolveOverviewWindow({ lastHours }, NOW)).toThrow(/hour/i)
+    }
+  })
+
   it('aligns today and yesterday to local calendar days', () => {
     expect(resolveOverviewWindow('today', NOW)).toEqual({ from: TODAY, to: TODAY + DAY })
     expect(resolveOverviewWindow('yesterday', NOW)).toEqual({ from: YESTERDAY, to: TODAY })

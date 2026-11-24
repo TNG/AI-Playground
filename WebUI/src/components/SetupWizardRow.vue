@@ -42,6 +42,12 @@ export type SetupWizardRowView = {
   updateLabel?: string
   /** Accessible name for the update action, e.g. "Update ComfyUI". */
   updateAriaLabel?: string
+  /** Work holds this Component: its change actions are disabled and this reason shows. */
+  inUseReason?: string
+  /** Disable the install action (work holds the Component). */
+  installDisabled?: boolean
+  /** Disable the update action (work holds the Component). */
+  updateDisabled?: boolean
 }
 
 const props = defineProps<{
@@ -128,6 +134,9 @@ const available = computed(() => props.row.availableInCurrentMode ?? true)
       <div v-if="row.versionDisplay" class="truncate text-xs text-muted-foreground leading-tight">
         {{ row.versionDisplay }}
       </div>
+      <div v-if="row.inUseReason" class="truncate text-xs text-warning leading-tight">
+        {{ row.inUseReason }}
+      </div>
     </div>
 
     <!-- Unavailable tooltip -->
@@ -169,16 +178,18 @@ const available = computed(() => props.row.availableInCurrentMode ?? true)
       <button
         v-else-if="row.showUpdate"
         @click="emit('update')"
+        :disabled="row.updateDisabled"
         :aria-label="row.updateAriaLabel"
-        class="text-xs whitespace-nowrap text-success hover:text-success/80 transition-colors"
+        class="text-xs whitespace-nowrap text-success hover:text-success/80 transition-colors disabled:opacity-50"
       >
         {{ row.updateLabel }}
       </button>
       <button
         v-else-if="row.showInstall"
         @click="emit('install')"
+        :disabled="row.installDisabled"
         :aria-label="row.installLabel"
-        class="text-xs bg-primary/80 hover:bg-primary py-0.5 px-2.5 rounded transition-colors"
+        class="text-xs bg-primary/80 hover:bg-primary py-0.5 px-2.5 rounded transition-colors disabled:opacity-50"
       >
         {{ languages.COM_INSTALL || 'Install' }}
       </button>

@@ -36,6 +36,7 @@ import type { DemoConfigUpdate } from '@/types/demoModeIpc'
 import type { McpServerConfig } from '@/types/mcpIpc'
 import type { PauseReason } from '@/types/kernelEvents'
 import type { CloseAnswerPayload, CloseAskPayload, InFlightWorkItem } from '@/types/lifecycleIpc'
+import type { HeldComponent } from '@/types/componentChange'
 import type { MediaRequestPayload, MediaResponsePayload } from '@/types/mediaRequests'
 import type { SpeechSynthesisRequest } from '@/types/speechIpc'
 import type { NotificationConfig } from '@/types/notificationsIpc'
@@ -219,6 +220,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     listen('kernel:event', callback),
   getKernelSnapshot: () => invoke('kernel:getSnapshot'),
   reportInFlightWork: (work: InFlightWorkItem[]) => send('lifecycle:reportWork', work),
+  reportComponentHolds: (holds: HeldComponent[]) => send('lifecycle:reportComponentHolds', holds),
   requestAppClose: () => send('lifecycle:requestClose'),
   lifecycle: {
     onAskClose: (callback: (payload: CloseAskPayload) => void) =>

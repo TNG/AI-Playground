@@ -91,9 +91,9 @@ export function createCloseCoordinator(deps: CloseCoordinatorDeps) {
 }
 
 /** A crashed renderer must not leave its In-flight Work report standing (every close would ask). */
-export function bindRendererWorkReset(
+export function bindRendererWorkReset<T>(
   webContents: { once: (event: 'destroyed', listener: () => void) => void },
-  setWork: (work: InFlightWorkItem[]) => void,
+  setWork: (work: T[]) => void,
 ): void {
   webContents.once('destroyed', () => setWork([]))
 }

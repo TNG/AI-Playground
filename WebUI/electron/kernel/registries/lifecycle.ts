@@ -1,5 +1,6 @@
 import type { WebContents } from 'electron'
 import type { CloseAnswerPayload, InFlightWorkItem } from '@/types/lifecycleIpc'
+import type { HeldComponent } from '@/types/componentChange'
 import type {
   InvokeHandlerMap,
   LifecycleInvokeName,
@@ -10,6 +11,8 @@ import type { IpcMutationResult } from '@/types/ipcChannels'
 
 export type LifecycleDeps = {
   setRendererWork: (work: InFlightWorkItem[]) => void
+  /** Components the window alone knows it holds: speech turns and model downloads. */
+  setRendererComponentHolds: (holds: HeldComponent[]) => void
   requestClose: () => void
   answerClose: (payload: CloseAnswerPayload) => void
   closeBridgeReady: (sender: WebContents) => void
@@ -19,6 +22,9 @@ export function buildLifecycleSendRegistry(deps: LifecycleDeps) {
   return {
     'lifecycle:reportWork': (_event, work) => {
       deps.setRendererWork(Array.isArray(work) ? work : [])
+    },
+    'lifecycle:reportComponentHolds': (_event, holds) => {
+      deps.setRendererComponentHolds(Array.isArray(holds) ? holds : [])
     },
     'lifecycle:requestClose': () => {
       deps.requestClose()

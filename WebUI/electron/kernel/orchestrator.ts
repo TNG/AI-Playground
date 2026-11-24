@@ -52,6 +52,8 @@ import { registerUserWaitQueue } from './userWait'
 import type { PauseReason, TurnWork } from '@/types/kernelEvents'
 import type { ArtifactRunMode } from '@/types/artifactIpc'
 import type { OpenArtifactRun } from '@/types/lifecycleIpc'
+import type { BackendServiceName } from '@/assets/js/store/backendServices'
+import type { HeldComponent } from '@/types/componentChange'
 import {
   artifactRunActive,
   artifactRunTag,
@@ -78,6 +80,8 @@ export type TextRequest = {
   joinsTurnQueue?: boolean
   /** Lets a waiting member say what it waits for. */
   work?: TurnWork
+  /** The Component this turn occupies (a local LLM backend); absent for cloud turns. */
+  component?: BackendServiceName
   /** Makes the member pausable: it gives up its place while the user is asked something. */
   pause?: TurnPause
 }
@@ -126,6 +130,8 @@ export type OrchestratorDeps = {
   restartChatBackend(): Promise<void>
   /** In-flight /v1/chat/completions requests (chat turns, media specialists, summarize). */
   chatRequestsOpen(): number
+  /** Holds or work changed: recompute which Components are in use. */
+  onWorkHoldsChanged?(): void
 }
 
 let orchestratorDeps: OrchestratorDeps | null = null
@@ -244,6 +250,34 @@ export function mediaRequestsQueued(): number {
   return mediaRequestQueue.length
 }
 
+/**
+ * Components held by work in flight here: a local turn's or Agent Run's backend,
+ * and ComfyUI while any media run (or a media-request bracket) is open.
+ */
+export function openComponentHolds(): HeldComponent[] {
+  const holds: HeldComponent[] = []
+  for (const entry of textOccupancy.values()) {
+    if (!entry.component) continue
+    holds.push({
+      component: entry.component,
+      work: entry.work === 'agent' ? 'agent-run' : 'turn',
+    })
+  }
+  if (
+    openArtifactModes.size > 0 ||
+    mediaRequestActive ||
+    mediaRequestQueue.length > 0 ||
+    admittedArtifactRuns > 0
+  ) {
+    holds.push({ component: 'comfyui-backend', work: 'media-run' })
+  }
+  return holds
+}
+
+function notifyWorkHoldsChanged(): void {
+  orchestratorDeps?.onWorkHoldsChanged?.()
+}
+
 export function textRequestsOpen(): number {
   return textOccupancy.size
 }
@@ -291,8 +325,12 @@ export function submitArtifactRun(
   options: { queue: 'turn' | 'queue' } = { queue: 'turn' },
 ): Promise<ArtifactRunResult> {
   openArtifactModes.set(payload.runId, payload.mode)
+  notifyWorkHoldsChanged()
   const run = options.queue === 'turn' ? runAsTurnMember(payload) : runInTurn(payload)
-  return run.finally(() => openArtifactModes.delete(payload.runId))
+  return run.finally(() => {
+    openArtifactModes.delete(payload.runId)
+    notifyWorkHoldsChanged()
+  })
 }
 
 const DECLINED: RunModelsOutcome = { state: 'declined' }
@@ -636,6 +674,7 @@ export async function submitTextRequest(request: TextRequest, signal?: AbortSign
     throw new Error(`Text request ${request.runId} is already occupying the queue`)
   }
   textOccupancy.set(request.runId, { ...request, phase: 'waiting', userWaits: [], yielded: false })
+  notifyWorkHoldsChanged()
   // Joined before announcing, so the enqueued event already carries its position.
   const place = request.joinsTurnQueue ? takeTurnPlace(request.runId, signal) : null
   emitQueueEvent({
@@ -679,6 +718,7 @@ export function finishTextRequest(runId: string): void {
   const entry = textOccupancy.get(runId)
   if (!entry) return
   textOccupancy.delete(runId)
+  notifyWorkHoldsChanged()
   leaveTurnQueue(runId)
   emitQueueEvent({
     runKey: runId,
@@ -975,6 +1015,7 @@ export function runMediaRequest<T>(
       const index = mediaRequestQueue.indexOf(entry)
       if (index === -1) return
       mediaRequestQueue.splice(index, 1)
+      notifyWorkHoldsChanged()
       emitQueueEvent({
         runKey: entry.runKey,
         kind: 'media-request',
@@ -986,6 +1027,7 @@ export function runMediaRequest<T>(
     }
     options.abortSignal?.addEventListener('abort', onAbort, { once: true })
     mediaRequestQueue.push(entry)
+    notifyWorkHoldsChanged()
     emitQueueEvent({
       runKey: options.runKey,
       kind: 'media-request',
@@ -1002,6 +1044,7 @@ function drainMediaRequestLane(): void {
   const entry = mediaRequestQueue.shift()
   if (!entry) return
   mediaRequestActive = true
+  notifyWorkHoldsChanged()
   void (async () => {
     try {
       if (entry.abortSignal?.aborted) {
@@ -1031,6 +1074,7 @@ function drainMediaRequestLane(): void {
         conversationKey: entry.conversationKey,
       })
       mediaRequestActive = false
+      notifyWorkHoldsChanged()
       drainMediaRequestLane()
     }
   })()

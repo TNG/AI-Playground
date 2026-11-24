@@ -7,6 +7,7 @@ import { useModels } from '../store/models'
 import { createAppError } from '../errors/appError'
 import { requestDownloadConsent } from '@/assets/js/permissions/permissions'
 import { transcribeAudioBlob, transcribeAudioBuffer } from '@/lib/transcribe'
+import { beginComponentHold } from '@/lib/componentHoldsRegistry'
 import {
   base64ToBytes,
   bytesToBase64,
@@ -224,20 +225,38 @@ export function synthesizeToolAvailable(): boolean {
  */
 export async function transcribe(req: { audio: Blob }): Promise<TranscriptResult> {
   const speechToText = useSpeechToText()
-  const endpoint = await speechToText.resolveTranscription()
-  if (!endpoint) throw new Error(NO_TRANSCRIPTION_ENDPOINT)
+  const release = holdSpeechEngine(speechToText.effectiveSttEngine)
+  try {
+    const endpoint = await speechToText.resolveTranscription()
+    if (!endpoint) throw new Error(NO_TRANSCRIPTION_ENDPOINT)
 
-  // WAV bytes go straight to the server; convertToWav would decode and
-  // re-encode a perfectly good WAV (and the mic's blob is always WAV).
-  const buffer = await req.audio.arrayBuffer()
-  const isWav =
-    buffer.byteLength > 11 &&
-    new DataView(buffer).getUint32(0) === 0x52494646 && // 'RIFF'
-    new DataView(buffer).getUint32(8) === 0x57415645 // 'WAVE'
-  const text = isWav
-    ? await transcribeAudioBuffer(buffer, endpoint)
-    : await transcribeAudioBlob(req.audio, endpoint)
-  return { text }
+    // WAV bytes go straight to the server; convertToWav would decode and
+    // re-encode a perfectly good WAV (and the mic's blob is always WAV).
+    const buffer = await req.audio.arrayBuffer()
+    const isWav =
+      buffer.byteLength > 11 &&
+      new DataView(buffer).getUint32(0) === 0x52494646 && // 'RIFF'
+      new DataView(buffer).getUint32(8) === 0x57415645 // 'WAVE'
+    const text = isWav
+      ? await transcribeAudioBuffer(buffer, endpoint)
+      : await transcribeAudioBlob(req.audio, endpoint)
+    return { text }
+  } finally {
+    release()
+  }
+}
+
+/** The Component a speech engine serves from; external engines have none. */
+function holdSpeechEngine(engine: 'whisper' | 'standalone' | 'external'): () => void {
+  if (engine === 'whisper') return beginComponentHold('openvino-backend', 'speech-turn')
+  if (engine === 'standalone') return beginComponentHold('whisper-backend', 'speech-turn')
+  return () => {}
+}
+
+function holdTtsEngine(engine: 'qwen3' | 'kokoro' | 'external'): () => void {
+  if (engine === 'qwen3') return beginComponentHold('qwen3-tts-backend', 'speech-turn')
+  if (engine === 'kokoro') return beginComponentHold('openvino-backend', 'speech-turn')
+  return () => {}
 }
 
 /**
@@ -255,6 +274,16 @@ export function synthesizeClip(
 ): Promise<SpeechClipResult | null>
 export function synthesizeClip(req: SynthesizeClipRequest): Promise<SpeechClipResult>
 export async function synthesizeClip(req: SynthesizeClipRequest): Promise<SpeechClipResult | null> {
+  const tts = useTextToSpeech()
+  const release = holdTtsEngine(tts.selectedEngine)
+  try {
+    return await synthesizeWithEngine(req)
+  } finally {
+    release()
+  }
+}
+
+async function synthesizeWithEngine(req: SynthesizeClipRequest): Promise<SpeechClipResult | null> {
   const tts = useTextToSpeech()
   const text = req.text
 

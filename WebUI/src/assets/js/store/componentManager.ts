@@ -7,11 +7,13 @@ import {
 } from './backendServices'
 import { useProductMode } from './productMode'
 import { useSetupWizard } from './setupWizard'
+import { useComponentHolds } from './componentHolds'
 import { useI18N } from './i18n'
 import { useErrors } from './errors'
 import { compareVersions, mapServiceNameToDisplayName, mapStatusToColor } from '@/lib/utils'
 import { updateLocalSettingsReported } from '@/lib/localSettingsUpdate'
 import { setupProgressLabel } from '@/lib/setupProgress'
+import type { ComponentWork } from '@/types/componentChange'
 
 /** What the health line summarises, derived once from the live rows. */
 export type ComponentHealth = {
@@ -45,6 +47,10 @@ export type ComponentRow = {
   toggleDisabled: boolean
   isInstalling: boolean
   installProgressText: string | null
+  /** The work holding this Component right now; null when it is free to change. */
+  inUseWork: ComponentWork | null
+  /** Why the row's change actions are blocked, e.g. "Finish the running turn first". */
+  inUseReason: string | null
 }
 
 function displayNameFor(serviceName: BackendServiceName): string {
@@ -67,6 +73,7 @@ export const useComponentManager = defineStore('componentManager', () => {
   const backendServices = useBackendServices()
   const productMode = useProductMode()
   const wizard = useSetupWizard()
+  const componentHolds = useComponentHolds()
   const languages = useI18N().state
   const errors = useErrors()
 
@@ -89,6 +96,35 @@ export const useComponentManager = defineStore('componentManager', () => {
 
   function label(key: string, fallback: string): string {
     return languages[key] || fallback
+  }
+
+  const IN_USE_REASON: Record<ComponentWork, { key: string; fallback: string }> = {
+    turn: {
+      key: 'COMPONENT_MANAGER_IN_USE_TURN',
+      fallback: 'Finish the running turn first.',
+    },
+    'agent-run': {
+      key: 'COMPONENT_MANAGER_IN_USE_AGENT_RUN',
+      fallback: 'Finish the running agent run first.',
+    },
+    'media-run': {
+      key: 'COMPONENT_MANAGER_IN_USE_MEDIA_RUN',
+      fallback: 'Finish the running generation first.',
+    },
+    'speech-turn': {
+      key: 'COMPONENT_MANAGER_IN_USE_SPEECH_TURN',
+      fallback: 'Finish the running speech turn first.',
+    },
+    'model-download': {
+      key: 'COMPONENT_MANAGER_IN_USE_DOWNLOAD',
+      fallback: 'Wait for the model download to finish.',
+    },
+  }
+
+  function inUseReason(work: ComponentWork | null): string | null {
+    if (!work) return null
+    const entry = IN_USE_REASON[work]
+    return label(entry.key, entry.fallback)
   }
 
   function isAvailableInCurrentMode(serviceName: BackendServiceName): boolean {
@@ -166,6 +202,7 @@ export const useComponentManager = defineStore('componentManager', () => {
         installed,
         backendServices.versionState as unknown as Record<string, unknown>,
       )
+      const inUseWork = installed ? componentHolds.workFor(serviceName) : null
       const installProgressText = busy
         ? status === 'installing'
           ? progress
@@ -193,9 +230,12 @@ export const useComponentManager = defineStore('componentManager', () => {
         statusColor,
         versionText,
         subtitle: versionText ? `${statusText} · ${versionText}` : statusText,
-        toggleDisabled: isRequired || !installed || busy || !available,
+        toggleDisabled:
+          isRequired || !installed || busy || !available || (inUseWork !== null && enabled),
         isInstalling: busy,
         installProgressText,
+        inUseWork,
+        inUseReason: inUseReason(inUseWork),
       }
     }),
   )
@@ -255,6 +295,7 @@ export const useComponentManager = defineStore('componentManager', () => {
     }
 
     if (info?.isRequired) return
+    if (componentHolds.workFor(serviceName)) return
     disabledBackends.value.add(serviceName)
     disabledBackends.value = new Set(disabledBackends.value)
     persistDisabled()
@@ -273,17 +314,20 @@ export const useComponentManager = defineStore('componentManager', () => {
   }
 
   async function install(serviceName: BackendServiceName): Promise<void> {
-    if (!rowFor(serviceName)?.canInstall) return
+    const row = rowFor(serviceName)
+    if (!row?.canInstall || row.inUseWork) return
     await wizard.installBackend(serviceName)
   }
 
   async function repair(serviceName: BackendServiceName): Promise<void> {
-    if (!rowFor(serviceName)?.canRepair) return
+    const row = rowFor(serviceName)
+    if (!row?.canRepair || row.inUseWork) return
     await wizard.repairBackend(serviceName)
   }
 
   async function update(serviceName: BackendServiceName): Promise<void> {
-    if (!rowFor(serviceName)?.updateAvailable) return
+    const row = rowFor(serviceName)
+    if (!row?.updateAvailable || row.inUseWork) return
     await wizard.updateBackend(serviceName)
   }
 
@@ -301,6 +345,7 @@ export const useComponentManager = defineStore('componentManager', () => {
     repair,
     update,
     showErrorLog,
+    anyInFlightWork: computed(() => componentHolds.anyInFlightWork),
   }
 })
 

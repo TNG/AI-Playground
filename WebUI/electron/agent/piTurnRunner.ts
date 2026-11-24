@@ -26,6 +26,7 @@ import {
 } from './piStreamTranslate.ts'
 import type { AgentModeTurnConfig } from '@/types/agentIpc'
 import type { HistoryEntry } from '@/types/sessionIpc'
+import type { BackendServiceName } from '@/assets/js/store/backendServices'
 import type { IpcMutationResult } from '@/types/ipcChannels'
 import { clearPointer, readSessionStore, savePointer } from './piSessionStore.ts'
 import { briefly, LOG_SOURCE, verboseLogging } from './piAgentLog.ts'
@@ -551,6 +552,9 @@ export async function startAgentTurn(
         joinsTurnQueue: true,
         work: 'agent',
         pause,
+        ...(config.readiness
+          ? { component: config.readiness.serviceName as BackendServiceName }
+          : {}),
       },
       abortController.signal,
     )

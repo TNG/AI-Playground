@@ -86,8 +86,11 @@ function toRowView(row: ComponentRow): SetupWizardRowView {
       row.displayName,
     ),
     showRepair: row.canRepair,
-    repairDisabled: wizard.isBusy,
+    repairDisabled: wizard.isBusy || row.inUseWork !== null,
     showError: row.failed,
+    inUseReason: row.inUseReason ?? undefined,
+    installDisabled: row.inUseWork !== null,
+    updateDisabled: row.inUseWork !== null,
   }
 }
 

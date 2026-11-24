@@ -492,7 +492,8 @@ export const useBackendServices = defineStore('backendServices', () => {
       }
       // Clear error details when uninstalling
       listener.clearErrorDetails()
-      await window.electronAPI.uninstall(serviceName)
+      const result = await window.electronAPI.uninstall(serviceName)
+      if (!result.success) throw new Error(result.error)
     } finally {
       // A failed uninstall used to leave the listener active, so the next setup
       // for this service started with dirty listener state (stale collected
@@ -571,7 +572,7 @@ export const useBackendServices = defineStore('backendServices', () => {
     // never be a floating promise: if it rejects (or returns without a terminal
     // update) the listener has to be released, or the install hangs forever.
     window.electronAPI.setUpService(serviceName).then(
-      () => listener.onInvocationSettled(runToken),
+      (result) => listener.onInvocationSettled(runToken, result.success ? undefined : result.error),
       (error: unknown) =>
         listener.onInvocationSettled(
           runToken,

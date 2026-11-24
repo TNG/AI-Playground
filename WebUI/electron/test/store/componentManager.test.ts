@@ -103,6 +103,20 @@ vi.mock('@/assets/js/store/i18n', () => ({
 const report = vi.fn()
 vi.mock('@/assets/js/store/errors', () => ({ useErrors: () => ({ report }) }))
 
+const holdsState = await vi.hoisted(async () => {
+  const { ref } = await import('vue')
+  return { holds: ref([] as Array<{ component: string; work: string }>) }
+})
+vi.mock('@/assets/js/store/componentHolds', () => ({
+  useComponentHolds: () => ({
+    get anyInFlightWork() {
+      return holdsState.holds.value.length > 0
+    },
+    workFor: (component: string) =>
+      holdsState.holds.value.find((entry) => entry.component === component)?.work ?? null,
+  }),
+}))
+
 const localSettings = vi.hoisted(() => ({ value: {} as Record<string, unknown> }))
 
 const getLocalSettings = vi.fn(async () => localSettings.value)
@@ -153,6 +167,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   localSettings.value = {}
   seed([])
+  holdsState.holds.value = []
   wizardState.preferredDeviceOptions.value = []
   wizardState.pendingPreferredDevice.value = null
 })
@@ -512,5 +527,81 @@ describe('Component Manager default GPU', () => {
 
     expect(manager.deviceOptions).toHaveLength(1)
     expect(manager.deviceOptions[0]?.label).toBe('Intel Arc B580')
+  })
+})
+
+describe('Component Manager in-use guard', () => {
+  it('blocks the affected Component, names the work and re-enables it when the work ends', async () => {
+    seed([service('comfyui-backend', { status: 'running' })])
+    holdsState.holds.value = [{ component: 'comfyui-backend', work: 'media-run' }]
+    const { useComponentManager } = await import('@/assets/js/store/componentManager')
+    const manager = useComponentManager()
+    await manager.hydrateFromSettings()
+
+    expect(row(manager, 'comfyui-backend').inUseWork).toBe('media-run')
+    expect(row(manager, 'comfyui-backend').inUseReason).toMatch(/generation/)
+    expect(row(manager, 'comfyui-backend').toggleDisabled).toBe(true)
+
+    holdsState.holds.value = []
+    expect(row(manager, 'comfyui-backend').inUseWork).toBeNull()
+    expect(row(manager, 'comfyui-backend').toggleDisabled).toBe(false)
+  })
+
+  it('refuses to disable a Component the work holds', async () => {
+    seed([service('llamacpp-backend', { status: 'running' })])
+    holdsState.holds.value = [{ component: 'llamacpp-backend', work: 'turn' }]
+    const { useComponentManager } = await import('@/assets/js/store/componentManager')
+    const manager = useComponentManager()
+    await manager.hydrateFromSettings()
+
+    await manager.setEnabled('llamacpp-backend', false)
+
+    expect(stopService).not.toHaveBeenCalled()
+    expect(localSettings.value.disabledBackends).toBeUndefined()
+  })
+
+  it('leaves unrelated Components usable while another is held', async () => {
+    seed([
+      service('llamacpp-backend', { status: 'running' }),
+      service('comfyui-backend', { status: 'running' }),
+    ])
+    holdsState.holds.value = [{ component: 'llamacpp-backend', work: 'turn' }]
+    const { useComponentManager } = await import('@/assets/js/store/componentManager')
+    const manager = useComponentManager()
+    await manager.hydrateFromSettings()
+
+    expect(row(manager, 'comfyui-backend').inUseWork).toBeNull()
+    await manager.setEnabled('comfyui-backend', false)
+
+    expect(stopService).toHaveBeenCalledWith('comfyui-backend')
+  })
+
+  it('refuses repair and update of a held Component', async () => {
+    seed([service('comfyui-backend', { status: 'failed' })], {
+      'comfyui-backend': { installed: { version: 'v0.3.0' }, target: { version: 'v0.4.0' } },
+    })
+    holdsState.holds.value = [{ component: 'comfyui-backend', work: 'media-run' }]
+    const { useComponentManager } = await import('@/assets/js/store/componentManager')
+    const manager = useComponentManager()
+    await manager.hydrateFromSettings()
+
+    await manager.repair('comfyui-backend')
+    await manager.update('comfyui-backend')
+
+    expect(wizardRepair).not.toHaveBeenCalled()
+    expect(wizardUpdate).not.toHaveBeenCalled()
+  })
+
+  it('reports whether any In-flight Work exists, for the Hardware Mode change', async () => {
+    seed([])
+    holdsState.holds.value = []
+    const { useComponentManager } = await import('@/assets/js/store/componentManager')
+    const manager = useComponentManager()
+    await manager.hydrateFromSettings()
+
+    expect(manager.anyInFlightWork).toBe(false)
+
+    holdsState.holds.value = [{ component: 'openvino-backend', work: 'speech-turn' }]
+    expect(manager.anyInFlightWork).toBe(true)
   })
 })

@@ -4,6 +4,8 @@ import type {
   ModelDownloadError,
   ModelDownloadProgress,
 } from '@/lib/modelDownloader'
+import { beginComponentHold } from '@/lib/componentHoldsRegistry'
+import type { BackendServiceName } from '@/assets/js/store/backendServices'
 
 /**
  * The Model Download queue: every download the app starts runs
@@ -79,6 +81,16 @@ export function modelKey(model: DownloadModelParam): string {
   return `${model.backend}|${model.type}|${model.repo_id}`
 }
 
+const COMPONENT_OF_DOWNLOAD_BACKEND: Record<DownloadModelParam['backend'], BackendServiceName> = {
+  comfyui: 'comfyui-backend',
+  llama_cpp: 'llamacpp-backend',
+  openvino: 'openvino-backend',
+}
+
+function downloadComponent(model: DownloadModelParam): BackendServiceName {
+  return COMPONENT_OF_DOWNLOAD_BACKEND[model.backend]
+}
+
 function uniqueModels(models: DownloadModelParam[]): DownloadModelParam[] {
   const seen = new Set<string>()
   return models.filter((model) => {
@@ -107,6 +119,8 @@ export function createModelDownloadQueue(deps: {
   const downloads = reactive<ModelDownload[]>([])
   const records = new Map<string, WaiterRecord>()
   const controllers = new Map<string, AbortController>()
+  /** A running download holds the Components whose models it is fetching (ticket 04). */
+  const componentHolds = new Map<string, Array<() => void>>()
   const listeners = new Map<string, Set<ModelDownloadListener>>()
   let stopping: Promise<void> | null = null
 
@@ -226,6 +240,8 @@ export function createModelDownloadQueue(deps: {
     const index = downloads.indexOf(download)
     if (index === -1) return
     downloads.splice(index, 1)
+    for (const release of componentHolds.get(download.id) ?? []) release()
+    componentHolds.delete(download.id)
     const wasRunning = download.status === 'downloading'
     controllers.get(download.id)?.abort()
     controllers.delete(download.id)
@@ -264,6 +280,12 @@ export function createModelDownloadQueue(deps: {
       return
     }
     download.status = 'downloading'
+    componentHolds.set(
+      download.id,
+      [...new Set(download.models.map(downloadComponent))].map((component) =>
+        beginComponentHold(component, 'model-download'),
+      ),
+    )
     for (const listener of listeners.get(download.id) ?? []) listener.onStart?.()
     const controller = new AbortController()
     controllers.set(download.id, controller)

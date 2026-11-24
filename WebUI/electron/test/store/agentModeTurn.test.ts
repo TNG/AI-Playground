@@ -169,6 +169,28 @@ describe('buildTurnConfig readiness (step 15)', () => {
     expect(config.ownsPrompt).toBe(true)
   })
 
+  it('tells main to run a local turn on the Hermes harness', async () => {
+    const turn = (harness?: 'pi' | 'hermes') =>
+      buildTurnConfig({
+        sessionId: 'aipg-agent-1',
+        workspaceDir: '/tmp/ws',
+        presetName: 'Hermes Agent',
+        instructions: '',
+        harness,
+        capabilities: ['media'],
+        unsandboxed: false,
+        planningThinkingOnly: false,
+        textInference: localInference() as never,
+        cloudMode: {
+          selectedProviderId: 'openai',
+          activeProviderAuthStyle: 'bearer',
+          capabilitiesFor: () => ({ reasoningAdvertised: false }),
+        },
+      })
+    expect((await turn('hermes')).harness).toBe('hermes')
+    expect((await turn()).harness).toBeUndefined()
+  })
+
   it('tells main what the local model can be given, an untagged one getting no tools', async () => {
     const turn = (activeLlmModel: Record<string, unknown>) =>
       buildTurnConfig({

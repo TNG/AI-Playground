@@ -102,6 +102,7 @@ export async function buildTurnConfig(options: {
   instructions: string
   /** The preset's `agentOwnsPrompt`. */
   ownsPrompt?: boolean
+  harness?: 'pi' | 'hermes'
   capabilities: string[]
   unsandboxed: boolean
   /** An Agent Run's folder overrides; absent inherits the Session's folders. */
@@ -159,6 +160,7 @@ export async function buildTurnConfig(options: {
       presetName: options.presetName,
       instructions: options.instructions,
       ...(options.ownsPrompt ? { ownsPrompt: true } : {}),
+      ...(options.harness === 'hermes' ? { harness: 'hermes' as const } : {}),
       capabilities: options.capabilities,
       unsandboxed: options.unsandboxed,
       ...folderOverridesOf(options.folderOverrides),
@@ -203,6 +205,7 @@ export async function buildTurnConfig(options: {
     presetName: options.presetName,
     instructions: options.instructions,
     ...(options.ownsPrompt ? { ownsPrompt: true } : {}),
+    ...(options.harness === 'hermes' ? { harness: 'hermes' as const } : {}),
     capabilities: options.capabilities,
     unsandboxed: options.unsandboxed,
     ...folderOverridesOf(options.folderOverrides),

@@ -210,6 +210,27 @@
       </SettingsRow>
     </template>
 
+    <template v-if="!template && usesHermes" #after>
+      <TooltipProvider :delay-duration="200">
+        <div class="max-w-md mx-auto flex items-center gap-2">
+          <Button variant="outline" class="flex-1 w-full" @click="openHermesDashboard">
+            {{ languages.SETTINGS_OPEN_HERMES }}
+          </Button>
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <span
+                class="svg-icon i-info w-4 h-4 shrink-0 opacity-50 cursor-help"
+                :aria-label="languages.SETTINGS_OPEN_HERMES_INFO"
+              />
+            </TooltipTrigger>
+            <TooltipContent side="right" class="max-w-[300px] text-sm text-justify">
+              {{ languages.SETTINGS_OPEN_HERMES_INFO }}
+            </TooltipContent>
+          </Tooltip>
+        </div>
+      </TooltipProvider>
+    </template>
+
     <template v-if="!template" #reset-fallback>
       <AgentPresetDefaultsActions @reset="template || panel.refreshCapabilityCatalog()" />
     </template>
@@ -218,10 +239,13 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Slider } from '@/components/ui/slider'
 import { backendToService, useTextInference } from '@/assets/js/store/textInference'
 import { useI18N } from '@/assets/js/store/i18n'
+import { useErrors } from '@/assets/js/store/errors'
 import { usePresets } from '@/assets/js/store/presets'
 import AgentPresetDefaultsActions from '@/components/AgentPresetDefaultsActions.vue'
 import CapabilityIcons from '@/components/CapabilityIcons.vue'
@@ -239,10 +263,13 @@ import { useSettingsProblemMarks } from '@/assets/js/settingsProblemMarks'
 import { usePresetPicker } from '@/assets/js/presetPicker'
 import { OVMS_MTP_ASSISTANT_TOKENS_MAX, OVMS_MTP_ASSISTANT_TOKENS_MIN } from '@/lib/ovmsMtp'
 import { reasoningEfforts } from '@/types/shared'
+import { createAppError } from '@/assets/js/errors/appError'
+import type { ChatPreset } from '@/lib/presetSchemas'
 
 const languages = useI18N().state
 const textInference = useTextInference()
 const presetsStore = usePresets()
+const errors = useErrors()
 
 const props = defineProps<{
   /** An Agent's Settings Template instead of the open Session's settings. */
@@ -288,6 +315,27 @@ function setTemperature(value: number | number[]): void {
 function setMtpDraftTokens(event: Event): void {
   const value = numberInput(event)
   if (value !== undefined) binding.value.setMtpDraftTokens(value)
+}
+
+const usesHermes = computed(
+  () =>
+    presetsStore.activePreset?.type === 'chat' &&
+    (presetsStore.activePreset as ChatPreset).harness === 'hermes',
+)
+
+async function openHermesDashboard() {
+  const result = await window.electronAPI.hermes.openDashboard()
+  if (!result.success) {
+    errors.report(
+      createAppError({
+        category: 'backend',
+        code: 'hermes/open-dashboard-failed',
+        severity: 'error',
+        surface: 'toast',
+        userMessage: result.error ?? languages.SETTINGS_HERMES_OPEN_FAILED,
+      }),
+    )
+  }
 }
 
 // Only rendered for local backends, so the fallback is inert.

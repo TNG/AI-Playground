@@ -113,9 +113,11 @@ import {
   resetAgentSession,
   setAgentModeMainWindow,
   shutdownAgentMode,
-  startAgentTurn,
   submitAgentToolResult,
 } from './agent/piAgentManager'
+import { startAgentTurnOnHarness } from './agent/agentHarness'
+import { hermesService, wireHermesService } from './agent/hermes/hermesIntegration'
+import { HermesBackendService } from './adapters/backends/hermesBackendService'
 import {
   getKernelEventWindow,
   getKernelSnapshot,
@@ -336,6 +338,7 @@ import { claimSessionTurn, inSessionTurn, releaseSessionTurn } from './session/s
 import { buildAgentModeRegistry } from './kernel/registries/agentMode'
 import { buildChatRegistry } from './kernel/registries/chat'
 import { buildComfyuiRegistry } from './kernel/registries/comfyui'
+import { buildHermesRegistry } from './kernel/registries/hermes'
 import { buildGamesRegistry } from './kernel/registries/games'
 import { buildMcpRegistry, buildMcpSendRegistry } from './kernel/registries/mcp'
 import {
@@ -1424,6 +1427,8 @@ async function initServiceRegistry(win: BrowserWindow, settings: LocalSettings) 
       ),
     )
   }
+  const hermes = serviceRegistry.getService('hermes-backend')
+  if (hermes instanceof HermesBackendService) wireHermesService(hermes)
   wireArtifactRunner(settings)
   wireConversations(settings)
   wireSessions(settings)
@@ -2020,7 +2025,7 @@ function initEventHandle() {
 
   registerInvokeHandlers(
     buildAgentModeRegistry({
-      startAgentTurn,
+      startAgentTurn: startAgentTurnOnHarness,
       cancelAgentTurn,
       resetAgentSession,
       deleteAgentSession,
@@ -2111,6 +2116,7 @@ function initEventHandle() {
       comfyuiTools,
     }),
   )
+  registerInvokeHandlers(buildHermesRegistry({ hermesService }))
 
   // Auto-detect MCP servers (e.g., Acer MCP service installed via WindowsApps).
   // Runs on every startup so newly installed services are picked up and stale

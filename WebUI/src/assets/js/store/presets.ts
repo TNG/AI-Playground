@@ -5,6 +5,7 @@ import { demoAwareStorage } from '../demoAwareStorage'
 import { useBackendServices } from './backendServices'
 import { withDevPresets } from './devPresets'
 import { useProductMode } from './productMode'
+import { developerMode } from './debugSettings'
 import { currentPresetName, renamePresetKeys, renamePresetSettings } from '@/lib/presetRenames'
 import { lastUsedByMode } from '@/lib/promptBarModel'
 import {
@@ -124,6 +125,14 @@ export const usePresets = defineStore(
         !sttExternalEnabled() &&
         !backendServices.info.some((s) => s.serviceName === 'whisper-backend')
       )
+    }
+
+    /** Hermes Agent is a developer preview: it runs an unsandboxed shell, and needs its sidecar. */
+    function hermesPresetHidden(preset: ChatPreset): boolean {
+      if (preset.harness !== 'hermes') return false
+      const backendServices = useBackendServices()
+      const hermes = backendServices.info.find((s) => s.serviceName === 'hermes-backend')
+      return !developerMode() || !hermes?.isSetUp
     }
 
     // ========================================================================
@@ -460,6 +469,7 @@ export const usePresets = defineStore(
           if (preset.type === 'chat' && sttPresetHidden(preset as ChatPreset)) {
             return false
           }
+          if (preset.type === 'chat' && hermesPresetHidden(preset as ChatPreset)) return false
 
           // Hide Phison presets entirely on systems that do not offer the Phison build.
           // On capable systems they remain listed (greyed-out until installed + active).
@@ -613,6 +623,7 @@ export const usePresets = defineStore(
         const chatPreset = p as ChatPreset
         if (chatPreset.excludeFromChatPresetPicker) return false
         if (sttPresetHidden(chatPreset)) return false
+        if (hermesPresetHidden(chatPreset)) return false
         if (chatPreset.requiresNpuSupport && !hasNpuDevice) {
           return false
         }

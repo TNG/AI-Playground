@@ -11,6 +11,7 @@ import { OpenVINOBackendService } from './openVINOBackendService.ts'
 import { HomeAgentBackendService } from './homeAgentBackendService.ts'
 import { Qwen3TtsBackendService } from './qwen3TtsBackendService.ts'
 import { WhisperBackendService } from './whisperBackendService.ts'
+import { HermesBackendService } from './hermesBackendService.ts'
 import type { LocalSettings } from '../../kernel/localSettings.ts'
 import { setLlmServiceLookup } from '../llmServerSnapshot.ts'
 
@@ -22,6 +23,7 @@ export type backend =
   | 'home-agent-backend'
   | 'qwen3-tts-backend'
   | 'whisper-backend'
+  | 'hermes-backend'
 
 export interface ApiServiceRegistry {
   register(apiService: ApiService): void
@@ -295,6 +297,14 @@ export async function aiplaygroundApiServiceRegistry(
       new WhisperBackendService(
         'whisper-backend',
         await getPort({ port: portNumbers(56000, 56999) }),
+        win,
+        settings,
+      ),
+    )
+    instance.register(
+      new HermesBackendService(
+        'hermes-backend',
+        await getPort({ port: portNumbers(55000, 55999) }),
         win,
         settings,
       ),

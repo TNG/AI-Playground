@@ -18,6 +18,7 @@ export const allBackendServiceNames = [
   'llamacpp-backend',
   'openvino-backend',
   'comfyui-backend',
+  'hermes-backend',
 ] as const
 
 export type BackendServiceName = (typeof allBackendServiceNames)[number]
@@ -50,6 +51,7 @@ export const useBackendServices = defineStore('backendServices', () => {
     'comfyui-backend': null,
     'llamacpp-backend': null,
     'openvino-backend': null,
+    'hermes-backend': null,
   })
 
   // User's version overrides (persisted)
@@ -138,6 +140,7 @@ export const useBackendServices = defineStore('backendServices', () => {
     'comfyui-backend': {},
     'llamacpp-backend': {},
     'openvino-backend': {},
+    'hermes-backend': {},
   })
 
   function applyInstalledVersionFromService(service: ApiServiceInformation): void {

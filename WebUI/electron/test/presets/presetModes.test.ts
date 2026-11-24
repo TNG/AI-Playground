@@ -97,8 +97,18 @@ describe('shipped agent presets', () => {
     expect(agentPresets.map((entry) => entry.preset.name).sort()).toEqual([
       'Assistant',
       'Game Agent',
+      'Hermes Agent',
       'Quick Coder',
     ])
+  })
+
+  // The Hermes preview runs on any tool-calling model, so the dev test LLM can drive it.
+  it('runs Hermes Agent on the Hermes harness with tool calling but no agentic gate', () => {
+    const hermes = agentPresets.find((entry) => entry.preset.name === 'Hermes Agent')
+      ?.preset as ChatPreset
+    expect(hermes.harness).toBe('hermes')
+    expect(hermes.requiresToolCalling).toBe(true)
+    expect(hermes.requiresAgentic).toBeUndefined()
   })
 
   it('gives Assistant its own prompt, the Session Folder and a 32k context, in demo mode too', () => {
@@ -134,6 +144,7 @@ describe('shipped agent presets', () => {
         continue
       }
       expect(chat.requiresToolCalling, `${file}: agent without tools`).toBe(true)
+      if (chat.harness === 'hermes') continue
       expect(chat.requiresAgentic, `${file}: agent without the agentic gate`).toBe(true)
     }
   })

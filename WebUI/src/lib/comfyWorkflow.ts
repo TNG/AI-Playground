@@ -110,7 +110,7 @@ export const settingToComfyInputsName = {
   inferenceSteps: ['steps'],
   height: ['height'],
   width: ['width'],
-  prompt: ['text'],
+  prompt: ['text', 'prompt'],
   negativePrompt: ['text'],
   batchSize: ['batch_size'],
 } satisfies Partial<Record<string, string[]>>
@@ -153,9 +153,12 @@ export const findKeysByClassType = (workflow: ComfyUIApiWorkflow, classType: str
     .filter(([_key, value]) => (value as any)?.['class_type'] === classType)
     .map(([key, _value]) => key)
 
+// Too generic to guess a node by: a prompt only goes to a node titled for it.
+const titleOnlyInputs = new Set(['text', 'prompt'])
+
 export const findKeysByInputsName = (workflow: ComfyUIApiWorkflow, setting: ComfySetting) => {
   for (const inputName of settingToComfyInputsName[setting]) {
-    if (inputName === 'text') continue
+    if (titleOnlyInputs.has(inputName)) continue
     const keys = Object.entries(workflow)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .filter(([_key, value]) => (value as any)?.['inputs']?.[inputName ?? ''] !== undefined)

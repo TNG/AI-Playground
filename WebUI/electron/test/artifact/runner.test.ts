@@ -104,7 +104,7 @@ let statusListeners: ((status: string) => void)[]
 let consentRequests: number
 let consentApproved: boolean
 let missingModels: ArtifactMissingModel[]
-const setPresetParameters = vi.fn(async (_parameters: string[]) => {})
+const setPresetParameters = vi.fn(async (_parameters: string[], _dropped?: string[]) => {})
 
 function deps(overrides: Partial<Parameters<typeof setArtifactRunnerDeps>[0]> = {}) {
   return {
@@ -440,11 +440,12 @@ describe('artifact runner', () => {
     request.preset = {
       ...preset(),
       requiredComfyUiParameters: ['--use-quad-cross-attention'],
+      droppedComfyUiParameters: ['--lowvram'],
     } as ComfyUiPreset
     const run = submitArtifactRun({ ...request, items: itemsFor(request) })
 
     await vi.waitFor(() => expect(submittedPrompts).toHaveLength(2))
-    expect(setPresetParameters).toHaveBeenCalledWith(['--use-quad-cross-attention'])
+    expect(setPresetParameters).toHaveBeenCalledWith(['--use-quad-cross-attention'], ['--lowvram'])
 
     socketHandlers!.onJson({ type: 'execution_start' })
     socketHandlers!.onJson({

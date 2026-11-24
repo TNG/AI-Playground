@@ -166,6 +166,9 @@ export const ComfyUiPresetSchema = BasePresetFieldsSchema.extend({
   // Extra ComfyUI launch flags this workflow needs (e.g. an attention mode a
   // model requires). They are added to the backend command line for this run only.
   requiredComfyUiParameters: z.array(z.string()).optional(),
+  // Default/user launch flags this workflow cannot run with (e.g. `--lowvram`),
+  // removed from the command line for this run only, together with their value.
+  droppedComfyUiParameters: z.array(z.string()).optional(),
   // ComfyUI-specific settings can be ComfyInput
   settings: z.array(z.union([ComfyInputSchema, SettingSchema])).default([]),
   // Resolution configuration for aspect ratio and megapixel options

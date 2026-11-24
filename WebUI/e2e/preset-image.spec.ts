@@ -27,6 +27,7 @@ const IMAGE_PRESETS: ImageCase[] = [
   { preset: 'Pro Image', mode: 'Image Gen' },
   { preset: 'Pro 2 Image', mode: 'Image Gen' },
   { preset: 'Pro 3 Image', mode: 'Image Gen' },
+  { preset: 'ERNIE Image', mode: 'Image Gen' },
   // 'Acer VisionArt' is intentionally excluded: it requires the AcerPartner/VisionArt
   // ComfyUI node, which talks to an external Acer "AICO" socket service only present on
   // Acer hardware. Without it the node hangs on socket recv (WinError 10057) and the
@@ -41,6 +42,7 @@ const IMAGE_PRESETS: ImageCase[] = [
   { preset: 'Sketch to Photo', mode: 'Image Edit', needsImage: true },
   { preset: 'Edit By Prompt', mode: 'Image Edit', needsImage: true },
   { preset: 'Edit by Prompt 2', mode: 'Image Edit', needsImage: true },
+  { preset: 'Edit by Prompt 3', mode: 'Image Edit', needsImage: true },
   { preset: 'Inpaint', mode: 'Image Edit', needsImage: true },
   { preset: 'Outpaint', mode: 'Image Edit', needsImage: true },
   { preset: 'Upscale', mode: 'Image Edit', needsImage: true },

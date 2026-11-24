@@ -33,13 +33,20 @@ type LlmBackend = keyof typeof backendToService
 const HIGH_MEMORY_PRESETS = new Set([
   'Pro Image',
   'Pro 2 Image',
+  'Pro 3 Image',
   'Edit By Prompt',
   'Edit by Prompt 2',
+  'Edit by Prompt 3',
   'Image To 3D Model',
 ])
 
 /** Presets for video generation (best on discrete GPUs with 16GB+ vRAM) */
-const VIDEO_VRAM_PRESETS = new Set(['LTX-Video', 'Wan2.1-VACE'])
+const VIDEO_VRAM_PRESETS = new Set([
+  'LTX-Video',
+  'Wan2.1-VACE',
+  'MiniMax H3 Video',
+  'MiniMax H3 Image to Video',
+])
 
 export type PresetSwitchOptions = {
   /** Specific variant to select */

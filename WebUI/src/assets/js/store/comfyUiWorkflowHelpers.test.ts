@@ -125,6 +125,31 @@ describe('modifySettingInWorkflow', () => {
     expect(workflow['1'].inputs?.clip_name).toBe('foo')
   })
 
+  it('writes the prompt input of a node titled prompt (MiniMax H3 conditioning)', () => {
+    const workflow: ComfyUIApiWorkflow = {
+      '1': {
+        class_type: 'MiniMaxH3ImageConditioning',
+        inputs: { prompt: '', width: 4096, height: 4096 },
+        _meta: { title: 'prompt' },
+      },
+    }
+    modifySettingInWorkflow(workflow, 'prompt', 'a red fox')
+    expect(workflow['1'].inputs?.prompt).toBe('a red fox')
+  })
+
+  it('does not guess a prompt node by its input name', () => {
+    const workflow: ComfyUIApiWorkflow = {
+      '1': {
+        class_type: 'TextEncodeQwenImageEdit',
+        inputs: { prompt: 'keep' },
+        _meta: { title: 'Negative' },
+      },
+    }
+    modifySettingInWorkflow(workflow, 'negativePrompt', 'blurry')
+    modifySettingInWorkflow(workflow, 'prompt', 'a red fox')
+    expect(workflow['1'].inputs?.prompt).toBe('keep')
+  })
+
   it('falls back to inputs.a when the targeted scalar input is absent', () => {
     const workflow: ComfyUIApiWorkflow = {
       '1': {

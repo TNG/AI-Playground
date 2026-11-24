@@ -23,6 +23,41 @@ describe('condenseMediaAgentRun', () => {
     ])
   })
 
+  // A Game Agent run that got the raw sprite and its cut-out side by side kept
+  // regenerating towers it already had, unsure which file was the finished one.
+  it('marks the image an edit step consumed as intermediate', () => {
+    const image = (id: string) => ({
+      images: [{ id, type: 'image', imageUrl: `aipg-media://${id}.png`, mode: 'imageGen' }],
+    })
+    const result = condenseMediaAgentRun({
+      text: '',
+      steps: [
+        { toolName: 'comfyUI', input: { workflow: 'Pro 2 Image' }, output: image('raw') },
+        {
+          toolName: 'comfyUiImageEdit',
+          input: { workflow: 'Remove Background' },
+          output: image('cutout'),
+        },
+        { toolName: 'comfyUI', input: { workflow: 'Pro 2 Image' }, output: image('concept') },
+        {
+          toolName: 'comfyUiImageEdit',
+          input: { workflow: 'Pixel3D-Trellis' },
+          output: {
+            images: [
+              { id: 'model', type: 'model3d', model3dUrl: 'aipg-media://m.glb', mode: 'imageEdit' },
+            ],
+          },
+        },
+      ],
+    })
+    expect(slimCondensedMedia(result).images).toEqual([
+      { id: 'raw', type: 'image', imageUrl: 'aipg-media://raw.png', intermediate: true },
+      { id: 'cutout', type: 'image', imageUrl: 'aipg-media://cutout.png' },
+      { id: 'concept', type: 'image', imageUrl: 'aipg-media://concept.png', intermediate: true },
+      { id: 'model', type: 'model3d', model3dUrl: 'aipg-media://m.glb' },
+    ])
+  })
+
   it('reports the last inner failure when nothing was produced', () => {
     const result = condenseMediaAgentRun({
       text: '',

@@ -295,6 +295,7 @@ export async function saveGeneratedMediaToWorkspace(
   if (!Array.isArray(record.images)) return result
 
   const savedFiles: string[] = []
+  const finalFiles: string[] = []
   for (const item of record.images) {
     if (typeof item !== 'object' || item === null) continue
     const url = mediaUrlOf(item as Record<string, unknown>)
@@ -310,17 +311,30 @@ export async function saveGeneratedMediaToWorkspace(
       fs.mkdirSync(path.join(workspaceDir, 'generated'), { recursive: true })
       fs.writeFileSync(path.join(workspaceDir, relativePath), bytes)
       savedFiles.push(relativePath)
+      if ((item as { intermediate?: unknown }).intermediate !== true) finalFiles.push(relativePath)
     } catch (error) {
       logger.warn(`failed to save generated media to workspace: ${error}`, LOG_SOURCE)
     }
   }
   if (savedFiles.length === 0) return result
   noteGeneratedMedia(workspaceDir, savedFiles)
+  if (finalFiles.length === savedFiles.length || finalFiles.length === 0) {
+    return {
+      ...record,
+      finalFiles: savedFiles,
+      savedFiles,
+      savedFilesNote:
+        'The generated media files were saved into the workspace at the paths listed in savedFiles.',
+    }
+  }
   return {
     ...record,
+    finalFiles,
     savedFiles,
     savedFilesNote:
-      'The generated media files were saved into the workspace at the paths listed in savedFiles.',
+      'finalFiles are the finished results: use those. The other savedFiles are steps on the ' +
+      'way, such as the image before its background was removed or the concept art a 3D ' +
+      'model was made from.',
   }
 }
 

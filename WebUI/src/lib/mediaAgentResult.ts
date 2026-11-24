@@ -9,6 +9,8 @@ export type CondensedMediaEntry = {
   model3dUrl?: string
   mode: string
   settings: Record<string, unknown>
+  /** Consumed by a later edit step in the same run, e.g. the image before Remove Background. */
+  intermediate?: boolean
 }
 
 export type CondensedMediaAgentResult = {
@@ -58,9 +60,31 @@ export function describeMediaAgentStep(step: {
   return `${step.toolName} (${workflow}): produced ${produced.length || 'no'} ${kinds || 'media'}`
 }
 
+/**
+ * Every produced entry, with the ones a later edit step consumed marked. An edit
+ * takes the most recent image before it as its source (findSourceImage), so that
+ * image is a step on the way: a Game Agent run listing both the raw sprite and
+ * its cut-out kept losing track of which one to import.
+ */
+function withIntermediatesMarked(steps: MediaAgentRunResult['steps']): CondensedMediaEntry[] {
+  const produced: CondensedMediaEntry[] = []
+  for (const step of steps) {
+    const entries = mediaEntriesOf(step.output)
+    if (step.toolName === 'comfyUiImageEdit' && entries.length > 0) {
+      for (let i = produced.length - 1; i >= 0; i--) {
+        if (produced[i].type !== 'image') continue
+        produced[i] = { ...produced[i], intermediate: true }
+        break
+      }
+    }
+    produced.push(...entries)
+  }
+  return produced
+}
+
 /** Condenses the nested loop's raw steps into the parent tool's result shape. */
 export function condenseMediaAgentRun(result: MediaAgentRunResult): CondensedMediaAgentResult {
-  const images = result.steps.flatMap((step) => mediaEntriesOf(step.output))
+  const images = withIntermediatesMarked(result.steps)
   const failures = result.steps
     .map((step) => (step.output as { success?: boolean; message?: string } | null) ?? {})
     .filter((output) => output.success === false)
@@ -84,10 +108,11 @@ export function slimCondensedMedia(result: CondensedMediaAgentResult): Record<st
     summary: result.summary,
     steps: result.steps,
     images: result.images.map((item) => {
-      const entry: Record<string, string> = { id: item.id, type: item.type }
+      const entry: Record<string, string | boolean> = { id: item.id, type: item.type }
       if (item.imageUrl) entry.imageUrl = item.imageUrl
       if (item.videoUrl) entry.videoUrl = item.videoUrl
       if (item.model3dUrl) entry.model3dUrl = item.model3dUrl
+      if (item.intermediate) entry.intermediate = true
       return entry
     }),
   }

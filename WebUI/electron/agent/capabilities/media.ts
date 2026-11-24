@@ -43,7 +43,9 @@ const DELEGATED_BODY = [
   '   under "attachments/".',
   '4. The result lists what was created plus "savedFiles": the workspace-relative paths of the',
   '   generated media under "generated/". Reference those paths in your reply or in files you',
-  '   write (e.g. an <img src="generated/...png"> in an HTML page).',
+  '   write (e.g. an <img src="generated/...png"> in an HTML page). "finalFiles" names the',
+  '   finished results: when one call chained steps, the cut-out or the 3D model, not the',
+  '   image it was made from.',
   '',
 ]
 

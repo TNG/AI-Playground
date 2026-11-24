@@ -10,6 +10,7 @@ import {
 import {
   OVERVIEW_MAX_LAST_HOURS,
   OVERVIEW_NAMED_RANGES,
+  OverviewRangeError,
   type OverviewRangeInput,
   type OverviewWindow,
 } from '../../session/overviewRange.ts'
@@ -22,6 +23,7 @@ import { resolvePreviewUrl, sameFolder, workspacePreviewRoot } from '../piWorksp
 import { jsonResult, jsonSchemaParameters, textResult } from '../piCustomTools.ts'
 import { loadPi } from '../piRuntime.ts'
 import { isRecord } from '@/lib/isRecord'
+import { appLoggerInstance } from '../../observability/logger.ts'
 import type { AgentCapability, CapabilityHost } from './types.ts'
 import { OVERVIEW_CAPABILITY_ID } from '@/types/agentCapabilities'
 import type { OverviewChrome } from '@/types/overviewChrome'
@@ -199,6 +201,25 @@ function localeOf(host: CapabilityHost): string {
   return host.overviewChrome?.locale ?? host.responseLocale ?? 'en-US'
 }
 
+/**
+ * A wrong range is the caller's to fix; anything else is ours. Saying so stops a
+ * model retrying the same call with different fields, which it otherwise assumes
+ * is the remedy.
+ */
+function toolFailure(tool: string, error: unknown): string {
+  if (error instanceof OverviewRangeError) return error.message
+  const detail = error instanceof Error ? error.message : String(error)
+  appLoggerInstance.error(
+    `${tool} failed: ${error instanceof Error ? (error.stack ?? detail) : detail}`,
+    'overviews',
+  )
+  return (
+    `The Overview could not be completed because of an internal error in the app (${detail}). ` +
+    'This is not something a different range or different arguments will fix: tell the user the ' +
+    'app hit a bug, and do not keep retrying.'
+  )
+}
+
 const MEDIA_ICONS: Record<ArtifactMediaType, string> = {
   image: '🎨',
   video: '🎬',
@@ -208,7 +229,8 @@ const MEDIA_ICONS: Record<ArtifactMediaType, string> = {
 
 /** What the Session worked on, from what it produced in the range. */
 function iconOf(session: OverviewSessionData, chosenPath?: string): string {
-  const cover = session.covers.find((candidate) => candidate.path === chosenPath) ?? session.covers[0]
+  const cover =
+    session.covers.find((candidate) => candidate.path === chosenPath) ?? session.covers[0]
   if (cover?.source === 'game-icon') return '🎮'
   if (cover?.source === 'video-thumbnail') return '🎬'
   const artifact = session.entries.flatMap((entry) => entry.artifacts)[0]
@@ -472,7 +494,7 @@ async function buildOverviewTools(host: CapabilityHost): Promise<ToolDefinition[
           })
           return jsonResult({ ...data, windowLabel: windowLabelOf(data.window, localeOf(host)) })
         } catch (error) {
-          return textResult(error instanceof Error ? error.message : String(error))
+          return textResult(toolFailure(OVERVIEW_DATA_TOOL, error))
         }
       },
     }) as ToolDefinition,
@@ -550,7 +572,7 @@ async function buildOverviewTools(host: CapabilityHost): Promise<ToolDefinition[
             picturesOmitted: pictures.omitted,
           })
         } catch (error) {
-          return textResult(error instanceof Error ? error.message : String(error))
+          return textResult(toolFailure(OVERVIEW_WRITE_TOOL, error))
         }
       },
     }) as ToolDefinition,

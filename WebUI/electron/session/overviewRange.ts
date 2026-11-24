@@ -27,6 +27,11 @@ export const OVERVIEW_WIDE_RANGE_MS = 30 * DAY_MS
 /** The longest `{ lastHours }` window accepted: a year of hours. */
 export const OVERVIEW_MAX_LAST_HOURS = 8760
 
+/** A range the caller got wrong, as opposed to something failing on our side. */
+export class OverviewRangeError extends Error {
+  override name = 'OverviewRangeError'
+}
+
 function startOfLocalDay(ms: number): number {
   const date = new Date(ms)
   date.setHours(0, 0, 0, 0)
@@ -80,17 +85,19 @@ export function resolveOverviewWindow(
   if (typeof range === 'object' && range !== null && 'lastHours' in range) {
     const { lastHours } = range
     if (!Number.isInteger(lastHours) || lastHours < 1 || lastHours > OVERVIEW_MAX_LAST_HOURS) {
-      throw new Error(`The hour count must be a whole number from 1 to ${OVERVIEW_MAX_LAST_HOURS}.`)
+      throw new OverviewRangeError(
+        `The hour count must be a whole number from 1 to ${OVERVIEW_MAX_LAST_HOURS}.`,
+      )
     }
     return { from: now - lastHours * HOUR_MS, to: now }
   }
   if (typeof range === 'object' && range !== null) {
     const from = parsePoint(range.from)
     const to = parsePoint(range.to)
-    if (from === null) throw new Error(`Not a date: ${range.from}`)
-    if (to === null) throw new Error(`Not a date: ${range.to}`)
-    if (from >= to) throw new Error('The range must start before it ends.')
+    if (from === null) throw new OverviewRangeError(`Not a date: ${range.from}`)
+    if (to === null) throw new OverviewRangeError(`Not a date: ${range.to}`)
+    if (from >= to) throw new OverviewRangeError('The range must start before it ends.')
     return { from, to }
   }
-  throw new Error(`Unknown range: ${String(range)}`)
+  throw new OverviewRangeError(`Unknown range: ${String(range)}`)
 }

@@ -9,6 +9,7 @@ import { emitAgentToolImage } from '../kernel/kernelBus.ts'
 import { typedSend } from '../kernel/typedIpc.ts'
 import { freeName, moveEntry } from '../persist/fileOps.ts'
 import { noteGeneratedMedia } from './generatedMedia.ts'
+import { recordWorkspaceWrite } from './workspaceJournal.ts'
 import { sessionFolderMediaUrl } from '@/lib/comfyWorkflow'
 import { agentTurns } from './piAgentState.ts'
 import { resolveWorkspaceFile, type AgentFiles } from './workspaceAttachments.ts'
@@ -342,13 +343,18 @@ async function saveOne(
   url: string,
   workspaceDir: string,
   sessionMedia: SessionMediaTarget | undefined,
+  sessionId: string | undefined,
 ): Promise<{ saved: string; sessionCopy?: string; entry: Record<string, unknown> }> {
   const name = path.basename(decodeURIComponent(new URL(url).pathname)) || `media-${Date.now()}`
   const generatedDir = path.join(workspaceDir, 'generated')
+  const record = (target: string): void => {
+    if (sessionId) recordWorkspaceWrite(sessionId, target)
+  }
   if (!sessionMedia) {
     const bytes = await mediaBytes(url)
     fs.mkdirSync(generatedDir, { recursive: true })
     const saved = path.posix.join('generated', await freeName(generatedDir, name))
+    record(path.join(workspaceDir, saved))
     fs.writeFileSync(path.join(workspaceDir, saved), bytes)
     return { saved, entry }
   }
@@ -358,6 +364,7 @@ async function saveOne(
   const key = MEDIA_URL_KEYS.find((candidate) => entry[candidate] === url) ?? 'imageUrl'
   if (apart && sessionMedia.workspace === 'trial') {
     const saved = await freeName(workspaceDir, name)
+    record(path.join(workspaceDir, saved))
     await moveIntoSession(url, path.join(workspaceDir, saved))
     const served = await freeName(filesDir, name)
     fs.copyFileSync(path.join(workspaceDir, saved), path.join(filesDir, served))
@@ -366,11 +373,15 @@ async function saveOne(
   }
   const filesName = await freeName(filesDir, name)
   const sessionCopy = path.join(filesDir, filesName)
+  // Without an apart folder this IS the workspace copy (a game's own folder),
+  // so its pre-state is journaled like any other workspace write.
+  record(sessionCopy)
   await moveIntoSession(url, sessionCopy)
   let saved = filesName
   if (apart) {
     fs.mkdirSync(generatedDir, { recursive: true })
     saved = path.posix.join('generated', await freeName(generatedDir, name))
+    record(path.join(workspaceDir, saved))
     fs.copyFileSync(sessionCopy, path.join(workspaceDir, saved))
   }
   return {
@@ -391,6 +402,7 @@ export async function saveGeneratedMediaToWorkspace(
   result: unknown,
   workspaceDir: string,
   sessionMedia?: SessionMediaTarget,
+  sessionId?: string,
 ): Promise<unknown> {
   if (typeof result !== 'object' || result === null) return result
   const record = result as Record<string, unknown>
@@ -409,7 +421,13 @@ export async function saveGeneratedMediaToWorkspace(
       continue
     }
     try {
-      const done = await saveOne(item as Record<string, unknown>, url, workspaceDir, sessionMedia)
+      const done = await saveOne(
+        item as Record<string, unknown>,
+        url,
+        workspaceDir,
+        sessionMedia,
+        sessionId,
+      )
       workspacePaths.set(done.entry, done.saved)
       savedFiles.push(done.saved)
       if (done.sessionCopy) sessionCopies.push(done.sessionCopy)

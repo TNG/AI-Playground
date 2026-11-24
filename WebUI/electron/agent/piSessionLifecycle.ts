@@ -310,6 +310,7 @@ async function createSession(
   const access = await createAgentToolAccess({
     workspaceDir,
     unsandboxed,
+    sessionId,
     skillsDir,
     skills,
     mountedFolders,

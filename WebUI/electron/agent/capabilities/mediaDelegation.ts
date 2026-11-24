@@ -102,6 +102,7 @@ export async function buildDelegatedMediaTool(
         slimCondensedMedia(condensed),
         workspaceDir,
         host.sessionMedia,
+        host.sessionId,
       )
       return mediaToolResult(saved, condensed.steps)
     },

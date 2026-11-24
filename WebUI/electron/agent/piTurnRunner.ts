@@ -81,6 +81,7 @@ import {
 import { turnAttachments, withAttachmentReferences } from './workspaceAttachments.ts'
 import { collectAgentCallTimings, turnTimings } from './piCallTiming.ts'
 import { markHarnessTurn, rewindHarnessTurn } from './harnessTurns.ts'
+import { beginTurnJournal, deleteSessionJournals, endTurnJournal } from './workspaceJournal.ts'
 import { computeWindowSince } from '../adapters/hardware/computeMetrics.ts'
 import type { LlamaCppTimings } from '../chat/turnEngine.ts'
 import { documentsLine } from './sessionDocuments.ts'
@@ -576,6 +577,17 @@ export async function startAgentTurn(
     const rewound = config.rewindTurnId
       ? rewindHarnessTurn(current.session, config.rewindTurnId)
       : undefined
+    // The turn's workspace diary (workspaceJournal.ts): every workspace write
+    // from here on is recorded so a later regenerate/delete of this turn can
+    // restore what it found. Its writable roots are the session's own mounts,
+    // so Session-side copies and app files stay out.
+    beginTurnJournal({
+      sessionId,
+      turnId,
+      workspaceDir: current.workspaceDir,
+      mountedFolders: current.mountedFolders,
+      unsandboxed: config.unsandboxed === true,
+    })
     const planning = watchPlanningPhase(current)
     markHarnessTurn(current.session, turnId)
     const calls: LlamaCppTimings[] = []
@@ -665,6 +677,7 @@ export async function startAgentTurn(
     if (turnQueueHolder() === turnId) setTurnChatBackendLoad(null)
     finishTextRequest(turnId)
     if (agentTurns.get(sessionId) === turn) agentTurns.delete(sessionId)
+    endTurnJournal(sessionId)
     // Decided by the abort, not the thrown error: a stop or shutdown is never a failure.
     const end: AgentTurnEnd =
       failedWith !== undefined
@@ -716,7 +729,11 @@ export async function resetAgentSession(): Promise<void> {
   const sessionId = active?.sessionId ?? lastSessionId
   if (sessionId) cancelAgentTurn(sessionId)
   await endActiveSession()
-  if (sessionId) clearPointer(sessionId)
+  if (sessionId) {
+    clearPointer(sessionId)
+    // The conversation is gone, so its turns can never be deleted or redone.
+    deleteSessionJournals(sessionId)
+  }
   closeWorkspaceRuntime()
 }
 
@@ -758,6 +775,7 @@ export async function deleteAgentSession(
     }
     closeBrowserSession(sessionId)
     forgetHarnessSession(sessionId)
+    deleteSessionJournals(sessionId)
     logger.info(`deleted agent session ${sessionId}`, LOG_SOURCE)
     return { success: true }
   } catch (error) {

@@ -23,6 +23,7 @@ import {
 } from '@/lib/mountedFolders'
 import { containedIn, realDestination } from './hostPathContainment.ts'
 import { SANDBOX_ATTACHMENTS_DIR } from './workspaceAttachments.ts'
+import { recordWorkspaceWrite } from './workspaceJournal.ts'
 
 // ── Agent Mode file/shell access ─────────────────────────────────────────────
 //
@@ -81,6 +82,8 @@ export type AgentToolAccess = {
 export type AgentToolAccessOptions = {
   workspaceDir: string
   unsandboxed: boolean
+  /** The Harness Session the tools belong to; present, its writes are journaled. */
+  sessionId?: string
   /** Host directory holding the written SKILL.md files. */
   skillsDir: string
   skills: AgentSkill[]
@@ -840,6 +843,68 @@ function globToRegExp(pattern: string): RegExp {
   return new RegExp(`^${expression}$`)
 }
 
+/** A sandbox mount point paired with the host folder it is backed by. */
+type SandboxMountMap = { sandbox: string; host: string }[]
+
+function sandboxHostPath(mounts: SandboxMountMap, sandboxPath: string): string | undefined {
+  const resolved = path.posix.resolve('/', toSandboxPath(sandboxPath))
+  for (const { sandbox, host } of mounts) {
+    const relative = path.posix.relative(sandbox, resolved)
+    if (relative === '' || (!relative.startsWith('..') && !path.posix.isAbsolute(relative))) {
+      return path.join(host, relative)
+    }
+  }
+  return undefined
+}
+
+/**
+ * Record the pre-turn state of everything written through the sandbox's
+ * filesystem, before the write happens — one choke point for the `write` and
+ * `edit` tools and for the shell's `rm`, `mv`, `cp` and redirects alike (all
+ * mutate through the virtual filesystem; see workspaceJournal.ts).
+ */
+function journalingVfs(vfs: IFileSystem, sessionId: string, mounts: SandboxMountMap): IFileSystem {
+  const record = (sandboxPath: unknown): void => {
+    if (typeof sandboxPath !== 'string') return
+    const hostPath = sandboxHostPath(mounts, sandboxPath)
+    if (hostPath) recordWorkspaceWrite(sessionId, hostPath)
+  }
+  return new Proxy(vfs, {
+    get(target, property) {
+      const value = Reflect.get(target, property, target)
+      if (typeof value !== 'function') return value
+      return (...args: unknown[]) => {
+        try {
+          switch (property) {
+            case 'writeFile':
+            case 'appendFile':
+            case 'mkdir':
+            case 'rm':
+            case 'chmod':
+              record(args[0])
+              break
+            case 'mv':
+              // The source disappears, so its pre-state is captured too.
+              record(args[0])
+              record(args[1])
+              break
+            case 'cp':
+            case 'symlink':
+            case 'link':
+              record(args[1])
+              break
+            default:
+              break
+          }
+        } catch (error) {
+          logger.warn(`journal: sandbox write not recorded: ${error}`, LOG_SOURCE)
+        }
+        return (value as (...fnArgs: unknown[]) => unknown).apply(target, args)
+      }
+    },
+  })
+}
+
 function createSandboxAccess(
   pi: PiModule,
   justBash: JustBashModule,
@@ -886,8 +951,17 @@ function createSandboxAccess(
     mountPoints.push(SANDBOX_ATTACHMENTS_DIR)
     roots.readOnly.push(SANDBOX_ATTACHMENTS_DIR)
   }
+  const journalMounts: SandboxMountMap = [
+    { sandbox: workdir, host: workspaceDir },
+    ...mountedFolders
+      .filter(isWritable)
+      .map((folder) => ({ sandbox: mountedFolderSandboxPath(folder), host: folder.hostPath })),
+  ]
+  const journaledVfs = options.sessionId
+    ? journalingVfs(vfs, options.sessionId, journalMounts)
+    : vfs
   const bashEnv = new justBash.Bash({
-    fs: withoutTreeEnumeration(vfs, [workdir, SANDBOX_SKILLS_DIR, ...mountPoints]),
+    fs: withoutTreeEnumeration(journaledVfs, [workdir, SANDBOX_SKILLS_DIR, ...mountPoints]),
     cwd: workdir,
     env: { HOME: SANDBOX_HOME, PWD: workdir },
     // just-bash's secondary hardening layer patches Module._load while a script
@@ -897,7 +971,7 @@ function createSandboxAccess(
     defenseInDepth: false,
   })
 
-  const operations = sandboxFsOperations(vfs, workspaceDir, roots, options.writableFiles)
+  const operations = sandboxFsOperations(journaledVfs, workspaceDir, roots, options.writableFiles)
   const bash: BashOperations = {
     // just-bash resolves the whole script in-process and returns its output at
     // once, so there is a single onData call rather than incremental streaming.
@@ -962,10 +1036,20 @@ function createHostShellAccess(pi: PiModule, options: AgentToolAccessOptions): A
         autoResizeImages: false,
       }),
       pi.createWriteToolDefinition(workspaceDir, {
-        operations: guardedWriteOperations(workspaceDir, roots, options.writableFiles),
+        operations: guardedWriteOperations(
+          workspaceDir,
+          roots,
+          options.writableFiles,
+          options.sessionId,
+        ),
       }),
       pi.createEditToolDefinition(workspaceDir, {
-        operations: guardedEditOperations(workspaceDir, roots, options.writableFiles),
+        operations: guardedEditOperations(
+          workspaceDir,
+          roots,
+          options.writableFiles,
+          options.sessionId,
+        ),
       }),
       pi.createBashToolDefinition(workspaceDir, {
         // Every command starts in the workspace, whatever cwd Pi passes.
@@ -1000,11 +1084,19 @@ function guardedWriteOperations(
   workspaceDir: string,
   roots: WriteRoots,
   writableFiles?: string[],
+  sessionId?: string,
 ): WriteOperations {
+  // The host shell's own writes bypass the tool seams, so recording here covers
+  // only `write` and `edit`; a turn that also used the shell is marked
+  // unsandboxed in its journal and never offered a rollback (workspaceJournal.ts).
+  const record = (absolutePath: string): void => {
+    if (sessionId) recordWorkspaceWrite(sessionId, absolutePath)
+  }
   return {
     writeFile: async (absolutePath, content) => {
       await assertReallyContained(roots, absolutePath, 'write')
       assertHostWritable(workspaceDir, absolutePath, writableFiles, 'write')
+      record(absolutePath)
       await reportingHostDenials('write', absolutePath, workspaceDir, async () => {
         await fsp.mkdir(path.dirname(absolutePath), { recursive: true })
         await fsp.writeFile(absolutePath, content, 'utf8')
@@ -1012,6 +1104,7 @@ function guardedWriteOperations(
     },
     mkdir: async (dir) => {
       await assertReallyContained(roots, dir, 'create a directory')
+      record(dir)
       await reportingHostDenials('create a directory at', dir, workspaceDir, async () => {
         await fsp.mkdir(dir, { recursive: true })
       })
@@ -1035,7 +1128,11 @@ function guardedEditOperations(
   workspaceDir: string,
   roots: WriteRoots,
   writableFiles?: string[],
+  sessionId?: string,
 ): EditOperations {
+  const record = (absolutePath: string): void => {
+    if (sessionId) recordWorkspaceWrite(sessionId, absolutePath)
+  }
   return {
     readFile: async (absolutePath) =>
       await reportingHostDenials(
@@ -1047,6 +1144,7 @@ function guardedEditOperations(
     writeFile: async (absolutePath, content) => {
       await assertReallyContained(roots, absolutePath, 'edit')
       assertHostWritable(workspaceDir, absolutePath, writableFiles, 'edit')
+      record(absolutePath)
       await reportingHostDenials('edit', absolutePath, workspaceDir, async () => {
         await fsp.writeFile(absolutePath, content, 'utf8')
       })

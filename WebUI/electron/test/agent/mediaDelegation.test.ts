@@ -120,6 +120,7 @@ describe('mediaDelegation (in-process media tool)', () => {
       }),
       workspaceDir,
       undefined,
+      'session-1',
     )
   })
 

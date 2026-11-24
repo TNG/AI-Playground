@@ -5,9 +5,9 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import type { OverviewChrome } from '@/types/overviewChrome'
 
 // The `overview_write` tool is the deliverable: it re-runs the query, renders the
-// page from code and writes one file into the reporting Session's Workspace. The
-// page itself is the pure renderer's job (overviewHtml.test.ts); here the file and
-// the tool's answer are what matter.
+// page from the agent's per-Session summaries and writes one file into the reporting
+// Session's Workspace. The page itself is the pure renderer's job
+// (overviewHtml.test.ts); here the file and the tool's answer are what matter.
 
 const dirs = vi.hoisted(() => ({ real: '', demo: '', games: '', mediaRecords: '' }))
 const preview = vi.hoisted(() => ({ root: '', base: '' }))
@@ -107,12 +107,53 @@ async function writeTool(host: Host): Promise<Tool> {
   return toolNamed(await overviewCapability.buildTools!(host), 'overview_write')
 }
 
+async function dataTool(host: Host): Promise<Tool> {
+  return toolNamed(await overviewCapability.buildTools!(host), 'overview_data')
+}
+
+type SummaryMap = Record<string, string>
+
 async function write(
   host: Host,
   range: unknown,
-  opening = 'A short opening.',
+  summaries: SummaryMap,
 ): Promise<Record<string, unknown>> {
-  return writeJson(await writeTool(host), { range, opening })
+  return writeJson(await writeTool(host), { range, summaries })
+}
+
+async function writeText(
+  host: Host,
+  range: unknown,
+  summaries: SummaryMap,
+  covers?: Record<string, string>,
+): Promise<string> {
+  return textOf(
+    await (
+      await writeTool(host)
+    ).execute('call-1', {
+      range,
+      summaries,
+      ...(covers ? { covers } : {}),
+    }),
+  )
+}
+
+/** The ids `overview_data` would show, so a test can summarise exactly those. */
+async function shownIds(host: Host, range: unknown): Promise<string[]> {
+  const data = JSON.parse(textOf(await (await dataTool(host)).execute('call-1', { range }))) as {
+    sessions: { id: string }[]
+  }
+  return data.sessions.map((session) => session.id)
+}
+
+async function summariesFor(host: Host, range: unknown): Promise<SummaryMap> {
+  const ids = await shownIds(host, range)
+  return Object.fromEntries(ids.map((id) => [id, `What happened in ${id}.`]))
+}
+
+async function titled(id: string, title: string): Promise<string> {
+  await mutateSession(id, (file) => ({ ...file, title, renamed: true }))
+  return id
 }
 
 async function seedPictureSession(
@@ -137,23 +178,6 @@ async function seedPictureSession(
   await mutateSession(id, (file) => ({ ...file, updatedAt: time }))
   await setSessionIncludedInOverviews(id, true)
   return { id, path: picturePath }
-}
-
-async function writeText(
-  host: Host,
-  range: unknown,
-  opening: string,
-  covers?: Record<string, string>,
-): Promise<string> {
-  return textOf(
-    await (
-      await writeTool(host)
-    ).execute('call-1', {
-      range,
-      opening,
-      ...(covers ? { covers } : {}),
-    }),
-  )
 }
 
 async function htmlFiles(): Promise<string[]> {
@@ -193,10 +217,13 @@ describe('overview_write', () => {
   })
 
   it('writes the range-named file into the Workspace and returns the facts', async () => {
-    await seedSession([historyEntry({ prompt: 'shipped <b>the</b> thing', timestamp: NOW - HOUR })])
+    const id = await titled(
+      await seedSession([historyEntry({ timestamp: NOW - HOUR })]),
+      'Shipped the thing',
+    )
     const host = hostFor()
 
-    const result = await write(host, 'last-24h', 'A quiet day.')
+    const result = await write(host, 'last-24h', { [id]: 'A quiet day.' })
 
     expect(result).toMatchObject({
       written: true,
@@ -206,49 +233,67 @@ describe('overview_write', () => {
       truncated: false,
     })
     const html = await fs.readFile(path.join(host.workspaceDir, String(result.path)), 'utf8')
+    expect(html).toContain('Shipped the thing')
     expect(html).toContain('A quiet day.')
-    expect(html).toContain('shipped &lt;b&gt;the&lt;/b&gt; thing')
     expect(html).not.toMatch(/<script/i)
+    expect(html).not.toMatch(/<h[1-6]\b/)
+    expect(html).not.toContain('<ol')
+  })
+
+  it('escapes the Title and the summary it writes', async () => {
+    const id = await titled(await seedSession([historyEntry({})]), '<b>Bold</b> & "quoted"')
+    const host = hostFor()
+
+    const result = await write(host, 'last-24h', {
+      [id]: 'It shipped </p><script>alert(1)</script> the thing.',
+    })
+    const html = await fs.readFile(path.join(host.workspaceDir, String(result.path)), 'utf8')
+
+    expect(html).toContain('&lt;b&gt;Bold&lt;/b&gt; &amp; &quot;quoted&quot;')
+    expect(html).toContain('It shipped &lt;/p&gt;&lt;script&gt;alert(1)&lt;/script&gt; the thing.')
+    expect(html).not.toMatch(/<script/i)
+    expect(html).not.toContain('<b>Bold</b>')
   })
 
   it('returns the live preview URL only when it serves this Workspace', async () => {
-    await seedSession([historyEntry({})])
+    const id = await seedSession([historyEntry({})])
     const host = hostFor()
+    const summaries = { [id]: 'A day.' }
 
     preview.root = path.join(dirs.real, 'somewhere-else')
     preview.base = 'http://127.0.0.1:4711/'
-    const elsewhere = await write(host, 'last-24h')
+    const elsewhere = await write(host, 'last-24h', summaries)
     expect(elsewhere.written).toBe(true)
     expect(elsewhere.path).toBe('overview-2026-11-23_1530..2026-11-24_1530.html')
     expect(elsewhere.url).toBeUndefined()
 
     preview.root = host.workspaceDir
     preview.base = 'http://127.0.0.1:4711/'
-    const served = await write(host, 'last-24h')
+    const served = await write(host, 'last-24h', summaries)
     expect(served.url).toBe('http://127.0.0.1:4711/overview-2026-11-23_1530..2026-11-24_1530.html')
   })
 
   it('replaces the same range and leaves a different range alone', async () => {
-    await seedSession([
-      historyEntry({ prompt: 'yesterday work', timestamp: new Date(2026, 10, 23, 10).getTime() }),
-      historyEntry({ prompt: 'today work', timestamp: new Date(2026, 10, 24, 10).getTime() }),
+    const id = await seedSession([
+      historyEntry({ timestamp: new Date(2026, 10, 23, 10).getTime() }),
+      historyEntry({ timestamp: new Date(2026, 10, 24, 10).getTime() }),
     ])
     const host = hostFor()
     const yesterday = { from: '2026-11-23T00:00:00', to: '2026-11-24T00:00:00' }
     const today = { from: '2026-11-24T00:00:00', to: '2026-11-25T00:00:00' }
 
-    const first = await write(host, yesterday, 'First opening.')
+    const first = await write(host, yesterday, { [id]: 'First summary.' })
     const firstPath = path.join(host.workspaceDir, String(first.path))
-    expect(await fs.readFile(firstPath, 'utf8')).toContain('First opening.')
+    expect(await fs.readFile(firstPath, 'utf8')).toContain('First summary.')
 
-    const rewritten = await write(host, yesterday, 'Rewritten opening.')
+    const rewritten = await write(host, yesterday, { [id]: 'Rewritten summary.' })
     expect(rewritten.path).toBe(first.path)
     const rewrittenHtml = await fs.readFile(firstPath, 'utf8')
-    expect(rewrittenHtml).toContain('Rewritten opening.')
-    expect(rewrittenHtml).not.toContain('First opening.')
+    expect(rewrittenHtml).toContain('Rewritten summary.')
+    expect(rewrittenHtml).not.toContain('First summary.')
     expect(await htmlFiles()).toHaveLength(1)
 
-    const other = await write(host, today, 'Another opening.')
+    const other = await write(host, today, { [id]: 'Another summary.' })
     expect(other.path).not.toBe(first.path)
     expect(await htmlFiles()).toHaveLength(2)
     expect(await fs.readFile(firstPath, 'utf8')).toBe(rewrittenHtml)
@@ -258,7 +303,7 @@ describe('overview_write', () => {
     await seedSession([historyEntry({})], { included: false })
     const host = hostFor()
 
-    const result = await write(host, 'last-24h')
+    const result = await write(host, 'last-24h', {})
 
     expect(result).toMatchObject({ written: false, outcome: 'none-included' })
     expect(String(result.message)).toMatch(/included in Overviews/i)
@@ -269,35 +314,34 @@ describe('overview_write', () => {
     await seedSession([historyEntry({ timestamp: NOW - 10 * DAY })])
     const host = hostFor()
 
-    const result = await write(host, 'last-24h')
+    const result = await write(host, 'last-24h', {})
 
     expect(result).toMatchObject({ written: false, outcome: 'none-in-range' })
     expect(String(result.message)).toMatch(/no turn/i)
     expect(await htmlFiles()).toEqual([])
   })
 
-  it('reports truncation and a shortened opening in the result', async () => {
+  it('reports truncation in the result and the page footnote', async () => {
     const entries = Array.from({ length: 45 }, (_, index) =>
       historyEntry({
-        prompt: `turn ${index}`,
         timestamp: NOW - (45 - index) * 60_000,
       }),
     )
-    await seedSession(entries)
+    const id = await seedSession(entries)
     const host = hostFor()
 
-    const result = await write(host, 'last-24h', 'x'.repeat(1500))
+    const result = await write(host, 'last-24h', { [id]: 'A busy day.' })
 
     expect(result).toMatchObject({
       written: true,
       truncated: true,
       shownEntries: 40,
       totalEntries: 45,
-      openingTruncated: { shown: 1200, total: 1500 },
     })
+    expect(result.openingTruncated).toBeUndefined()
     const html = await fs.readFile(path.join(host.workspaceDir, String(result.path)), 'utf8')
     expect(html).toContain('OVERVIEW_REPORT_TRUNCATED')
-    expect(html).toContain('OVERVIEW_SESSION_TRUNCATED')
+    expect(html.match(/class="note"/g)).toHaveLength(1)
   })
 
   it('reports the Sessions the line budget left out, and the page says so', async () => {
@@ -305,7 +349,6 @@ describe('overview_write', () => {
       await seedSession(
         Array.from({ length: 40 }, (_, line) =>
           historyEntry({
-            prompt: `session ${index} turn ${line}`,
             timestamp: NOW - (index + 1) * HOUR - line * 60_000,
           }),
         ),
@@ -313,8 +356,9 @@ describe('overview_write', () => {
       )
     }
     const host = hostFor()
+    const summaries = await summariesFor(host, 'last-24h')
 
-    const result = await write(host, 'last-24h')
+    const result = await write(host, 'last-24h', summaries)
 
     expect(result).toMatchObject({
       written: true,
@@ -325,12 +369,12 @@ describe('overview_write', () => {
       truncated: true,
     })
     const html = await fs.readFile(path.join(host.workspaceDir, String(result.path)), 'utf8')
-    expect(html).toContain('OVERVIEW_SESSIONS_OMITTED')
+    expect(html).toContain('OVERVIEW_REPORT_TRUNCATED')
     expect(html.match(/<section class="session">/g)).toHaveLength(10)
   })
 
   it('renders the chrome strings the renderer shipped, with their locale', async () => {
-    await seedSession([historyEntry({})])
+    const id = await seedSession([historyEntry({})])
     const host = hostFor({
       responseLocale: 'de',
       overviewChrome: {
@@ -338,15 +382,15 @@ describe('overview_write', () => {
         strings: {
           ...CHROME.strings,
           OVERVIEW_PAGE_TITLE: 'Überblick: {from} bis {to}',
-          OVERVIEW_RANGE: 'Von {from} bis {to}',
+          OVERVIEW_REPORT_TRUNCATED: 'Neueste {shown} von {total}',
         },
       },
     })
 
-    const result = await write(host, 'last-24h')
+    const result = await write(host, 'last-24h', { [id]: 'Ein Tag.' })
     const html = await fs.readFile(path.join(host.workspaceDir, String(result.path)), 'utf8')
     expect(html).toContain('<html lang="de">')
-    expect(html).toContain('Überblick: 2026-11-23 15:30 bis 2026-11-24 15:30')
+    expect(html).toContain('<title>Überblick: 2026-11-23 15:30 bis 2026-11-24 15:30</title>')
   })
 
   it('refuses when the chrome did not reach the turn instead of rendering a raw key', async () => {
@@ -356,7 +400,7 @@ describe('overview_write', () => {
       agentDir: dirs.real,
     })
 
-    const text = await writeText(host, 'last-24h', 'An opening.')
+    const text = await writeText(host, 'last-24h', {})
 
     expect(text).toMatch(/Overview language/i)
     expect(text).not.toContain('OVERVIEW_PAGE_TITLE')
@@ -366,9 +410,70 @@ describe('overview_write', () => {
   it('refuses when the turn has no Session to exclude, and writes no file', async () => {
     await seedSession([historyEntry({})])
 
-    const text = await writeText(hostFor({ sessionRef: null }), 'last-24h', 'An opening.')
+    const text = await writeText(hostFor({ sessionRef: null }), 'last-24h', {})
 
     expect(text).toMatch(/not attached to a Session/i)
+    expect(await htmlFiles()).toEqual([])
+  })
+
+  it('requires a summary for every Session the Overview shows', async () => {
+    const first = await titled(await seedSession([historyEntry({})]), 'First Session')
+    const second = await titled(await seedSession([historyEntry({})]), 'Second Session')
+    const host = hostFor()
+
+    const text = await writeText(host, 'last-24h', { [first]: 'Only the first.' })
+
+    expect(text).toMatch(/summary/i)
+    expect(text).toContain('Second Session')
+    expect(text).toContain(second)
+    expect(text).not.toContain('First Session')
+    expect(await htmlFiles()).toEqual([])
+  })
+
+  it('requires a summary for a Session with no entries for it', async () => {
+    const first = await titled(await seedSession([historyEntry({})]), 'First Session')
+    await titled(await seedSession([historyEntry({})]), 'Second Session')
+    const host = hostFor()
+
+    const text = await writeText(host, 'last-24h', { [first]: '   ' })
+
+    expect(text).toMatch(/summary/i)
+    expect(text).toContain('First Session')
+    expect(await htmlFiles()).toEqual([])
+  })
+
+  it('refuses a summary over 600 characters, naming the Session', async () => {
+    const id = await titled(await seedSession([historyEntry({})]), 'Long Session')
+    const host = hostFor()
+
+    const text = await writeText(host, 'last-24h', { [id]: 'x'.repeat(601) })
+
+    expect(text).toMatch(/600/)
+    expect(text).toContain('Long Session')
+    expect(text).toContain(id)
+    expect(await htmlFiles()).toEqual([])
+  })
+
+  it('accepts a summary of exactly 600 characters', async () => {
+    const id = await titled(await seedSession([historyEntry({})]), 'Exact Session')
+    const host = hostFor()
+
+    const result = await write(host, 'last-24h', { [id]: 'x'.repeat(600) })
+
+    expect(result.written).toBe(true)
+  })
+
+  it('refuses a summary for a Session the Overview does not show', async () => {
+    const shown = await seedSession([historyEntry({})])
+    const host = hostFor()
+
+    const text = await writeText(host, 'last-24h', {
+      [shown]: 'A summary.',
+      'session-not-here': 'A summary for nobody.',
+    })
+
+    expect(text).toMatch(/no Session/i)
+    expect(text).toContain('session-not-here')
     expect(await htmlFiles()).toEqual([])
   })
 
@@ -377,7 +482,12 @@ describe('overview_write', () => {
     const second = await seedPictureSession('second-picture')
     const host = hostFor()
 
-    const text = await writeText(host, 'last-24h', 'An opening.', { [first.id]: second.path })
+    const text = await writeText(
+      host,
+      'last-24h',
+      { [first.id]: 'First.', [second.id]: 'Second.' },
+      { [first.id]: second.path },
+    )
 
     expect(text).toMatch(/belongs to/i)
     expect(text).toContain(second.path)
@@ -394,18 +504,17 @@ describe('overview_write', () => {
         historyEntry({
           kind: 'image',
           preset: 'Image Gen',
-          prompt: 'last month',
           timestamp: NOW - 10 * DAY,
           artifacts: [{ path: 'files/last-month.png', mediaType: 'image' }],
         }),
       ),
-      JSON.stringify(historyEntry({ prompt: 'today', timestamp: NOW - HOUR })),
+      JSON.stringify(historyEntry({ timestamp: NOW - HOUR })),
     ])
     await mutateSession(id, (file) => ({ ...file, updatedAt: NOW }))
     await setSessionIncludedInOverviews(id, true)
     const host = hostFor()
 
-    const text = await writeText(host, 'last-24h', 'An opening.', { [id]: outsidePath })
+    const text = await writeText(host, 'last-24h', { [id]: 'A summary.' }, { [id]: outsidePath })
 
     expect(text).toMatch(/no picture candidate/i)
     expect(text).toContain(outsidePath)
@@ -416,8 +525,9 @@ describe('overview_write', () => {
     await seedPictureSession('shown')
     const quiet = await seedSession([historyEntry({ timestamp: NOW - 10 * DAY })])
     const host = hostFor()
+    const summaries = await summariesFor(host, 'last-24h')
 
-    const text = await writeText(host, 'last-24h', 'An opening.', {
+    const text = await writeText(host, 'last-24h', summaries, {
       [quiet]: path.join(dirs.real, 'anything.png'),
     })
 

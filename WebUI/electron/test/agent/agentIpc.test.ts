@@ -55,7 +55,7 @@ describe('AgentModeTurnConfigSchema', () => {
   })
 
   it('rejects an Overview chrome missing a string or its locale', () => {
-    const { OVERVIEW_RANGE: _range, ...strings } = chrome.strings
+    const { OVERVIEW_PAGE_TITLE: _title, ...strings } = chrome.strings
     expect(
       AgentModeTurnConfigSchema.safeParse({
         ...localConfig,

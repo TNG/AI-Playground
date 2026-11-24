@@ -108,6 +108,8 @@ const CHROME: OverviewChrome = {
 
 type Host = Parameters<NonNullable<typeof overviewCapability.buildTools>>[0]
 
+const { collectOverviewData } = await import('../../session/overviewData')
+
 function hostFor(): Host {
   return fixtureHostFor({
     workspaceDir: path.join(dirs.real, 'workspace'),
@@ -117,6 +119,20 @@ function hostFor(): Host {
   })
 }
 
+/** One summary for each Session the range shows, the way the agent supplies them. */
+async function summariesFor(host: Host): Promise<Record<string, string>> {
+  const data = await collectOverviewData({
+    range: 'last-24h',
+    excludingSessionId: host.sessionRef,
+  })
+  return Object.fromEntries(
+    data.sessions.map((session) => [
+      session.id,
+      `What happened in ${session.title || session.id}.`,
+    ]),
+  )
+}
+
 async function write(
   covers?: Record<string, string>,
 ): Promise<{ result: Record<string, unknown>; html: string }> {
@@ -124,7 +140,7 @@ async function write(
   const tool = toolNamed(await overviewCapability.buildTools!(host), 'overview_write')
   const result = await writeJson(tool, {
     range: 'last-24h',
-    opening: 'A quiet day.',
+    summaries: await summariesFor(host),
     ...(covers ? { covers } : {}),
   })
   const html = await fs.readFile(path.join(host.workspaceDir, String(result.path)), 'utf8')
@@ -450,16 +466,20 @@ describe('Overview pictures', () => {
 
     expect(result.written).toBe(true)
     expect(result.pictures).toBe(1)
+    expect(result.picturesOmitted).toBe(0)
     expect(imageSources(html)).toEqual([dataUriOf('good-image')])
     expect(audio).toBeTruthy()
     expect(threeD).toBeTruthy()
     expect(empty).toBeTruthy()
-    for (const prompt of ['spoken', 'model', 'no output at all']) {
-      const section = sessionSections(html).find((candidate) => candidate.includes(prompt))
-      expect(section).toBeDefined()
-      expect(section).not.toContain('<img')
-      expect(section).toContain('<h3>')
-      expect(section).toContain('<ol>')
+
+    const sections = sessionSections(html)
+    expect(sections).toHaveLength(5)
+    const pictured = sections.filter((section) => section.includes('<img'))
+    expect(pictured).toHaveLength(1)
+    expect(pictured[0]).toContain(dataUriOf('good-image'))
+    for (const section of sections) {
+      expect(section).toContain('<p class="title">')
+      expect(section).toContain('<p class="summary">')
     }
   })
 })

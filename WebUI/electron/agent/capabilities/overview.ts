@@ -9,7 +9,6 @@ import {
 } from '../../session/overviewData.ts'
 import { OVERVIEW_NAMED_RANGES, type OverviewRangeInput } from '../../session/overviewRange.ts'
 import {
-  OVERVIEW_OPENING_CAP,
   overviewFileName,
   renderOverviewHtml,
   type OverviewDocument,
@@ -26,6 +25,9 @@ import type { OverviewChrome } from '@/types/overviewChrome'
 
 const OVERVIEW_DATA_TOOL = 'overview_data'
 const OVERVIEW_WRITE_TOOL = 'overview_write'
+
+/** One Session's summary is aimed at two to four sentences and never longer than this. */
+export const OVERVIEW_SUMMARY_CAP = 600
 
 const RANGE_SCHEMA: Record<string, unknown> = {
   description:
@@ -59,11 +61,13 @@ const OVERVIEW_WRITE_SCHEMA: Record<string, unknown> = {
   additionalProperties: false,
   properties: {
     range: RANGE_SCHEMA,
-    opening: {
-      type: 'string',
+    summaries: {
+      type: 'object',
       description:
-        'Your own opening paragraph for the Overview, as plain text. It is the first ' +
-        `paragraph of the page; anything beyond ${OVERVIEW_OPENING_CAP} characters is cut off.`,
+        'One short summary per Session the Overview shows, keyed by that Session’s id from ' +
+        '`overview_data`: a few sentences (two to four, at most 600 characters) saying what the ' +
+        'Session did in the range. Every shown Session needs one; there is no opening paragraph.',
+      additionalProperties: { type: 'string' },
     },
     covers: {
       type: 'object',
@@ -75,7 +79,7 @@ const OVERVIEW_WRITE_SCHEMA: Record<string, unknown> = {
       additionalProperties: { type: 'string' },
     },
   },
-  required: ['range', 'opening'],
+  required: ['range', 'summaries'],
 }
 
 function overviewMissingSession(): string {
@@ -113,36 +117,94 @@ function invalidRange(): string {
 
 function overviewOf(
   data: OverviewData,
-  opening: string,
+  summaries: ReadonlyMap<string, string>,
   chrome: OverviewChrome,
   pictures: Map<string, string>,
 ): OverviewDocument {
-  const trimmed = opening.trim()
-  const shortened = trimmed.length > OVERVIEW_OPENING_CAP
   return {
     window: data.window,
     locale: chrome.locale,
-    opening: shortened ? trimmed.slice(0, OVERVIEW_OPENING_CAP) : trimmed,
     sessions: data.sessions.map((session) => {
       const picture = pictures.get(session.id)
       return {
         title: session.title,
-        entries: session.entries,
-        totalEntries: session.totalEntries,
-        truncated: session.truncated,
-        shownCovers: session.covers.length,
-        totalCovers: session.totalCovers,
-        coversTruncated: session.coversTruncated,
+        summary: summaries.get(session.id) ?? '',
         ...(picture ? { picture } : {}),
       }
     }),
     shownEntries: data.sessions.reduce((sum, session) => sum + session.entries.length, 0),
     totalEntries: data.totalEntries,
-    sessionsOmitted: data.sessionsOmitted,
     truncated: data.truncated,
-    ...(shortened
-      ? { openingTruncated: { shown: OVERVIEW_OPENING_CAP, total: trimmed.length } }
-      : {}),
+  }
+}
+
+function sessionLabel(session: { id: string; title: string }): string {
+  return session.title.trim() ? `"${session.title}" (${session.id})` : session.id
+}
+
+type SummarySelection =
+  { ok: true; bySession: Map<string, string> } | { ok: false; message: string }
+
+/**
+ * Exactly one usable summary per shown Session: no filler, no transcript, no
+ * summary for a Session this range did not show.
+ */
+function summarySelectionOf(data: OverviewData, value: unknown): SummarySelection {
+  if (!isRecord(value) || Array.isArray(value)) {
+    return {
+      ok: false,
+      message:
+        '"summaries" must map each Session id from `overview_data` to the text you wrote for ' +
+        'that Session. Nothing was written.',
+    }
+  }
+  const bySession = new Map<string, string>()
+  const unknown: string[] = []
+  const missing: OverviewSessionData[] = []
+  const blank: OverviewSessionData[] = []
+  const tooLong: OverviewSessionData[] = []
+  for (const session of data.sessions) {
+    const raw = value[session.id]
+    if (raw === undefined || typeof raw !== 'string') {
+      missing.push(session)
+      continue
+    }
+    const text = raw.trim()
+    if (!text) blank.push(session)
+    else if (text.length > OVERVIEW_SUMMARY_CAP) tooLong.push(session)
+    else bySession.set(session.id, text)
+  }
+  for (const sessionId of Object.keys(value)) {
+    if (!data.sessions.some((session) => session.id === sessionId)) unknown.push(sessionId)
+  }
+
+  const problems: string[] = []
+  if (missing.length > 0) {
+    problems.push(`no summary for ${missing.map(sessionLabel).join(', ')}`)
+  }
+  if (blank.length > 0) {
+    problems.push(`an empty summary for ${blank.map(sessionLabel).join(', ')}`)
+  }
+  if (tooLong.length > 0) {
+    problems.push(
+      `a summary over ${OVERVIEW_SUMMARY_CAP} characters for ${tooLong
+        .map(sessionLabel)
+        .join(', ')}`,
+    )
+  }
+  if (unknown.length > 0) {
+    problems.push(
+      `a summary for no Session in this Overview: ${unknown.map((id) => `"${id}"`).join(', ')}`,
+    )
+  }
+  if (problems.length === 0) return { ok: true, bySession }
+  return {
+    ok: false,
+    message:
+      `The Overview cannot be written: it needs one summary per Session it shows, and the ` +
+      `request has ${problems.join('; ')}. A summary is two to four sentences, at most ` +
+      `${OVERVIEW_SUMMARY_CAP} characters. Nothing was written; fix those Sessions and call ` +
+      'overview_write again.',
   }
 }
 
@@ -317,24 +379,24 @@ async function buildOverviewTools(host: CapabilityHost): Promise<ToolDefinition[
       description:
         'Render the Overview for a time range and write it into this Session’s Workspace as ' +
         'one self-contained HTML file, then return its link. Call it after `overview_data`, ' +
-        'with the same range, the opening paragraph you wrote, and optionally `covers` to pick ' +
-        'each Session’s picture that fits the text (a Session left out uses its newest picture). ' +
-        'It re-reads the range itself, so you cannot disagree with the page, and it accepts no ' +
-        'picture it did not offer for that Session. When the range has nothing to show it ' +
-        'writes no file and tells you why. Never write the HTML yourself: this tool owns the page.',
+        'with the same range, a `summaries` object holding one short summary for every Session ' +
+        'the Overview shows (a few sentences each, at most 600 characters), and optionally ' +
+        '`covers` to pick each Session’s picture that fits the text (a Session left out uses ' +
+        'its newest picture). It re-reads the range itself, so you cannot disagree with the ' +
+        'page, and it refuses a missing or over-long summary, naming the Sessions, without ' +
+        'writing anything. It accepts no picture it did not offer for that Session. When the ' +
+        'range has nothing to show it writes no file and tells you why. Never write the HTML ' +
+        'yourself: this tool owns the page.',
       parameters: jsonSchemaParameters(OVERVIEW_WRITE_SCHEMA),
       execute: async (_toolCallId, params) => {
         if (!host.sessionRef) return textResult(overviewMissingSession())
-        const { range, opening, covers } = params as {
+        const { range, summaries, covers } = params as {
           range?: unknown
-          opening?: unknown
+          summaries?: unknown
           covers?: unknown
         }
         const input = rangeOf(range)
         if (!input) return textResult(invalidRange())
-        if (typeof opening !== 'string') {
-          return textResult('"opening" must be the paragraph you want the Overview to open with.')
-        }
         const chrome = host.overviewChrome
         if (!chrome) return textResult(overviewMissingChrome())
         try {
@@ -350,10 +412,12 @@ async function buildOverviewTools(host: CapabilityHost): Promise<ToolDefinition[
               message: data.message,
             })
           }
+          const summarySelection = summarySelectionOf(data, summaries)
+          if (!summarySelection.ok) return textResult(summarySelection.message)
           const selection = coverSelectionOf(data, covers)
           if (!selection.ok) return textResult(selection.message)
           const pictures = await resolvePictures(data.sessions, selection.bySession)
-          const overview = overviewOf(data, opening, chrome, pictures.bySession)
+          const overview = overviewOf(data, summarySelection.bySession, chrome, pictures.bySession)
           const fileName = overviewFileName(data.window)
           await fs.mkdir(host.workspaceDir, { recursive: true })
           await fs.writeFile(
@@ -374,7 +438,6 @@ async function buildOverviewTools(host: CapabilityHost): Promise<ToolDefinition[
             truncated: overview.truncated,
             pictures: pictures.bySession.size,
             picturesOmitted: pictures.omitted,
-            ...(overview.openingTruncated ? { openingTruncated: overview.openingTruncated } : {}),
           })
         } catch (error) {
           return textResult(error instanceof Error ? error.message : String(error))

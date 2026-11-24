@@ -51,6 +51,7 @@
               :message="answerOf(part.messageId)!"
               section="details"
               :indexes="[part.index]"
+              :harness-session-id="harnessSessionIdOf()"
             />
           </template>
         </template>
@@ -79,6 +80,7 @@
           engine="agent"
           unlabelled
           :result-only="resultIndexes(answer.id)"
+          :harness-session-id="harnessSessionIdOf()"
         />
       </template>
       <SessionAssistantBubble v-if="item.kind === 'agent' && turnFailure">
@@ -188,6 +190,12 @@ const question = computed(() => {
 
 function answersOf(): UIMessage[] {
   return props.item.kind === 'chat' || props.item.kind === 'agent' ? props.item.answers : []
+}
+
+// A chip names the harness session that produced its message, which is not
+// necessarily the one the agentMode store holds open.
+function harnessSessionIdOf(): string | undefined {
+  return props.item.kind === 'agent' ? props.item.harnessSessionId : undefined
 }
 
 function answerOf(messageId: string): UIMessage | undefined {

@@ -47,6 +47,7 @@
         :message="message"
         :section="resultOnly ? 'result' : undefined"
         :indexes="resultOnly"
+        :harness-session-id="harnessSessionId"
       />
     </template>
   </SessionAssistantBubble>
@@ -88,6 +89,8 @@ const props = defineProps<{
   resultOnly?: readonly number[]
   /** The Turn's footer carries the answer's actions. */
   footerless?: boolean
+  /** Agent: the harness session that produced the message, for its file links. */
+  harnessSessionId?: string
 }>()
 
 const emit = defineEmits<{ resend: [] }>()

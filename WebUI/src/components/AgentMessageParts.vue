@@ -7,6 +7,7 @@
         :grid-artifacts="gridArtifactsOf(index)"
         :hide-media-grid="hideMediaGrid(index)"
         :created-files="createdFilesOf(message)"
+        :harness-session-id="harnessSessionId"
       />
     </template>
   </div>
@@ -27,6 +28,8 @@ const props = defineProps<{
   message: UIMessage
   section?: 'details' | 'result'
   indexes?: readonly number[]
+  /** The harness session that produced the message, for its file links. */
+  harnessSessionId?: string
 }>()
 
 const textInference = useTextInference()

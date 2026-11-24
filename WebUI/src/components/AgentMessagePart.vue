@@ -124,6 +124,8 @@ const props = defineProps<{
   hideMediaGrid?: boolean
   /** The files this message's writing tools created, for linkifying its text mentions. */
   createdFiles?: readonly string[]
+  /** The harness session that produced the message; its own workspace resolves the links. */
+  harnessSessionId?: string
 }>()
 
 const errors = useErrors()
@@ -143,7 +145,8 @@ const answerText = computed(() => {
 })
 
 async function openCreatedFile(filePath: string) {
-  const sessionId = agentMode.openSessionId
+  // The message's own harness session, which is not always the store's open one.
+  const sessionId = props.harnessSessionId || agentMode.openSessionId
   if (!sessionId) return
   const result = await window.electronAPI.agentMode.sessionFileAction(sessionId, filePath, 'open')
   if (result.success) return

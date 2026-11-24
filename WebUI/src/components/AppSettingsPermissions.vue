@@ -13,7 +13,7 @@
             <button
               type="button"
               class="text-primary underline-offset-2 hover:underline"
-              @click="setupWizard.openChannelsSetup()"
+              @click="ui.openComponentManagerChannels()"
             >
               {{ languages.SETTINGS_PERMISSIONS_SETUP_CHANNELS }}
             </button>
@@ -123,7 +123,7 @@ import {
   type PermissionGrant,
 } from '@/assets/js/store/permissionGrants'
 import { useChannels } from '@/assets/js/store/channels'
-import { useSetupWizard } from '@/assets/js/store/setupWizard'
+import { useUIStore } from '@/assets/js/store/ui'
 import { useI18N } from '@/assets/js/store/i18n'
 import { useErrors } from '@/assets/js/store/errors'
 import AppSettingsRow from '@/components/AppSettingsRow.vue'
@@ -142,7 +142,7 @@ import { fillTemplate } from '@/lib/fillTemplate'
 
 const grants = usePermissionGrants()
 const channelStore = useChannels()
-const setupWizard = useSetupWizard()
+const ui = useUIStore()
 const errors = useErrors()
 const languages = useI18N().state
 

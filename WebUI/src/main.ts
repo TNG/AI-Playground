@@ -37,6 +37,7 @@ import { startCloseAskBridge } from './assets/js/lifecycle/closeAskBridge'
 import { startPermissionsAdapter } from './assets/js/permissions/permissionsAdapter'
 import { startModelDownloader } from './lib/modelDownloaderWiring'
 import { usePermissionGrants } from './assets/js/store/permissionGrants'
+import { useComponentHolds } from './assets/js/store/componentHolds'
 import { startQueueActivityProjection } from './lib/queueActivityProjection'
 import { startNotificationConfigPush } from './lib/notificationConfigPush'
 import { startKernelLedgerProjection } from './lib/kernelLedgerProjection'
@@ -195,6 +196,10 @@ useSessionDefaultInputs()
 startQueueActivityProjection()
 startKernelLedgerProjection()
 startNotificationConfigPush()
+
+// The in-use guard's window half: report speech/download holds to main and project
+// its own back, so the Component Manager can disable a row the moment work starts.
+useComponentHolds()
 
 const i18n = useI18N()
 i18n.init().then(() => {

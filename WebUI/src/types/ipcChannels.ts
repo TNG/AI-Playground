@@ -28,6 +28,7 @@ import type { DemoConfigSaveResult, DemoConfigUpdate } from './demoModeIpc'
 import type { ChannelInboundMessage } from './channelIpc'
 import type { KernelEvent, KernelSnapshot, PauseReason } from './kernelEvents'
 import type { CloseAnswerPayload, CloseAskPayload, InFlightWorkItem } from './lifecycleIpc'
+import type { ComponentChangeRefusal, HeldComponent } from './componentChange'
 import type { MediaItemsBootstrap } from './mediaItemIpc'
 import type { MediaRequestPayload, MediaResponsePayload } from './mediaRequests'
 import type {
@@ -127,6 +128,8 @@ export type IpcOkWith<Fields> = ({ success: true } & Fields) | IpcFail
 /** Like `IpcOkWith`, but a refused Session Group name says which rule it broke. */
 export type IpcGroupNameResult<Fields> =
   ({ success: true } & Fields) | (IpcFail & { nameProblem?: GroupNameProblem })
+/** A Component change: done, or refused because work holds the Component, or failed. */
+export type ComponentChangeResult = IpcOk | (IpcFail & { refusal?: ComponentChangeRefusal })
 export type IpcStatusError = { status: 'error'; error: string }
 /** `GET /v1/models` from main. A failure keeps the provider status and body. */
 export type CloudModelListResult =
@@ -1029,12 +1032,12 @@ export const CHANNELS = {
     args: [] as unknown as readonly [ServiceSettings],
     result: null as unknown as void,
   },
-  /** Remove a service's installed files; ignored when the service is unknown. */
+  /** Remove a service's installed files; refused while work holds it. */
   uninstall: {
     kind: 'invoke',
     owner: 'main',
     args: [] as unknown as readonly [string],
-    result: null as unknown as void,
+    result: null as unknown as ComponentChangeResult,
   },
   /** Persist and apply the selected inference device for a service. */
   selectDevice: {
@@ -1071,12 +1074,19 @@ export const CHANNELS = {
     args: [] as unknown as readonly [string],
     result: null as unknown as BackendStatus,
   },
-  /** Install/update a service; progress streams as `serviceSetUpProgress` events. */
+  /** Install/update a service; progress streams as `serviceSetUpProgress` events. Refused while work holds it. */
   setUpService: {
     kind: 'invoke',
     owner: 'main',
     args: [] as unknown as readonly [BackendServiceName],
-    result: null as unknown as void,
+    result: null as unknown as ComponentChangeResult,
+  },
+  /** Whether a Component may be changed now; a refusal names the work, so a caller can ask before stopping it. */
+  componentChangeAdmission: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [BackendServiceName],
+    result: null as unknown as ComponentChangeResult,
   },
   /** The pinned release for a service: remote versions file, local fallback. */
   resolveBackendVersion: {
@@ -1707,6 +1717,14 @@ export const CHANNELS = {
     args: [] as unknown as readonly [InFlightWorkItem[]],
     flat: true as const,
     member: 'reportInFlightWork' as const,
+  },
+  /** Components only the window knows are in use (speech turns, model downloads); replaces the last report. */
+  'lifecycle:reportComponentHolds': {
+    kind: 'send',
+    owner: 'main',
+    args: [] as unknown as readonly [HeldComponent[]],
+    flat: true as const,
+    member: 'reportComponentHolds' as const,
   },
   /** The in-app close button: main's close coordinator decides whether to quit or ask. */
   'lifecycle:requestClose': {

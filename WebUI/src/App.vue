@@ -33,24 +33,24 @@
         class="self-center"
       />
       <TrialRunIndicator v-if="globalSetup.loadingState === 'running'" />
-      <button
-        v-if="showDebugSettings && !demoMode.enabled"
-        :title="languages.COM_SETTINGS"
-        @click="
-          () => {
-            const curState = globalSetup.loadingState
-            if (curState === 'running') {
-              setupWizardStore.openWizard()
-            } else if (curState === 'setupWizard') {
-              setupWizardStore.dismiss()
-            }
-          }
-        "
-        ref="showSettingBtn"
-      >
-        <ServerStackIcon class="size-6 text-foreground"></ServerStackIcon>
-      </button>
       <TooltipProvider :delay-duration="200">
+        <Tooltip v-if="globalSetup.loadingState === 'running' && !demoMode.enabled">
+          <TooltipTrigger as-child>
+            <button
+              type="button"
+              :aria-label="languages.SETTINGS_TAB_COMPONENT_MANAGER"
+              :aria-pressed="uiStore.componentManagerShowing"
+              class="-m-1 rounded-md p-1 transition-colors"
+              :class="{ 'bg-primary/20': uiStore.componentManagerShowing }"
+              @click="uiStore.toggleComponentManager()"
+            >
+              <ServerStackIcon class="size-6 text-foreground"></ServerStackIcon>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">{{
+            languages.SETTINGS_TAB_COMPONENT_MANAGER
+          }}</TooltipContent>
+        </Tooltip>
         <Tooltip v-if="globalSetup.loadingState === 'running'">
           <TooltipTrigger as-child>
             <button
@@ -323,7 +323,6 @@ import AgentLibrary from '@/views/AgentLibrary.vue'
 import TrialRunIndicator from '@/components/TrialRunIndicator.vue'
 import { useColorMode } from '@vueuse/core'
 import { useDemoMode } from './assets/js/store/demoMode.ts'
-import { debugSettingsVisible } from './assets/js/store/debugSettings.ts'
 import SessionTimeline from '@/views/SessionTimeline.vue'
 import Chat from '@/views/Chat.vue'
 import { computed, ref, watch } from 'vue'
@@ -400,7 +399,6 @@ const showChannelsToggle = computed(() => {
 })
 
 const demoModeOverlayDriverJs = ref<InstanceType<typeof DemoModeOverlayDriverJsRef>>()
-const showSettingBtn = ref<HTMLButtonElement>()
 const threadView = ref<InstanceType<typeof Chat> | null>(null)
 const timelineView = ref<InstanceType<typeof SessionTimeline> | null>(null)
 
@@ -418,7 +416,6 @@ const fullscreen = ref(false)
 
 const platformTitle = window.envVars.platformTitle
 const productVersion = window.envVars.productVersion
-const showDebugSettings = debugSettingsVisible()
 
 // Which build this is, for telling test builds apart. Both parts are absent in a
 // build made from a tree without git history, and then the version gets no hover.

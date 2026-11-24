@@ -63,7 +63,6 @@ describe('appSettingsSections', () => {
       { id: 'permissions', blocked: true, disabled: false },
       { id: 'hideMessages', blocked: false, disabled: false },
       { id: 'remoteKernel', blocked: true, disabled: false },
-      { id: 'backendStatus', blocked: true, disabled: false },
       { id: 'developer', blocked: true, disabled: false },
       { id: 'demoMode', blocked: false, disabled: false },
     ])
@@ -76,12 +75,10 @@ describe('appSettingsSections', () => {
       )?.parts
 
     expect(advanced(false)).toEqual([
-      { id: 'backendStatus', blocked: false, disabled: false },
       { id: 'developer', blocked: false, disabled: false },
       { id: 'demoMode', blocked: false, disabled: true },
     ])
     expect(advanced(true)).toEqual([
-      { id: 'backendStatus', blocked: false, disabled: false },
       { id: 'developer', blocked: false, disabled: false },
       { id: 'demoMode', blocked: false, disabled: false },
     ])

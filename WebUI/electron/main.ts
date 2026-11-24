@@ -121,6 +121,7 @@ import {
   getKernelSnapshot,
   onKernelEvent,
   relayKernelEvent,
+  setComponentHolds,
   setKernelEventWindow,
   setKernelRelayOnly,
 } from './kernel/kernelBus'
@@ -141,6 +142,8 @@ import {
   showRefreshedCloseQuestion,
 } from './kernel/closeAsk'
 import { createInFlightWork, queuedChannelMessages } from './kernel/inFlightWork'
+import { createComponentChanges } from './kernel/componentChanges'
+import type { HeldComponent } from '@/types/componentChange'
 import { openAgentTaskFolder } from './agent/agentTaskFolders.ts'
 import { setVerboseLogging as setVerboseAgentLogging } from './agent/piAgentLog.ts'
 import { setRagAccess } from './agent/ragAccess.ts'
@@ -178,10 +181,13 @@ import {
   type RunnerComfyService,
 } from './artifact/runner'
 import {
+  artifactWorkOpen,
   awaitChatWindow,
   cancelArtifactRun,
   cancelAllArtifactRuns,
+  mediaRequestsQueued,
   openArtifactRuns,
+  openComponentHolds,
   openTextRequests,
   setOrchestratorDeps,
   submitArtifactRun,
@@ -608,6 +614,32 @@ const inFlightWork = createInFlightWork({
   readAgentTasks,
 })
 
+/** Components the window reports holding (speech turns, model downloads), as last heard. */
+let windowComponentHolds: HeldComponent[] = []
+
+// Main's own work plus the window's report, in one admission rule the IPC
+// handlers and the Component Manager both consult.
+const componentChanges = createComponentChanges({
+  heldComponents: () => [...openComponentHolds(), ...windowComponentHolds],
+  hasInFlightWork: () =>
+    openTextRequests().length > 0 ||
+    openArtifactRuns().length > 0 ||
+    artifactWorkOpen() ||
+    mediaRequestsQueued() > 0 ||
+    windowComponentHolds.length > 0 ||
+    inFlightWork.rendererWork().length > 0,
+})
+
+/** Push the guard's current view through the kernel stream so the tab can re-enable actions. */
+function publishComponentState(): void {
+  setComponentHolds(openComponentHolds(), componentChanges.anyInFlightWork())
+}
+
+function setWindowComponentHolds(holds: HeldComponent[]): void {
+  windowComponentHolds = holds
+  publishComponentState()
+}
+
 const closeCoordinator = createCloseCoordinator({
   listInFlightWork: inFlightWork.list,
   askWindow: (question) => askWindowToClose(win, question),
@@ -921,6 +953,7 @@ async function createWindow() {
   setAgentModeMainWindow(win)
   setKernelEventWindow(win)
   bindRendererWorkReset(win.webContents, inFlightWork.setRendererWork)
+  bindRendererWorkReset(win.webContents, () => setWindowComponentHolds([]))
   // The renderer that was asked a media request cannot answer from a new
   // window; settle its pendings so waiters fail instead of hanging. The same
   // holds for a chat tool execution the old renderer was told to run. Artifact
@@ -1612,6 +1645,7 @@ function wireArtifactRunner(settings: LocalSettings): void {
     },
     restartChatBackend: reloadLastChatBackend,
     chatRequestsOpen: () => chatInferenceStreamsActive() + piAgentCallsActive(),
+    onWorkHoldsChanged: publishComponentState,
   })
 }
 
@@ -1750,6 +1784,7 @@ function initEventHandle() {
   registerSendHandlers(
     buildLifecycleSendRegistry({
       setRendererWork: inFlightWork.setRendererWork,
+      setRendererComponentHolds: setWindowComponentHolds,
       requestClose: () => void closeCoordinator.requestClose(),
       answerClose: handleCloseAnswer,
       closeBridgeReady: handleCloseBridgeReady,
@@ -1834,6 +1869,7 @@ function initEventHandle() {
     HomeAgentBackendService,
     Qwen3TtsBackendService,
     WhisperBackendService,
+    componentChanges,
   }
 
   // The core registry (#301): every flat main-owned invoke channel — the

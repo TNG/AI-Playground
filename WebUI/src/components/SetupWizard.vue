@@ -28,391 +28,61 @@
           {{ appVersion }}
         </p>
 
-        <!-- Two-column layout: Product Mode | Components -->
-        <div class="flex gap-6 pt-6">
-          <!-- Left column: Product Mode -->
-          <div class="flex-1 min-w-0">
-            <h2 class="text-sm font-semibold uppercase tracking-wider text-muted-foreground pb-3">
-              {{ languages.SETUP_WIZARD_MODE_SECTION || 'Product Mode' }}
-            </h2>
-            <div class="flex flex-col gap-2">
-              <label
-                v-for="option in resolvedModeOptions"
-                :key="option.mode"
-                class="flex items-start gap-2.5 p-3 rounded-lg border cursor-pointer transition-colors"
-                :class="
-                  wizard.pendingProductMode === option.mode
-                    ? 'border-primary bg-primary/10'
-                    : 'border-border hover:border-muted/50'
-                "
-                @click="wizard.setPendingMode(option.mode)"
-              >
-                <div class="shrink-0 mt-0.5">
-                  <div
-                    class="w-4 h-4 rounded-full border-2 flex items-center justify-center transition-colors"
-                    :class="
-                      wizard.pendingProductMode === option.mode
-                        ? 'border-primary bg-primary'
-                        : 'border-muted-foreground'
-                    "
-                  >
-                    <svg
-                      v-if="wizard.pendingProductMode === option.mode"
-                      class="w-2.5 h-2.5 text-primary-foreground"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="3"
-                    >
-                      <polyline points="20 6 9 17 4 12" />
-                    </svg>
-                  </div>
-                </div>
-                <div class="min-w-0">
-                  <div class="flex items-baseline gap-1 flex-wrap">
-                    <span class="text-xs font-bold text-[#00c4fa] -mr-0.5">{{
-                      option.titleOne
-                    }}</span>
-                    <span class="text-xs font-bold">{{ option.titleTwo }}</span>
-                    <span
-                      v-if="option.subtitle"
-                      class="text-xs font-medium text-muted-foreground"
-                      >{{ option.subtitle }}</span
-                    >
-                  </div>
-                  <div class="flex gap-1 pt-0.5">
-                    <span
-                      v-if="recommendedMode === option.mode"
-                      class="text-[9px] font-semibold uppercase tracking-wider text-success"
-                      >{{ languages.PRODUCT_MODE_BADGE_RECOMMENDED }}</span
-                    >
-                    <span
-                      v-if="option.experimental"
-                      class="text-[9px] font-semibold uppercase tracking-wider text-gray-400"
-                      >{{ languages.PRODUCT_MODE_BADGE_EXPERIMENTAL }}</span
-                    >
-                  </div>
-                  <p class="text-[11px] text-muted-foreground pt-1 leading-snug">
-                    {{ option.description }}
-                  </p>
-                </div>
-              </label>
-            </div>
-
-            <!-- Default GPU selection. Lives inside the left column, directly
-                 under the mode options, so it shares that column's width instead
-                 of spanning the whole wizard and leaving a gap. Hidden entirely
-                 when no GPU is detected — there is nothing to choose. -->
-            <div v-if="wizard.preferredDeviceOptions.length > 0" class="pt-6">
-              <h2 class="text-sm font-semibold uppercase tracking-wider text-muted-foreground pb-3">
-                {{ languages.SETUP_WIZARD_DEVICE_SECTION || 'Default GPU' }}
-              </h2>
-              <DropdownMenu>
-                <DropdownMenuTrigger as-child>
-                  <button
-                    type="button"
-                    class="w-full flex items-center justify-between gap-2 p-3 rounded-lg border border-border hover:border-muted/50 transition-colors text-left"
-                  >
-                    <span class="min-w-0">
-                      <span class="block text-xs font-medium truncate">{{
-                        selectedDeviceOption?.label
-                      }}</span>
-                      <span
-                        v-if="
-                          selectedDeviceOption &&
-                          (selectedDeviceOption.category === 'dgpu' ||
-                            selectedDeviceOption.category === 'igpu')
-                        "
-                        class="block text-[9px] font-semibold uppercase tracking-wider text-muted-foreground"
-                      >
-                        {{
-                          selectedDeviceOption.category === 'dgpu'
-                            ? languages.SETUP_WIZARD_DEVICE_DEDICATED || 'Dedicated GPU'
-                            : languages.SETUP_WIZARD_DEVICE_INTEGRATED || 'Integrated GPU'
-                        }}
-                      </span>
-                    </span>
-                    <svg
-                      class="w-4 h-4 shrink-0 text-muted-foreground"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                    >
-                      <polyline points="6 9 12 15 18 9" />
-                    </svg>
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  align="start"
-                  class="w-[var(--reka-dropdown-menu-trigger-width)] min-w-0"
-                >
-                  <DropdownMenuItem
-                    v-for="option in wizard.preferredDeviceOptions"
-                    :key="option.key"
-                    @select="onSelectPreferredDevice(option.key)"
-                  >
-                    <span class="min-w-0">
-                      <span class="block text-xs font-medium truncate">{{ option.label }}</span>
-                      <span
-                        v-if="option.category === 'dgpu' || option.category === 'igpu'"
-                        class="block text-[9px] font-semibold uppercase tracking-wider text-muted-foreground"
-                      >
-                        {{
-                          option.category === 'dgpu'
-                            ? languages.SETUP_WIZARD_DEVICE_DEDICATED || 'Dedicated GPU'
-                            : languages.SETUP_WIZARD_DEVICE_INTEGRATED || 'Integrated GPU'
-                        }}
-                      </span>
-                    </span>
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-
-              <!-- Override toggle: always offered. When on, committing
-                   overwrites every preset's saved device with the chosen
-                   default above (and switches the active preset live). -->
-              <label class="flex items-center gap-2.5 pt-3 cursor-pointer">
-                <Switch
-                  :model-value="wizard.overrideExistingDeviceSelection"
-                  @update:model-value="(v: boolean) => (wizard.overrideExistingDeviceSelection = v)"
-                />
-                <span class="text-xs text-muted-foreground">
-                  {{
-                    languages.SETUP_WIZARD_DEVICE_OVERRIDE ||
-                    'Override existing preset device selections'
-                  }}
-                </span>
-              </label>
-            </div>
-          </div>
-
-          <!-- Right column: Components -->
-          <div class="flex-1 min-w-0">
-            <h2 class="text-sm font-semibold uppercase tracking-wider text-muted-foreground pb-3">
-              {{ languages.SETUP_WIZARD_BACKENDS_SECTION || 'Components' }}
-            </h2>
-
-            <div class="flex flex-col gap-1.5">
-              <!-- AI Playground: the core service plus the features layered on it.
-                   Core cannot be turned off, so the group toggle drives only the
-                   optional members (Channels, Hybrid Cloud). -->
-              <SetupWizardGroup
-                title="AI Playground"
-                :info-url="AI_PLAYGROUND_INFO_URL"
-                :toggle="aiPlaygroundGroupToggle"
-                @toggle="setAiPlaygroundGroup"
-              >
-                <!-- Core Services owns the speech sidecars: they are runtimes the
-                     core experience needs, not products of their own, so a first
-                     run reads as one core install. The disclosure keeps the opt-out
-                     and the repair / reinstall controls one click away. -->
-                <Collapsible
-                  v-if="coreRow"
-                  v-model:open="coreServicesOpen"
-                  class="flex min-w-0 flex-col"
-                >
-                  <SetupWizardRow
-                    :row="backendRowView(coreRow)"
-                    compact
-                    @toggle="(v) => wizard.toggleBackend(coreRow!.serviceName, v)"
-                    @repair="wizard.repairBackend(coreRow!.serviceName)"
-                    @show-error="wizard.showErrorModal(coreRow!.serviceName)"
-                  >
-                    <template v-if="coreDependentRows.length > 0" #disclosure>
-                      <CollapsibleTrigger
-                        :aria-label="`${coreRow.displayName} details`"
-                        class="size-4 inline-flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
-                      >
-                        <ChevronDownIcon
-                          class="size-3.5 origin-center transition-transform"
-                          :class="{ 'rotate-180': coreServicesOpen }"
-                        />
-                      </CollapsibleTrigger>
-                    </template>
-                    <template #options>
-                      <BackendOptions :backend="coreRow.serviceName" />
-                    </template>
-                  </SetupWizardRow>
-
-                  <CollapsibleContent v-if="coreDependentRows.length > 0">
-                    <SetupWizardRow
-                      v-for="row in coreDependentRows"
-                      :key="row.serviceName"
-                      :row="backendRowView(row)"
-                      compact
-                      nested
-                      @toggle="(v) => wizard.toggleBackend(row.serviceName, v)"
-                      @repair="wizard.repairBackend(row.serviceName)"
-                      @show-error="wizard.showErrorModal(row.serviceName)"
-                    >
-                      <template #options>
-                        <BackendOptions :backend="row.serviceName" />
-                      </template>
-                    </SetupWizardRow>
-                  </CollapsibleContent>
-                </Collapsible>
-
-                <SetupWizardRow
-                  v-for="row in aiPlaygroundOptionalRows"
-                  :key="row.serviceName"
-                  :row="backendRowView(row)"
-                  compact
-                  @toggle="(v) => wizard.toggleBackend(row.serviceName, v)"
-                  @repair="wizard.repairBackend(row.serviceName)"
-                  @show-error="wizard.showErrorModal(row.serviceName)"
-                >
-                  <template #options>
-                    <BackendOptions :backend="row.serviceName" />
-                  </template>
-                </SetupWizardRow>
-
-                <!-- Hybrid Cloud: frontend-only component (remote OpenAI-compatible
-                     provider). Not a real backend service, but rendered identically
-                     to a regular backend row via the shared component. -->
-                <SetupWizardRow :row="cloudRow" compact @toggle="(v) => cloudMode.toggleFeature(v)">
-                  <template #options>
-                    <!-- Identical to the Channels gear menu (see BackendOptions):
-                         a single "Setup" item that opens the setup page. -->
-                    <SettingsMenu
-                      v-model:open="cloudMenuOpen"
-                      :label="HYBRID_CLOUD_NAME"
-                      :title="`Configure ${HYBRID_CLOUD_NAME} providers`"
-                      :disabled="!cloudMode.isFeatureEnabled"
-                    >
-                      <DropdownMenuItem @select="openCloudSetup">{{
-                        languages.COM_GO_TO_SETUP || 'Setup'
-                      }}</DropdownMenuItem>
-                    </SettingsMenu>
-                  </template>
-                </SetupWizardRow>
-
-                <SetupWizardRow
-                  :row="demoModeRow"
-                  compact
-                  @toggle="(v) => wizard.toggleDemoMode(v)"
-                >
-                  <template #options>
-                    <SettingsMenu
-                      v-model:open="demoModeMenuOpen"
-                      :label="demoModeRow.displayName"
-                      :title="t('SETUP_WIZARD_DEMO_MODE_OPTIONS')"
-                    >
-                      <DropdownMenuItem @select="openDemoModeSetup">{{
-                        languages.COM_GO_TO_SETUP || 'Setup'
-                      }}</DropdownMenuItem>
-                    </SettingsMenu>
-                  </template>
-                </SetupWizardRow>
-              </SetupWizardGroup>
-
-              <!-- Inference engines and everything not grouped above. -->
-              <SetupWizardRow
-                v-for="row in ungroupedRows"
-                :key="row.serviceName"
-                :row="backendRowView(row)"
-                @toggle="(v) => wizard.toggleBackend(row.serviceName, v)"
-                @repair="wizard.repairBackend(row.serviceName)"
-                @show-error="wizard.showErrorModal(row.serviceName)"
-              >
-                <template #options>
-                  <BackendOptions :backend="row.serviceName" />
-                </template>
-              </SetupWizardRow>
-
-              <div
-                v-if="wizard.phisonAidaptivRow"
-                class="flex items-center gap-3 px-3 py-2.5 rounded-lg border bg-muted/30 transition-colors border-success/25"
-              >
-                <TooltipProvider :delay-duration="200">
-                  <Tooltip>
-                    <TooltipTrigger as-child>
-                      <span
-                        class="w-2.5 h-2.5 rounded-full shrink-0"
-                        :style="{ backgroundColor: wizard.phisonAidaptivRow.statusColor }"
-                      ></span>
-                    </TooltipTrigger>
-                    <TooltipContent side="right" class="text-xs">
-                      {{ wizard.phisonAidaptivRow.statusText }}
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-
-                <div class="flex-1 min-w-0">
-                  <div class="flex items-center gap-1.5">
-                    <span
-                      class="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-success"
-                      aria-hidden="true"
-                    >
-                      <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none">
-                        <path
-                          d="M4 7a2 2 0 012-2h12a2 2 0 012 2v10a2 2 0 01-2 2H6a2 2 0 01-2-2V7z"
-                          stroke="currentColor"
-                          stroke-width="1.75"
-                        />
-                        <path
-                          d="M8 11h8M8 15h5"
-                          stroke="currentColor"
-                          stroke-width="1.5"
-                          stroke-linecap="round"
-                        />
-                      </svg>
-                    </span>
-                    <span class="text-sm font-medium leading-tight">{{
-                      wizard.phisonAidaptivRow.displayName
-                    }}</span>
-                  </div>
-                  <div
-                    v-if="wizard.phisonAidaptivRow.versionDisplay"
-                    class="text-xs text-muted-foreground leading-tight"
-                  >
-                    {{ wizard.phisonAidaptivRow.versionDisplay }}
-                  </div>
-                </div>
-
-                <div class="flex items-center gap-2 shrink-0">
-                  <template v-if="wizard.phisonAidaptivRow.isInstalling">
-                    <span
-                      v-if="wizard.phisonAidaptivRow.installProgressText"
-                      class="text-xs text-muted-foreground whitespace-nowrap"
-                    >
-                      {{ wizard.phisonAidaptivRow.installProgressText }}
-                    </span>
-                    <span class="svg-icon i-loading flex-none w-4 h-4"></span>
-                  </template>
-                </div>
-
-                <!-- Gear before toggle, matching SetupWizardRow so this row's
-                     switch lines up with every other one. -->
-                <div class="flex items-center gap-2 shrink-0">
-                  <PhisonAidaptivOptions />
-                  <TooltipProvider :delay-duration="300">
-                    <Tooltip>
-                      <TooltipTrigger as-child>
-                        <span class="inline-flex">
-                          <Switch
-                            :model-value="wizard.phisonAidaptivRow.enabled"
-                            :disabled="wizard.phisonAidaptivRow.toggleDisabled"
-                            @update:model-value="(v: boolean) => wizard.togglePhisonAidaptiv(v)"
-                          />
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipContent side="left" class="text-xs">
-                        {{ wizard.phisonAidaptivRow.toggleTooltip }}
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                </div>
-              </div>
-            </div>
-            <p class="text-xs text-muted-foreground pt-3">
-              {{
-                languages.SETUP_WIZARD_BACKENDS_INTRO ||
-                'Required components will be installed automatically. Optional components can be toggled on or off.'
-              }}
-            </p>
-          </div>
-        </div>
+        <ComponentPanel
+          apply-mode="draft"
+          :mode-options="resolvedModeOptions"
+          :selected-mode="wizard.pendingProductMode"
+          :recommended-mode="recommendedMode"
+          :device-options="wizard.preferredDeviceOptions"
+          :selected-device-key="wizard.preferredDeviceKey(wizard.pendingPreferredDevice)"
+          :override-device-selection="wizard.overrideExistingDeviceSelection"
+          :core-row="coreRowData"
+          :core-dependent-rows="coreDependentRowData"
+          :group-rows="aiPlaygroundOptionalRowData"
+          :group-toggle="aiPlaygroundGroupToggle"
+          :cloud-row="cloudRow"
+          :demo-mode-row="demoModeRow"
+          :ungrouped-rows="ungroupedRowData"
+          :phison-row="wizard.phisonAidaptivRow"
+          :core-services-open="coreServicesOpen"
+          @select-mode="wizard.setPendingMode"
+          @select-device="onSelectPreferredDevice"
+          @override-device="(v: boolean) => (wizard.overrideExistingDeviceSelection = v)"
+          @group-toggle="setAiPlaygroundGroup"
+          @toggle="onPanelToggle"
+          @repair="onPanelRepair"
+          @show-error="onPanelShowError"
+          @toggle-phison="wizard.togglePhisonAidaptiv"
+          @update:core-services-open="(v: boolean) => (coreServicesOpen = v)"
+        >
+          <template #options="{ row }">
+            <BackendOptions v-if="row.kind === 'backend'" :backend="row.serviceName" />
+            <SettingsMenu
+              v-else-if="row.kind === 'cloud'"
+              v-model:open="cloudMenuOpen"
+              :label="HYBRID_CLOUD_NAME"
+              :title="`Configure ${HYBRID_CLOUD_NAME} providers`"
+              :disabled="!cloudMode.isFeatureEnabled"
+            >
+              <DropdownMenuItem @select="openCloudSetup">{{
+                languages.COM_GO_TO_SETUP || 'Setup'
+              }}</DropdownMenuItem>
+            </SettingsMenu>
+            <SettingsMenu
+              v-else
+              v-model:open="demoModeMenuOpen"
+              :label="demoModeRow.displayName"
+              :title="t('SETUP_WIZARD_DEMO_MODE_OPTIONS')"
+            >
+              <DropdownMenuItem @select="openDemoModeSetup">{{
+                languages.COM_GO_TO_SETUP || 'Setup'
+              }}</DropdownMenuItem>
+            </SettingsMenu>
+          </template>
+          <template #phison-options>
+            <PhisonAidaptivOptions />
+          </template>
+        </ComponentPanel>
 
         <!-- Primary CTA + Close -->
         <div class="flex items-center justify-between pt-4">
@@ -472,20 +142,16 @@ import { useCloudMode } from '@/assets/js/store/cloudMode'
 import { useGlobalSetup } from '@/assets/js/store/globalSetup'
 import { useI18N } from '@/assets/js/store/i18n'
 import { mapStatusToColor } from '@/lib/utils'
-import { Switch } from '@/components/ui/switch'
-import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
-import { ChevronDownIcon } from '@heroicons/vue/24/outline'
 import BackendOptions from '@/components/BackendOptions.vue'
-import SetupWizardRow, { type SetupWizardRowView } from '@/components/SetupWizardRow.vue'
-import SetupWizardGroup, { type SetupWizardGroupToggle } from '@/components/SetupWizardGroup.vue'
+import type { SetupWizardRowView } from '@/components/SetupWizardRow.vue'
+import type { SetupWizardGroupToggle } from '@/components/SetupWizardGroup.vue'
 import SettingsMenu from '@/components/SettingsMenu.vue'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
+import ComponentPanel, {
+  type ComponentPanelBackendRow,
+  type ComponentPanelOptionsRow,
+  type ComponentPanelToggleIntent,
+} from '@/components/ComponentPanel.vue'
 import PhisonAidaptivOptions from '@/components/PhisonAidaptivOptions.vue'
 import ErrorDetailsModal from '@/components/ErrorDetailsModal.vue'
 import LanguageSelector from '@/components/LanguageSelector.vue'
@@ -512,12 +178,6 @@ function t(key: string) {
 const recommendedMode = computed(
   () => productModeStore.hardwareRecommendation?.recommendedMode ?? null,
 )
-
-// The currently-selected preferred-device option (for the dropdown trigger label).
-const selectedDeviceOption = computed(() => {
-  const key = wizard.preferredDeviceKey(wizard.pendingPreferredDevice)
-  return wizard.preferredDeviceOptions.find((o) => o.key === key) ?? null
-})
 
 function onSelectPreferredDevice(key: unknown) {
   if (typeof key !== 'string') return
@@ -655,11 +315,6 @@ function infoTooltipFor(serviceName: BackendServiceName): string | undefined {
   }
 }
 
-// The project page for AI Playground itself. Shown on the group heading rather
-// than on the Core Services row inside it: the link is about the product, not
-// about that one service.
-const AI_PLAYGROUND_INFO_URL = 'https://github.com/intel/ai-playground'
-
 function getInfoURL(serviceName: string): string | undefined {
   switch (serviceName) {
     case 'comfyui-backend':
@@ -696,6 +351,33 @@ function backendRowView(row: BackendRowViewModel): SetupWizardRowView {
   }
 }
 
+function toPanelRows(rows: BackendRowViewModel[]): ComponentPanelBackendRow[] {
+  return rows.map((row) => ({ serviceName: row.serviceName, view: backendRowView(row) }))
+}
+
+const coreRowData = computed<ComponentPanelBackendRow | null>(() =>
+  coreRow.value
+    ? { serviceName: coreRow.value.serviceName, view: backendRowView(coreRow.value) }
+    : null,
+)
+const coreDependentRowData = computed(() => toPanelRows(coreDependentRows.value))
+const aiPlaygroundOptionalRowData = computed(() => toPanelRows(aiPlaygroundOptionalRows.value))
+const ungroupedRowData = computed(() => toPanelRows(ungroupedRows.value))
+
+function onPanelToggle({ row, enabled }: ComponentPanelToggleIntent) {
+  if (row.kind === 'cloud') void cloudMode.toggleFeature(enabled)
+  else if (row.kind === 'demo') wizard.toggleDemoMode(enabled)
+  else void wizard.toggleBackend(row.serviceName, enabled)
+}
+
+function onPanelRepair(row: ComponentPanelOptionsRow) {
+  if (row.kind === 'backend') void wizard.repairBackend(row.serviceName)
+}
+
+function onPanelShowError(row: ComponentPanelOptionsRow) {
+  if (row.kind === 'backend') wizard.showErrorModal(row.serviceName)
+}
+
 // Hybrid Cloud is a frontend-only feature, but it presents as a normal backend row
 // — so it must speak the same colour vocabulary as the real rows. It used to
 // hardcode its own green/grey (#22c55e/#6b7280), which matched no other row, and
@@ -712,18 +394,17 @@ const cloudModeReady = computed(
 )
 const cloudRow = computed<SetupWizardRowView>(() => ({
   displayName: HYBRID_CLOUD_NAME,
-  infoTooltip:
-    'Adds an OpenAI-compatible endpoint to run inference on beside this device — hosted, cloud, or another machine on your LAN. No install: point it at a provider in its Setup screen.',
+  infoTooltip: languages.COMPONENT_MANAGER_CLOUD_INFO,
   statusColor: !cloudMode.isFeatureEnabled
     ? mapStatusToColor('notInstalled')
     : cloudModeReady.value
       ? mapStatusToColor('running')
       : mapStatusToColor('notYetStarted'),
   statusText: !cloudMode.isFeatureEnabled
-    ? languages.COM_DISABLED || 'Disabled'
+    ? languages.COM_DISABLED
     : cloudModeReady.value
-      ? languages.COM_ENABLED || 'Enabled'
-      : 'Enabled — add a provider in Setup',
+      ? languages.COM_ENABLED
+      : languages.COMPONENT_MANAGER_CLOUD_NEEDS_PROVIDER,
   versionDisplay: '',
   enabled: cloudMode.isFeatureEnabled,
   toggleTooltip: cloudMode.isFeatureEnabled

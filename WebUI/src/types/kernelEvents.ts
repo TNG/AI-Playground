@@ -9,6 +9,7 @@ import type { MediaItem } from './mediaItem'
 import type { ActivityCategory, ActivityScope, ActivityState } from '@/assets/js/activities/types'
 import type { SerializedAppError } from '@/assets/js/errors/types'
 import type { SessionDocument, SessionGroupsState, SessionTurns } from './sessionIpc'
+import type { HeldComponent } from './componentChange'
 
 export type KernelEventScope =
   { kind: 'global' } | { kind: 'chat'; conversationKey: string } | { kind: 'run'; runId: string }
@@ -277,6 +278,13 @@ export type KernelSessionTurnsEvent = {
   turns: SessionTurns
 }
 
+/** Components held by Work in flight, and whether any In-flight Work exists at all. */
+export type KernelComponentHoldsEvent = {
+  type: 'component-holds'
+  holds: HeldComponent[]
+  anyInFlightWork: boolean
+}
+
 /** Last successful local chat load — kernel memory, not the settings dropdown. */
 export type KernelInferenceProfile = {
   serviceName: string
@@ -308,6 +316,7 @@ export type KernelEventPayload =
   | KernelSessionChangedEvent
   | KernelSessionGroupsChangedEvent
   | KernelSessionTurnsEvent
+  | KernelComponentHoldsEvent
 
 export type KernelEvent = KernelEventPayload & KernelEventEnvelope
 
@@ -387,6 +396,10 @@ export type KernelSnapshotState = {
   inferenceProfile: KernelInferenceProfile | null
   /** Sessions with a turn in flight, one turn each. */
   sessionTurns?: SessionTurns
+  /** Components held by Work in flight, for the Component Manager's in-use guard. */
+  componentHolds?: HeldComponent[]
+  /** Whether any In-flight Work exists; a Hardware Mode change waits for it. */
+  anyInFlightWork?: boolean
 }
 
 export type KernelSnapshot = {

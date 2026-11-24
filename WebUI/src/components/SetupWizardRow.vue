@@ -32,6 +32,30 @@ export type SetupWizardRowView = {
   repairDisabled?: boolean
   /** Show the "View error log" button. */
   showError?: boolean
+  /** Show the inline button that installs a Component that is not on disk. */
+  showInstall?: boolean
+  /** Accessible name for the install action, e.g. "Install ComfyUI". */
+  installLabel?: string
+  /** Show the inline "Update to <version>" action (newer version available). */
+  showUpdate?: boolean
+  /** Visible text for the update action, e.g. "Update to b6100". */
+  updateLabel?: string
+  /** Accessible name for the update action, e.g. "Update ComfyUI". */
+  updateAriaLabel?: string
+  /** Show the inline Uninstall action (optional Components only). */
+  showUninstall?: boolean
+  /** Visible text for the uninstall action. */
+  uninstallLabel?: string
+  /** Accessible name for the uninstall action, e.g. "Uninstall ComfyUI". */
+  uninstallAriaLabel?: string
+  /** Disable the uninstall action (work holds the Component). */
+  uninstallDisabled?: boolean
+  /** Work holds this Component: its change actions are disabled and this reason shows. */
+  inUseReason?: string
+  /** Disable the install action (work holds the Component). */
+  installDisabled?: boolean
+  /** Disable the update action (work holds the Component). */
+  updateDisabled?: boolean
 }
 
 const props = defineProps<{
@@ -54,6 +78,9 @@ const emit = defineEmits<{
   toggle: [boolean]
   repair: []
   showError: []
+  install: []
+  update: []
+  uninstall: []
 }>()
 
 const languages = useI18N().state
@@ -116,6 +143,9 @@ const available = computed(() => props.row.availableInCurrentMode ?? true)
       <div v-if="row.versionDisplay" class="truncate text-xs text-muted-foreground leading-tight">
         {{ row.versionDisplay }}
       </div>
+      <div v-if="row.inUseReason" class="truncate text-xs text-warning leading-tight">
+        {{ row.inUseReason }}
+      </div>
     </div>
 
     <!-- Unavailable tooltip -->
@@ -153,6 +183,33 @@ const available = computed(() => props.row.availableInCurrentMode ?? true)
         class="text-xs bg-primary/80 hover:bg-primary py-0.5 px-2.5 rounded transition-colors disabled:opacity-50"
       >
         {{ languages.COM_REPAIR || 'Repair' }}
+      </button>
+      <button
+        v-else-if="row.showUpdate"
+        @click="emit('update')"
+        :disabled="row.updateDisabled"
+        :aria-label="row.updateAriaLabel"
+        class="text-xs whitespace-nowrap text-success hover:text-success/80 transition-colors disabled:opacity-50"
+      >
+        {{ row.updateLabel }}
+      </button>
+      <button
+        v-else-if="row.showInstall"
+        @click="emit('install')"
+        :disabled="row.installDisabled"
+        :aria-label="row.installLabel"
+        class="text-xs bg-primary/80 hover:bg-primary py-0.5 px-2.5 rounded transition-colors disabled:opacity-50"
+      >
+        {{ languages.COM_INSTALL || 'Install' }}
+      </button>
+      <button
+        v-if="row.showUninstall"
+        @click="emit('uninstall')"
+        :disabled="row.uninstallDisabled"
+        :aria-label="row.uninstallAriaLabel"
+        class="text-xs whitespace-nowrap text-destructive hover:text-destructive/80 transition-colors disabled:opacity-50"
+      >
+        {{ row.uninstallLabel || languages.COMPONENT_MANAGER_UNINSTALL || 'Uninstall' }}
       </button>
     </div>
 

@@ -46,6 +46,7 @@ import {
   cancelAllArtifactRuns,
   finishTextRequest,
   mediaRequestsQueued,
+  openComponentHolds,
   reclaimTurnPlace,
   resetOrchestratorForTest,
   runMediaRequest,
@@ -1360,5 +1361,67 @@ describe('panel runs waiting on model download consent', () => {
     await settle()
     expect(startArtifactRunMock).not.toHaveBeenCalled()
     expect(artifactWorkOpen()).toBe(false)
+  })
+})
+
+describe('component holds', () => {
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 20))
+
+  beforeEach(() => resetOrchestratorForTest())
+
+  it("holds a local turn's Component until the turn finishes", async () => {
+    await submitTextRequest({
+      runId: 'turn-1',
+      conversationKey: 'c1',
+      needsGpu: false,
+      work: 'chat',
+      component: 'llamacpp-backend',
+    })
+
+    expect(openComponentHolds()).toEqual([{ component: 'llamacpp-backend', work: 'turn' }])
+
+    finishTextRequest('turn-1')
+    expect(openComponentHolds()).toEqual([])
+  })
+
+  it("names an Agent Run's hold as an Agent Run", async () => {
+    await submitTextRequest({
+      runId: 'agent-1',
+      conversationKey: 's1',
+      needsGpu: false,
+      work: 'agent',
+      component: 'openvino-backend',
+    })
+
+    expect(openComponentHolds()).toEqual([{ component: 'openvino-backend', work: 'agent-run' }])
+  })
+
+  it('leaves an unrelated Component out of the holds', async () => {
+    await submitTextRequest({
+      runId: 'turn-1',
+      conversationKey: 'c1',
+      needsGpu: false,
+      work: 'chat',
+      component: 'llamacpp-backend',
+    })
+
+    const held = openComponentHolds().map((entry) => entry.component)
+    expect(held).toContain('llamacpp-backend')
+    expect(held).not.toContain('comfyui-backend')
+  })
+
+  it("holds ComfyUI from a media run's submission until it settles", async () => {
+    const hold = holdNextRun()
+    const run = submitArtifactRun(consented())
+
+    expect(openComponentHolds()).toContainEqual({
+      component: 'comfyui-backend',
+      work: 'media-run',
+    })
+
+    hold.resolve({ state: 'completed', items: [] })
+    await run
+    await settle()
+    expect(openComponentHolds()).toEqual([])
   })
 })

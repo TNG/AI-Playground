@@ -181,6 +181,38 @@ describe('overview HTML renderer', () => {
     expect(html).toContain('first 1200 of 1500 characters')
   })
 
+  it('inlines a Session picture as a data URI and shows none without one', () => {
+    const picture = 'data:image/png;base64,AAAA'
+    const html = renderOverviewHtml(
+      reportOf([
+        session({ title: 'Pictured', picture, entries: [entry({})] }),
+        session({ title: 'Plain', entries: [entry({})] }),
+      ]),
+      english,
+    )
+
+    expect(html).toContain(`<img class="picture" src="${picture}" alt="">`)
+    expect(html.match(/<img\b/g)).toHaveLength(1)
+    const plainSection = html.slice(html.indexOf('<h3>Plain</h3>'))
+    expect(plainSection.slice(0, plainSection.indexOf('</section>'))).not.toContain('<img')
+  })
+
+  it('never renders a picture source that is not a data URI', () => {
+    const html = renderOverviewHtml(
+      reportOf([
+        session({ title: 'Remote', picture: 'https://example.com/cat.png', entries: [entry({})] }),
+        session({ title: 'Local', picture: 'file:///tmp/cat.png', entries: [entry({})] }),
+        session({ title: 'Media', picture: 'aipg-media://games/x/icon.png', entries: [entry({})] }),
+      ]),
+      english,
+    )
+
+    expect(html).not.toMatch(/<img\b/)
+    expect(html).not.toContain('https://example.com/cat.png')
+    expect(html).not.toContain('file:///tmp/cat.png')
+    expect(html).not.toContain('aipg-media://games/x/icon.png')
+  })
+
   it('uses the local calendar dates in the file name', () => {
     const from = new Date(2026, 10, 23, 15, 30).getTime()
     const to = new Date(2026, 10, 24, 15, 30).getTime()

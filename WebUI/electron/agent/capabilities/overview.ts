@@ -1,11 +1,13 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import { nativeImage } from 'electron'
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent'
 import {
   collectOverviewData,
   OVERVIEW_NAMED_RANGES,
   type OverviewData,
   type OverviewRangeInput,
+  type OverviewSessionData,
 } from '../../session/overviewData.ts'
 import {
   OVERVIEW_OPENING_CAP,
@@ -96,19 +98,28 @@ function invalidRange(): string {
   )
 }
 
-function reportOf(data: OverviewData, opening: string, locale: string): OverviewReport {
+function reportOf(
+  data: OverviewData,
+  opening: string,
+  locale: string,
+  pictures: Map<string, string>,
+): OverviewReport {
   const trimmed = opening.trim()
   const shortened = trimmed.length > OVERVIEW_OPENING_CAP
   return {
     window: data.window,
     locale,
     opening: shortened ? trimmed.slice(0, OVERVIEW_OPENING_CAP) : trimmed,
-    sessions: data.sessions.map((session) => ({
-      title: session.title,
-      entries: session.entries,
-      totalEntries: session.totalEntries,
-      truncated: session.truncated,
-    })),
+    sessions: data.sessions.map((session) => {
+      const picture = pictures.get(session.id)
+      return {
+        title: session.title,
+        entries: session.entries,
+        totalEntries: session.totalEntries,
+        truncated: session.truncated,
+        ...(picture ? { picture } : {}),
+      }
+    }),
     shownEntries: data.sessions.reduce((sum, session) => sum + session.entries.length, 0),
     totalEntries: data.sessions.reduce((sum, session) => sum + session.totalEntries, 0),
     truncated: data.truncated,
@@ -129,6 +140,64 @@ function sameFolder(a: string, b: string): boolean {
 function previewUrlOf(workspaceDir: string, fileName: string): string | undefined {
   const root = workspacePreviewRoot()
   return root && sameFolder(root, workspaceDir) ? resolvePreviewUrl(fileName) : undefined
+}
+
+/** Longest edge a Session's picture is scaled to before it is inlined. */
+export const OVERVIEW_PICTURE_EDGE = 480
+
+/** Encoded bytes one page may carry in total; later Sessions lose their pictures past it. */
+export const OVERVIEW_PICTURE_BUDGET_BYTES = 4 * 1024 * 1024
+
+async function pictureDataUri(filePath: string): Promise<string | null> {
+  try {
+    const decoded = nativeImage.createFromBuffer(await fs.readFile(filePath))
+    if (decoded.isEmpty()) return null
+    const { width, height } = decoded.getSize()
+    const picture =
+      Math.max(width, height) > OVERVIEW_PICTURE_EDGE
+        ? decoded.resize(
+            width >= height ? { width: OVERVIEW_PICTURE_EDGE } : { height: OVERVIEW_PICTURE_EDGE },
+          )
+        : decoded
+    const dataUri = picture.toDataURL()
+    return dataUri.startsWith('data:image/') ? dataUri : null
+  } catch {
+    return null
+  }
+}
+
+type OverviewPictures = { bySession: Map<string, string>; omitted: number }
+
+/**
+ * Each Session's newest usable candidate, newest-updated Session first. Once the
+ * page budget binds nothing later is decoded, so a wide range stays a small file.
+ */
+async function resolvePictures(
+  sessions: readonly OverviewSessionData[],
+): Promise<OverviewPictures> {
+  const bySession = new Map<string, string>()
+  let remaining = OVERVIEW_PICTURE_BUDGET_BYTES
+  let budgetBound = false
+  let omitted = 0
+  for (const session of sessions) {
+    const candidate = session.covers[0]
+    if (!candidate) continue
+    if (budgetBound) {
+      omitted += 1
+      continue
+    }
+    const dataUri = await pictureDataUri(candidate.path)
+    if (!dataUri) continue
+    const size = Buffer.byteLength(dataUri)
+    if (size > remaining) {
+      budgetBound = true
+      omitted += 1
+      continue
+    }
+    remaining -= size
+    bySession.set(session.id, dataUri)
+  }
+  return { bySession, omitted }
 }
 
 async function buildOverviewTools(host: CapabilityHost): Promise<ToolDefinition[]> {
@@ -191,7 +260,8 @@ async function buildOverviewTools(host: CapabilityHost): Promise<ToolDefinition[
             })
           }
           const chrome = (host.overviewChrome ?? {}) as OverviewChrome
-          const report = reportOf(data, opening, host.responseLocale ?? 'en-US')
+          const pictures = await resolvePictures(data.sessions)
+          const report = reportOf(data, opening, host.responseLocale ?? 'en-US', pictures.bySession)
           const fileName = overviewFileName(data.window)
           await fs.mkdir(host.workspaceDir, { recursive: true })
           await fs.writeFile(
@@ -209,6 +279,8 @@ async function buildOverviewTools(host: CapabilityHost): Promise<ToolDefinition[
             shownEntries: report.shownEntries,
             totalEntries: report.totalEntries,
             truncated: report.truncated,
+            pictures: pictures.bySession.size,
+            picturesOmitted: pictures.omitted,
             ...(report.openingTruncated ? { openingTruncated: report.openingTruncated } : {}),
           })
         } catch (error) {

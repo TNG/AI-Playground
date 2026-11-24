@@ -14,6 +14,8 @@ export type OverviewReportSession = {
   entries: OverviewEntry[]
   totalEntries: number
   truncated: boolean
+  /** A ready `data:image/…` URI, downscaled by the tool that read the file. */
+  picture?: string
 }
 
 export type OverviewReport = {
@@ -142,6 +144,12 @@ function daySection(group: DayGroup, chrome: OverviewChrome): string {
 
 function sessionSection(session: OverviewReportSession, chrome: OverviewChrome): string {
   const entries = [...session.entries].sort((a, b) => a.time - b.time)
+  // Only an inlined picture may reach the page: a URL scheme would not resolve
+  // once the file is copied, and the CSP allows nothing but `data:`.
+  const picture =
+    session.picture?.startsWith('data:image/') === true
+      ? `<img class="picture" src="${escapeHtml(session.picture)}" alt="">\n`
+      : ''
   const truncation = session.truncated
     ? `<p class="note">${textOf(chrome, 'OVERVIEW_SESSION_TRUNCATED', {
         shown: entries.length,
@@ -150,6 +158,7 @@ function sessionSection(session: OverviewReportSession, chrome: OverviewChrome):
     : ''
   return (
     `<section class="session">\n<h3>${escapeHtml(session.title)}</h3>\n` +
+    picture +
     `<p class="meta">${textOf(chrome, 'OVERVIEW_SESSION_META', {
       count: session.totalEntries,
     })}</p>\n` +
@@ -174,6 +183,7 @@ time { opacity: .75; font-variant-numeric: tabular-nums; }
 .response { opacity: .85; }
 .status { font-weight: 600; }
 .artifact { font-family: ui-monospace, monospace; }
+.picture { display: block; max-width: 100%; max-height: 20rem; margin: .5rem 0; border-radius: .5rem; }
 `
 
 export function renderOverviewHtml(report: OverviewReport, chrome: OverviewChrome): string {

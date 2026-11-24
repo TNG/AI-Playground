@@ -212,6 +212,16 @@ describe('overview_data', () => {
     expect(sessions[0].entries.map((entry) => entry.prompt)).toEqual(['last', 'first'])
   })
 
+  it('gives each Session a short handle beside its full id', async () => {
+    const id = await seedSession([historyEntry({})])
+
+    const data = await dataFrom(hostFor(), 'last-24h')
+    const [session] = data.sessions as { id: string; handle: string }[]
+
+    expect(session.id).toBe(id)
+    expect(session.handle).toBe(id.replace(/^session-/, '').slice(0, 8))
+  })
+
   it('reads only included Sessions and never the reporting Session', async () => {
     const included = await seedSession([historyEntry({})])
     const excluded = await seedSession([historyEntry({})], { included: false })

@@ -28,6 +28,8 @@ export type OverviewEntry = {
 
 export type OverviewSessionData = {
   id: string
+  /** The id without its `session-` prefix, cut to 8 characters, for a call to key on. */
+  handle: string
   title: string
   /** Newest first, capped per Session and by the Overview-wide line budget. */
   entries: OverviewEntry[]
@@ -65,6 +67,11 @@ export type OverviewQuery = {
 export const OVERVIEW_ENTRY_CAP = 40
 export const OVERVIEW_LINE_CAP = 400
 const RESPONSE_EXCERPT_LENGTH = 280
+
+/** The short handle `overview_write` accepts beside the full id. */
+export function overviewHandleOf(sessionId: string): string {
+  return sessionId.replace(/^session-/, '').slice(0, 8)
+}
 
 function excerpt(text: string): string {
   const trimmed = text.trim()
@@ -158,6 +165,7 @@ export async function collectOverviewData(query: OverviewQuery): Promise<Overvie
     const covers = await collectCovers(summary.id, file, list, inRange, recordsOf)
     sessions.push({
       id: summary.id,
+      handle: overviewHandleOf(summary.id),
       title: summary.title,
       entries: shown.map(overviewEntryOf),
       totalEntries: inRange.length,

@@ -16,6 +16,15 @@ vi.mock('electron', () => ({
   app: { isPackaged: false, getPath: () => dirs.real, getAppPath: () => dirs.real },
   BrowserWindow: class {},
   net: {},
+  // The decoder stands in for `nativeImage`: its data URI names the file's bytes,
+  // so a test can tell which candidate really reached the page.
+  nativeImage: {
+    createFromBuffer: (buffer: Buffer) => ({
+      isEmpty: () => false,
+      getSize: () => ({ width: 10, height: 10 }),
+      toDataURL: () => `data:image/png;base64,${buffer.toString('base64')}`,
+    }),
+  },
 }))
 
 vi.mock('../../persist/userDataPaths.ts', () => ({
@@ -151,6 +160,14 @@ async function summariesFor(host: Host, range: unknown): Promise<SummaryMap> {
   return Object.fromEntries(ids.map((id) => [id, `What happened in ${id}.`]))
 }
 
+function handleOf(id: string): string {
+  return id.replace(/^session-/, '').slice(0, 8)
+}
+
+function pictureUri(key: string): string {
+  return `data:image/png;base64,${Buffer.from(key).toString('base64')}`
+}
+
 async function titled(id: string, title: string): Promise<string> {
   await mutateSession(id, (file) => ({ ...file, title, renamed: true }))
   return id
@@ -232,6 +249,7 @@ describe('overview_write', () => {
       sessions: 1,
       truncated: false,
     })
+    expect(result.notes).toBeUndefined()
     const html = await fs.readFile(path.join(host.workspaceDir, String(result.path)), 'utf8')
     expect(html).toContain('Shipped the thing')
     expect(html).toContain('A quiet day.')
@@ -431,7 +449,7 @@ describe('overview_write', () => {
     expect(await htmlFiles()).toEqual([])
   })
 
-  it('requires a summary for every Session the Overview shows', async () => {
+  it('requires a summary for every Session the Overview shows, naming handle and Title', async () => {
     const first = await titled(await seedSession([historyEntry({})]), 'First Session')
     const second = await titled(await seedSession([historyEntry({})]), 'Second Session')
     const host = hostFor()
@@ -440,12 +458,12 @@ describe('overview_write', () => {
 
     expect(text).toMatch(/summary/i)
     expect(text).toContain('Second Session')
-    expect(text).toContain(second)
+    expect(text).toContain(handleOf(second))
     expect(text).not.toContain('First Session')
     expect(await htmlFiles()).toEqual([])
   })
 
-  it('requires a summary for a Session with no entries for it', async () => {
+  it('still refuses when a Session is left with only a blank summary', async () => {
     const first = await titled(await seedSession([historyEntry({})]), 'First Session')
     await titled(await seedSession([historyEntry({})]), 'Second Session')
     const host = hostFor()
@@ -454,62 +472,135 @@ describe('overview_write', () => {
 
     expect(text).toMatch(/summary/i)
     expect(text).toContain('First Session')
+    expect(text).toContain(handleOf(first))
     expect(await htmlFiles()).toEqual([])
   })
 
-  it('refuses a summary over 600 characters, naming the Session', async () => {
+  it('shortens a summary over 600 characters instead of refusing it', async () => {
     const id = await titled(await seedSession([historyEntry({})]), 'Long Session')
     const host = hostFor()
 
-    const text = await writeText(host, 'last-24h', { [id]: 'x'.repeat(601) })
+    const result = await write(host, 'last-24h', { [id]: 'x'.repeat(601) })
 
-    expect(text).toMatch(/600/)
-    expect(text).toContain('Long Session')
-    expect(text).toContain(id)
-    expect(await htmlFiles()).toEqual([])
+    expect(result.written).toBe(true)
+    expect(result.notes).toEqual([expect.stringContaining('600')])
+    const html = await fs.readFile(path.join(host.workspaceDir, String(result.path)), 'utf8')
+    expect(html).toContain(`${'x'.repeat(599)}…`)
+    expect(html).not.toContain('x'.repeat(600))
   })
 
-  it('accepts a summary of exactly 600 characters', async () => {
+  it('accepts a summary of exactly 600 characters without a note', async () => {
     const id = await titled(await seedSession([historyEntry({})]), 'Exact Session')
     const host = hostFor()
 
     const result = await write(host, 'last-24h', { [id]: 'x'.repeat(600) })
 
     expect(result.written).toBe(true)
+    expect(result.notes).toBeUndefined()
   })
 
-  it('refuses a summary for a Session the Overview does not show', async () => {
-    const shown = await seedSession([historyEntry({})])
+  it('keys summaries by handle, full id or exact Title', async () => {
+    const byHandle = await titled(await seedSession([historyEntry({})]), 'Handle Session')
+    const byTitle = await titled(await seedSession([historyEntry({})]), 'Titled Session')
     const host = hostFor()
+    const data = JSON.parse(
+      textOf(await (await dataTool(host)).execute('call-1', { range: 'last-24h' })),
+    ) as { sessions: { id: string; handle: string }[] }
+    const handle = data.sessions.find((session) => session.id === byHandle)!.handle
 
-    const text = await writeText(host, 'last-24h', {
-      [shown]: 'A summary.',
-      'session-not-here': 'A summary for nobody.',
+    const result = await writeJson(await writeTool(host), {
+      range: 'last-24h',
+      summaries: {
+        [handle]: 'Summarised by handle.',
+        'titled session': 'Summarised by title.',
+      },
     })
 
-    expect(text).toMatch(/no Session/i)
-    expect(text).toContain('session-not-here')
+    expect(result.written).toBe(true)
+    const html = await fs.readFile(path.join(host.workspaceDir, String(result.path)), 'utf8')
+    expect(html).toContain('Summarised by handle.')
+    expect(html).toContain('Summarised by title.')
+    expect(byTitle).toBeTruthy()
+  })
+
+  it('ignores a summary key that matches no shown Session, with a note', async () => {
+    const shown = await titled(await seedSession([historyEntry({})]), 'Shown Session')
+    const host = hostFor()
+
+    const result = await writeJson(await writeTool(host), {
+      range: 'last-24h',
+      summaries: { [shown]: 'A real summary.', 'session-not-here': 'A summary for nobody.' },
+    })
+
+    expect(result.written).toBe(true)
+    expect(result.notes).toEqual([expect.stringContaining('session-not-here')])
+    const html = await fs.readFile(path.join(host.workspaceDir, String(result.path)), 'utf8')
+    expect(html).toContain('A real summary.')
+    expect(html).not.toContain('A summary for nobody.')
+  })
+
+  it('ignores a non-string summary when the same Session has a usable one', async () => {
+    const id = await titled(await seedSession([historyEntry({})]), 'Blanked Session')
+    const host = hostFor()
+
+    const result = await writeJson(await writeTool(host), {
+      range: 'last-24h',
+      summaries: { [id]: 42, [handleOf(id)]: 'Actually written.' },
+    })
+
+    expect(result.written).toBe(true)
+    expect(result.notes).toEqual([expect.stringContaining('blank summary')])
+    const html = await fs.readFile(path.join(host.workspaceDir, String(result.path)), 'utf8')
+    expect(html).toContain('Actually written.')
+  })
+
+  it('uses the range overview_data resolved when the write names no window', async () => {
+    const id = await titled(
+      await seedSession([historyEntry({ timestamp: NOW - HOUR })]),
+      'Remembered',
+    )
+    const host = hostFor()
+    const data = JSON.parse(
+      textOf(await (await dataTool(host)).execute('call-1', { range: 'last-24h' })),
+    ) as { sessions: { id: string; handle: string }[] }
+    const handle = data.sessions.find((session) => session.id === id)!.handle
+
+    const result = await writeJson(await writeTool(host), {
+      summaries: { [handle]: 'A remembered day.' },
+    })
+
+    expect(result).toMatchObject({ written: true, window: { from: NOW - DAY, to: NOW } })
+  })
+
+  it('still answers an invalid window with the range message after a data call', async () => {
+    const id = await titled(await seedSession([historyEntry({})]), 'Invalid Range')
+    const host = hostFor()
+    await (await dataTool(host)).execute('call-1', { range: 'last-24h' })
+
+    const text = await writeText(host, 'since forever', { [handleOf(id)]: 'A summary.' })
+
+    expect(text).toMatch(/range|date|hour/i)
     expect(await htmlFiles()).toEqual([])
   })
 
-  it("refuses a picture that is another Session's candidate", async () => {
+  it("ignores a picture that is another Session's candidate, with a note", async () => {
     const first = await seedPictureSession('first-picture')
     const second = await seedPictureSession('second-picture')
     const host = hostFor()
 
-    const text = await writeText(
-      host,
-      'last-24h',
-      { [first.id]: 'First.', [second.id]: 'Second.' },
-      { [first.id]: second.path },
-    )
+    const result = await writeJson(await writeTool(host), {
+      range: 'last-24h',
+      summaries: { [first.id]: 'First.', [second.id]: 'Second.' },
+      covers: { [first.id]: second.path },
+    })
 
-    expect(text).toMatch(/belongs to/i)
-    expect(text).toContain(second.path)
-    expect(await htmlFiles()).toEqual([])
+    expect(result.written).toBe(true)
+    expect(result.notes).toEqual([expect.stringContaining('Ignored the picture')])
+    const html = await fs.readFile(path.join(host.workspaceDir, String(result.path)), 'utf8')
+    expect(html).toContain(pictureUri('first-picture'))
   })
 
-  it('refuses a picture from outside the range', async () => {
+  it('ignores a picture from outside the range, with a note', async () => {
     const { id } = await createSession()
     const outsidePath = path.join(sessionPaths(id).filesDir, 'last-month.png')
     await fs.mkdir(path.dirname(outsidePath), { recursive: true })
@@ -529,25 +620,31 @@ describe('overview_write', () => {
     await setSessionIncludedInOverviews(id, true)
     const host = hostFor()
 
-    const text = await writeText(host, 'last-24h', { [id]: 'A summary.' }, { [id]: outsidePath })
+    const result = await writeJson(await writeTool(host), {
+      range: 'last-24h',
+      summaries: { [id]: 'A summary.' },
+      covers: { [id]: outsidePath },
+    })
 
-    expect(text).toMatch(/no picture candidate/i)
-    expect(text).toContain(outsidePath)
-    expect(await htmlFiles()).toEqual([])
+    expect(result.written).toBe(true)
+    expect(result.notes).toEqual([expect.stringContaining('Ignored the picture')])
+    expect(await htmlFiles()).toHaveLength(1)
   })
 
-  it('refuses a Session the Overview does not show', async () => {
+  it('ignores a picture for a Session the Overview does not show, with a note', async () => {
     await seedPictureSession('shown')
     const quiet = await seedSession([historyEntry({ timestamp: NOW - 10 * DAY })])
     const host = hostFor()
     const summaries = await summariesFor(host, 'last-24h')
 
-    const text = await writeText(host, 'last-24h', summaries, {
-      [quiet]: path.join(dirs.real, 'anything.png'),
+    const result = await writeJson(await writeTool(host), {
+      range: 'last-24h',
+      summaries,
+      covers: { [quiet]: path.join(dirs.real, 'anything.png') },
     })
 
-    expect(text).toMatch(/no Session/i)
-    expect(text).toContain(quiet)
-    expect(await htmlFiles()).toEqual([])
+    expect(result.written).toBe(true)
+    expect(result.notes).toEqual([expect.stringContaining('no Session')])
+    expect(await htmlFiles()).toHaveLength(1)
   })
 })

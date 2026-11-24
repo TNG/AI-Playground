@@ -88,18 +88,21 @@ const OVERVIEW_WRITE_SCHEMA: Record<string, unknown> = {
     summaries: {
       type: 'object',
       description:
-        'One short summary per Session the Overview shows, keyed by that Session’s id from ' +
-        '`overview_data`: a few sentences (two to four, at most 600 characters) saying what the ' +
-        'Session did in the range. Every shown Session needs one; there is no opening paragraph.',
+        'One short summary per Session the Overview shows, keyed by that Session’s id or handle ' +
+        'from `overview_data`, or by its exact Title (case-insensitive): a few sentences (two to ' +
+        'four, at most 600 characters) saying what the Session did in the range. Every shown ' +
+        'Session needs one; there is no opening paragraph. A longer summary is shortened to 600 ' +
+        'characters, and a key that matches no shown Session is ignored, both with a note.',
       additionalProperties: { type: 'string' },
     },
     covers: {
       type: 'object',
       description:
-        'Optional. Maps a Session id from `overview_data` to one of the cover paths it returned ' +
-        'for that Session, to choose the picture that fits what you wrote. Leave a Session out ' +
-        'and its newest picture is used. A path from another Session, from outside the range, ' +
-        'or a Session the Overview does not show is refused.',
+        'Optional. Maps a Session id, handle or exact Title from `overview_data` to one of the ' +
+        'cover paths it returned for that Session, to choose the picture that fits what you ' +
+        'wrote. Leave a Session out and its newest picture is used. A path that is not one of ' +
+        'that Session’s in-range candidates is ignored with a note, and the Session uses its ' +
+        'newest picture instead.',
       additionalProperties: { type: 'string' },
     },
   },
@@ -178,6 +181,27 @@ function rangeOfParams(params: Record<string, unknown>): OverviewRangeInput | nu
     return { from: params.from, to: params.to }
   }
   return null
+}
+
+/** Whether the call named a window at all, as opposed to leaving it to the remembered one. */
+function namesWindow(params: Record<string, unknown>): boolean {
+  return ['range', 'lastHours', 'from', 'to'].some(
+    (key) => params[key] !== undefined && params[key] !== null && params[key] !== '',
+  )
+}
+
+/**
+ * The last range `overview_data` resolved for the reporting Session, so the write
+ * that follows it need not repeat the window.
+ */
+const lastRangeBySession = new Map<string, OverviewRangeInput>()
+
+function rememberRange(host: CapabilityHost, range: OverviewRangeInput): void {
+  if (host.sessionRef) lastRangeBySession.set(host.sessionRef, range)
+}
+
+function rememberedRange(host: CapabilityHost): OverviewRangeInput | undefined {
+  return host.sessionRef ? lastRangeBySession.get(host.sessionRef) : undefined
 }
 
 function invalidRange(): string {
@@ -263,142 +287,132 @@ function overviewOf(
   }
 }
 
-function sessionLabel(session: { id: string; title: string }): string {
-  return session.title.trim() ? `"${session.title}" (${session.id})` : session.id
+function sessionLabel(session: OverviewSessionData): string {
+  return session.title.trim() ? `"${session.title}" (${session.handle})` : session.handle
+}
+
+/** Resolve a caller's key to a shown Session: full id, short handle, or exact Title. */
+function sessionResolver(
+  sessions: readonly OverviewSessionData[],
+): (key: string) => OverviewSessionData | undefined {
+  const byId = new Map(sessions.map((session) => [session.id, session]))
+  const byHandle = new Map(sessions.map((session) => [session.handle, session]))
+  const byTitle = new Map<string, OverviewSessionData>()
+  for (const session of sessions) {
+    const title = session.title.trim().toLowerCase()
+    if (title && !byTitle.has(title)) byTitle.set(title, session)
+  }
+  return (key) => {
+    const trimmed = key.trim()
+    if (!trimmed) return undefined
+    return byId.get(trimmed) ?? byHandle.get(trimmed) ?? byTitle.get(trimmed.toLowerCase())
+  }
+}
+
+function shortenSummary(text: string): string {
+  return `${text.slice(0, OVERVIEW_SUMMARY_CAP - 1)}…`
 }
 
 type SummarySelection =
-  { ok: true; bySession: Map<string, string> } | { ok: false; message: string }
+  { ok: true; bySession: Map<string, string>; notes: string[] } | { ok: false; message: string }
 
 /**
- * Exactly one usable summary per shown Session: no filler, no transcript, no
- * summary for a Session this range did not show.
+ * One usable summary per shown Session. A key that matches no shown Session, a
+ * blank one, and an over-long one are handled with a note; only a Session left
+ * without a summary refuses.
  */
 function summarySelectionOf(data: OverviewData, value: unknown): SummarySelection {
   if (!isRecord(value) || Array.isArray(value)) {
     return {
       ok: false,
       message:
-        '"summaries" must map each Session id from `overview_data` to the text you wrote for ' +
-        'that Session. Nothing was written.',
+        '"summaries" must map each Session id, handle or exact Title from `overview_data` to ' +
+        'the text you wrote for that Session. Nothing was written.',
     }
   }
+  const resolve = sessionResolver(data.sessions)
   const bySession = new Map<string, string>()
-  const unknown: string[] = []
-  const missing: OverviewSessionData[] = []
-  const blank: OverviewSessionData[] = []
-  const tooLong: OverviewSessionData[] = []
-  for (const session of data.sessions) {
-    const raw = value[session.id]
-    if (raw === undefined || typeof raw !== 'string') {
-      missing.push(session)
+  const notes: string[] = []
+  for (const [key, raw] of Object.entries(value)) {
+    const session = resolve(key)
+    if (!session) {
+      notes.push(`Ignored a summary for "${key}": no Session in this Overview matches that key.`)
+      continue
+    }
+    if (typeof raw !== 'string' || !raw.trim()) {
+      notes.push(`Ignored a blank summary for ${sessionLabel(session)}; it needs a written one.`)
       continue
     }
     const text = raw.trim()
-    if (!text) blank.push(session)
-    else if (text.length > OVERVIEW_SUMMARY_CAP) tooLong.push(session)
-    else bySession.set(session.id, text)
-  }
-  for (const sessionId of Object.keys(value)) {
-    if (!data.sessions.some((session) => session.id === sessionId)) unknown.push(sessionId)
-  }
-
-  const problems: string[] = []
-  if (missing.length > 0) {
-    problems.push(`no summary for ${missing.map(sessionLabel).join(', ')}`)
-  }
-  if (blank.length > 0) {
-    problems.push(`an empty summary for ${blank.map(sessionLabel).join(', ')}`)
-  }
-  if (tooLong.length > 0) {
-    problems.push(
-      `a summary over ${OVERVIEW_SUMMARY_CAP} characters for ${tooLong
-        .map(sessionLabel)
-        .join(', ')}`,
-    )
-  }
-  if (unknown.length > 0) {
-    problems.push(
-      `a summary for no Session in this Overview: ${unknown.map((id) => `"${id}"`).join(', ')}`,
-    )
-  }
-  if (problems.length === 0) return { ok: true, bySession }
-  return {
-    ok: false,
-    message:
-      `The Overview cannot be written: it needs one summary per Session it shows, and the ` +
-      `request has ${problems.join('; ')}. A summary is two to four sentences, at most ` +
-      `${OVERVIEW_SUMMARY_CAP} characters. Nothing was written; fix those Sessions and call ` +
-      'overview_write again.',
-  }
-}
-
-type CoverSelection = { ok: true; bySession: Map<string, string> } | { ok: false; message: string }
-
-/** Only a path this range's data result offered for that Session may be chosen. */
-function coverSelectionOf(data: OverviewData, value: unknown): CoverSelection {
-  if (value === undefined || value === null) return { ok: true, bySession: new Map() }
-  if (!isRecord(value) || Array.isArray(value)) {
-    return {
-      ok: false,
-      message:
-        '"covers" must be an object mapping a Session id to one of the picture paths ' +
-        '`overview_data` returned for that Session. Leave it out to use each Session’s newest picture.',
-    }
-  }
-  const bySession = new Map<string, string>()
-  for (const [sessionId, chosen] of Object.entries(value)) {
-    if (typeof chosen !== 'string') {
-      return {
-        ok: false,
-        message: `The picture for Session "${sessionId}" must be one of the paths overview_data returned.`,
-      }
-    }
-    const session = data.sessions.find((candidate) => candidate.id === sessionId)
-    if (!session) {
-      const offered = data.sessions.map((entry) => `"${entry.title}" (${entry.id})`).join(', ')
-      return {
-        ok: false,
-        message:
-          `No Session "${sessionId}" is in this Overview, so its picture cannot be used. ` +
-          (offered
-            ? `Choose among the Sessions overview_data returned: ${offered}.`
-            : 'Do not pass a picture for it.'),
-      }
-    }
-    if (session.covers.some((candidate) => candidate.path === chosen)) {
-      bySession.set(sessionId, chosen)
+    if (text.length > OVERVIEW_SUMMARY_CAP) {
+      bySession.set(session.id, shortenSummary(text))
+      notes.push(
+        `Shortened the summary for ${sessionLabel(session)} to ${OVERVIEW_SUMMARY_CAP} characters.`,
+      )
       continue
     }
-    const owner = data.sessions.find((candidate) =>
-      candidate.covers.some((cover) => cover.path === chosen),
-    )
-    if (owner) {
-      return {
-        ok: false,
-        message:
-          `That picture ("${chosen}") belongs to "${owner.title}", not "${session.title}". ` +
-          `Pick one of "${session.title}"’s paths from overview_data, or leave it out to use ` +
-          'its newest picture.',
-      }
-    }
-    if (session.covers.length === 0) {
-      return {
-        ok: false,
-        message:
-          `"${session.title}" has no picture candidate in this range, so "${chosen}" cannot be used. ` +
-          'Leave it out and the Session will have no picture.',
-      }
-    }
+    bySession.set(session.id, text)
+  }
+
+  const missing = data.sessions.filter((session) => !bySession.has(session.id))
+  if (missing.length > 0) {
     return {
       ok: false,
       message:
-        `"${session.title}" has no candidate at "${chosen}". Choose one of the paths ` +
-        `overview_data returned for it (${session.covers.map((cover) => cover.path).join(', ')}), ` +
-        'or leave it out to use its newest picture.',
+        `The Overview cannot be written: it needs one summary per Session it shows, and the ` +
+        `request has no usable summary for ${missing.map(sessionLabel).join(', ')}. A summary ` +
+        `is two to four sentences, at most ${OVERVIEW_SUMMARY_CAP} characters. Nothing was ` +
+        'written; add a summary for each of those Sessions and call overview_write again.',
     }
   }
-  return { ok: true, bySession }
+  return { ok: true, bySession, notes }
+}
+
+type CoverSelection = { bySession: Map<string, string>; notes: string[] }
+
+/**
+ * A chosen picture is used only when it is one of that Session's in-range
+ * candidates; anything else is ignored with a note and the Session keeps its
+ * newest picture.
+ */
+function coverSelectionOf(data: OverviewData, value: unknown): CoverSelection {
+  const bySession = new Map<string, string>()
+  const notes: string[] = []
+  if (value === undefined || value === null) return { bySession, notes }
+  if (!isRecord(value) || Array.isArray(value)) {
+    notes.push(
+      'Ignored the picture choices: `covers` must map a Session to one of its picture paths, ' +
+        'so every Session uses its newest picture.',
+    )
+    return { bySession, notes }
+  }
+  const resolve = sessionResolver(data.sessions)
+  for (const [key, chosen] of Object.entries(value)) {
+    const session = resolve(key)
+    if (!session) {
+      notes.push(
+        `Ignored a picture for "${key}": no Session in this Overview matches that key, so it ` +
+          'uses its newest picture.',
+      )
+      continue
+    }
+    if (typeof chosen === 'string' && session.covers.some((cover) => cover.path === chosen)) {
+      bySession.set(session.id, chosen)
+      continue
+    }
+    if (session.covers.length === 0) {
+      notes.push(
+        `Ignored the picture for ${sessionLabel(session)}: it has no picture candidate in this ` +
+          'range.',
+      )
+      continue
+    }
+    notes.push(
+      `Ignored the picture for ${sessionLabel(session)}: it is not one of that Session's ` +
+        'in-range candidates, so its newest picture is used instead.',
+    )
+  }
+  return { bySession, notes }
 }
 
 /** The live preview URL, but only when that server is serving the folder the file went into. */
@@ -478,8 +492,10 @@ async function buildOverviewTools(host: CapabilityHost): Promise<ToolDefinition[
         'Read the turns that happened in a time range across the Sessions the user marked ' +
         '"Included in Overviews". Returns the resolved window, each included Session that has ' +
         'turns in it with those turns newest first, per-Session totals and truncation, and the ' +
-        'pictures that could represent each Session. Sessions without the switch never appear, ' +
-        'and neither does the Session asking. Call it before writing anything, and quote the ' +
+        'pictures that could represent each Session. Each Session carries a short `handle` ' +
+        'beside its full `id`; either, or its exact Title, keys the write call. Sessions ' +
+        'without the switch never appear, and neither does the Session asking. Call it before ' +
+        'writing anything, then quote the ' +
         'resolved `windowLabel` and any truncation in your answer unchanged — never compute or ' +
         'convert times yourself.',
       parameters: jsonSchemaParameters(OVERVIEW_DATA_SCHEMA),
@@ -487,6 +503,7 @@ async function buildOverviewTools(host: CapabilityHost): Promise<ToolDefinition[
         if (!host.sessionRef) return textResult(overviewMissingSession())
         const input = rangeOfParams(params as Record<string, unknown>)
         if (!input) return textResult(invalidRange())
+        rememberRange(host, input)
         try {
           const data = await collectOverviewData({
             range: input,
@@ -502,16 +519,18 @@ async function buildOverviewTools(host: CapabilityHost): Promise<ToolDefinition[
       name: OVERVIEW_WRITE_TOOL,
       label: OVERVIEW_WRITE_TOOL,
       description:
-        'Render the Overview for a time range and write it into this Session’s Workspace as ' +
-        'one self-contained HTML file, then return its link. Call it after `overview_data`, ' +
-        'with the same range, a `summaries` object holding one short summary for every Session ' +
-        'the Overview shows (a few sentences each, at most 600 characters), and optionally ' +
-        '`covers` to pick each Session’s picture that fits the text (a Session left out uses ' +
-        'its newest picture). It re-reads the range itself, so you cannot disagree with the ' +
-        'page, and it refuses a missing or over-long summary, naming the Sessions, without ' +
-        'writing anything. It accepts no picture it did not offer for that Session. When the ' +
-        'range has nothing to show it writes no file and tells you why. Never write the HTML ' +
-        'yourself: this tool owns the page.',
+        'Render the Overview and write it into this Session’s Workspace as one self-contained ' +
+        'HTML file, then return its link. Call it after `overview_data`: leave the window out ' +
+        'and it reuses the range that call resolved, or pass the same range again. The ' +
+        '`summaries` object needs one short summary (a few sentences, at most 600 characters) ' +
+        'for every Session the Overview shows, keyed by that Session’s id, handle or exact ' +
+        'Title; a longer one is shortened and a key matching no shown Session is ignored, both ' +
+        'with a note. Only a summary still missing after that is refused, naming its Session. ' +
+        'Optionally `covers` picks each Session’s picture (a Session left out uses its newest); ' +
+        'a picture that is not one of that Session’s in-range candidates is ignored with a ' +
+        'note. Successful results carry `notes` when anything was adjusted. When the range has ' +
+        'nothing to show it writes no file and tells you why. Never write the HTML yourself: ' +
+        'this tool owns the page.',
       parameters: jsonSchemaParameters(OVERVIEW_WRITE_SCHEMA),
       execute: async (_toolCallId, params) => {
         if (!host.sessionRef) return textResult(overviewMissingSession())
@@ -519,7 +538,10 @@ async function buildOverviewTools(host: CapabilityHost): Promise<ToolDefinition[
           summaries?: unknown
           covers?: unknown
         }
-        const input = rangeOfParams(params as Record<string, unknown>)
+        const paramsRecord = params as Record<string, unknown>
+        const input = namesWindow(paramsRecord)
+          ? rangeOfParams(paramsRecord)
+          : rememberedRange(host)
         if (!input) return textResult(invalidRange())
         const chrome = host.overviewChrome
         if (!chrome) return textResult(overviewMissingChrome())
@@ -540,7 +562,7 @@ async function buildOverviewTools(host: CapabilityHost): Promise<ToolDefinition[
           const summarySelection = summarySelectionOf(data, summaries)
           if (!summarySelection.ok) return textResult(summarySelection.message)
           const selection = coverSelectionOf(data, covers)
-          if (!selection.ok) return textResult(selection.message)
+          const notes = [...summarySelection.notes, ...selection.notes]
           const pictures = await resolvePictures(data.sessions, selection.bySession)
           const overview = overviewOf(
             data,
@@ -570,6 +592,7 @@ async function buildOverviewTools(host: CapabilityHost): Promise<ToolDefinition[
             truncated: overview.truncated,
             pictures: pictures.bySession.size,
             picturesOmitted: pictures.omitted,
+            ...(notes.length > 0 ? { notes } : {}),
           })
         } catch (error) {
           return textResult(toolFailure(OVERVIEW_WRITE_TOOL, error))

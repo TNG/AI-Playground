@@ -129,10 +129,10 @@ _Avoid_: session summary, recap
 ## Overviews
 
 **Overview**:
-A single HTML file saying what the Sessions the user included did in one time range: an opening
-paragraph, the range's turns listed by day across those Sessions, and a section per Session. It is
-a snapshot taken when it is asked for, not a view that stays current, and it is not an Artifact —
-it is a file an agent's turn wrote into its Workspace.
+A single HTML file saying what the Sessions the user included did in one time range: for each of
+those Sessions, a short written summary of what it did, its Title, and a picture when it has one. It
+is a snapshot taken when it is asked for, not a view that stays current, and it is not an Artifact —
+it is a file an agent's turn wrote into its Workspace. It shows no turns.
 _Avoid_: dashboard, digest, recap, session summary, report
 
 **Included in Overviews**:

@@ -14,9 +14,11 @@ workaround was reconstructing, and a file is what the user actually wanted to ke
 
 The report is produced by code, not by the model: the `overview` capability's tool resolves the
 range, reads the History Entries of the Sessions included in Overviews (see ADR-0019), and renders
-a fixed template, escaping what it interpolates. The agent supplies only the opening paragraph and
-which picture represents each Session, both of which are judgement rather than layout. Nothing is
-stored but the file, so an Overview cannot go stale and re-asking is the refresh.
+a fixed template, escaping what it interpolates. The agent supplies only a short written summary per
+Session and which picture represents each Session, both judgement rather than layout; the page
+carries no turns. Nothing is stored but the file, so an Overview cannot go stale and re-asking is the
+refresh. (Revised after implementation: the page was first specified as the range's turns grouped by
+day, which made it a transcript summary rather than the summary the user wanted.)
 
 ## Considered Options
 

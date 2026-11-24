@@ -20,10 +20,10 @@ function holdUnsavedChanges(ui: ReturnType<typeof useUIStore>) {
   }
 }
 
-describe('App Settings and the Libraries', () => {
+describe('App Settings and the Agent Library', () => {
   beforeEach(() => setActivePinia(createPinia()))
 
-  it('opens App Settings over the open Library and returns to it on close', () => {
+  it('opens App Settings over the Agent Library and returns to it on close', () => {
     const ui = useUIStore()
     ui.openAgentLibrary({ agentId: 't1' })
 
@@ -40,7 +40,7 @@ describe('App Settings and the Libraries', () => {
     expect(ui.frontmost).toBe('agent')
   })
 
-  it('reveals the Library under App Settings, as it was, when its button is clicked', () => {
+  it('reveals the Agent Library under App Settings, as it was, when its button is clicked', () => {
     const ui = useUIStore()
     ui.openAgentLibrary({ agentId: 't1', sessionRef: 's1' })
     ui.openAppSettings()
@@ -51,30 +51,20 @@ describe('App Settings and the Libraries', () => {
     expect(ui.agentLibrary).toEqual({ agentId: 't1', sessionRef: 's1' })
   })
 
-  it('switches from App Settings over one Library to the other Library', () => {
+  it('opens the Model Library over the Agent Library, which stays underneath', () => {
     const ui = useUIStore()
-    ui.openAgentLibrary()
-    ui.openAppSettings()
+    ui.openAgentLibrary({ agentId: 't1' })
 
-    ui.toggleModelManager()
+    ui.toggleModelLibrary()
 
-    expect(ui.appSettingsOpen).toBe(false)
-    expect(ui.agentLibrary).toBeNull()
-    expect(ui.frontmost).toBe('model')
+    expect(ui.appSettingsOpen).toBe(true)
+    expect(ui.appSettingsTab).toBe('models')
+    expect(ui.frontmost).toBe('models')
+    expect(ui.agentLibrary).toEqual({ agentId: 't1' })
   })
 
   it('names nothing frontmost while the Session shows', () => {
     expect(useUIStore().frontmost).toBeNull()
-  })
-
-  it('closes App Settings when a Library opens', () => {
-    const ui = useUIStore()
-    ui.openAppSettings()
-
-    ui.openModelManager()
-
-    expect(ui.appSettingsOpen).toBe(false)
-    expect(ui.showModelManager).toBe(true)
   })
 
   it('closes App Settings when the Agent Library button is clicked', () => {
@@ -95,21 +85,84 @@ describe('App Settings and the Libraries', () => {
 
     expect(ui.appSettingsOpen).toBe(false)
     expect(ui.agentLibrary).toBeNull()
-    expect(ui.showModelManager).toBe(false)
+  })
+})
+
+describe('The Model Library tab', () => {
+  beforeEach(() => setActivePinia(createPinia()))
+
+  it('opens App Settings on the Model Library tab from its button', () => {
+    const ui = useUIStore()
+
+    ui.toggleModelLibrary()
+
+    expect(ui.appSettingsOpen).toBe(true)
+    expect(ui.appSettingsTab).toBe('models')
+    expect(ui.frontmost).toBe('models')
+  })
+
+  it('closes App Settings when its pressed button is clicked again', () => {
+    const ui = useUIStore()
+    ui.toggleModelLibrary()
+
+    ui.toggleModelLibrary()
+
+    expect(ui.appSettingsOpen).toBe(false)
+    expect(ui.frontmost).toBeNull()
+  })
+
+  it('switches to the Model Library tab when its button is clicked over another tab', () => {
+    const ui = useUIStore()
+    ui.toggleAppSettings()
+
+    ui.toggleModelLibrary()
+
+    expect(ui.appSettingsOpen).toBe(true)
+    expect(ui.appSettingsTab).toBe('models')
+  })
+
+  it('switches to the App tab when the gear is clicked over the Model Library', () => {
+    const ui = useUIStore()
+    ui.toggleModelLibrary()
+
+    ui.toggleAppSettings()
+
+    expect(ui.appSettingsOpen).toBe(true)
+    expect(ui.appSettingsTab).toBe('app')
+    expect(ui.frontmost).toBe('settings')
+  })
+
+  it('names App Settings frontmost on any tab but the Model Library', () => {
+    const ui = useUIStore()
+    ui.openAppSettings()
+
+    ui.setAppSettingsTab('components')
+
+    expect(ui.frontmost).toBe('settings')
+  })
+
+  it('opens on the App tab again after the Model Library was last shown', () => {
+    const ui = useUIStore()
+    ui.openModelLibrary()
+    ui.closeAppSettings()
+
+    ui.openAppSettings()
+
+    expect(ui.appSettingsTab).toBe('app')
   })
 })
 
 describe('The theme panel', () => {
   beforeEach(() => setActivePinia(createPinia()))
 
-  it('opens beside whatever is shown, leaving Libraries open', () => {
+  it('opens beside whatever is shown, leaving the Agent Library open', () => {
     const ui = useUIStore()
-    ui.openModelManager()
+    ui.openAgentLibrary({ agentId: 't1' })
 
     ui.openThemePanel()
 
     expect(ui.themePanelOpen).toBe(true)
-    expect(ui.showModelManager).toBe(true)
+    expect(ui.agentLibrary).toEqual({ agentId: 't1' })
   })
 
   it('closes App Settings when opened from there', () => {

@@ -119,8 +119,7 @@ export type SessionTurnInfo = {
   pauseReason?: PauseReason
 }
 
-export type LibraryShowing =
-  { library: 'agent'; trialRunSessionId: string | null } | { library: 'model' }
+export type LibraryShowing = { library: 'agent'; trialRunSessionId: string | null }
 
 export type PauseNotice = { message: string; open: () => void }
 
@@ -1257,15 +1256,20 @@ export const useAgentMode = defineStore(
     function setLibraryShowing(showing: LibraryShowing): void {
       libraryShowing.value = showing
     }
-    /** The Model Library reports closing after the Agent Library replacing it has opened. */
     function setLibraryHidden(library: LibraryShowing['library']): void {
       if (libraryShowing.value?.library === library) libraryShowing.value = null
+    }
+    /** App Settings covers the Session and the Agent Library alike. */
+    const settingsShowing = ref(false)
+    function setSettingsShowing(showing: boolean): void {
+      settingsShowing.value = showing
     }
     /** The Harness Session of the Trial Run the Agent Library shows; null when it shows none. */
     const trialRunInView = computed(() =>
       libraryShowing.value?.library === 'agent' ? libraryShowing.value.trialRunSessionId : null,
     )
     function inView(sessionId: string): boolean {
+      if (settingsShowing.value) return false
       const showing = libraryShowing.value
       if (showing) return showing.library === 'agent' && showing.trialRunSessionId === sessionId
       const sessionRef = sessionRefOf(sessionId)
@@ -1312,11 +1316,20 @@ export const useAgentMode = defineStore(
       for (const prompt of held) prompt[how]()
     }
 
-    watch([viewShown, openSessionId, () => sessionsStore.openSessionId, libraryShowing], () => {
-      for (const sessionId of Object.keys(heldPrompts)) {
-        if (inView(sessionId)) settleHeldPrompts(sessionId, 'show')
-      }
-    })
+    watch(
+      [
+        viewShown,
+        openSessionId,
+        () => sessionsStore.openSessionId,
+        libraryShowing,
+        settingsShowing,
+      ],
+      () => {
+        for (const sessionId of Object.keys(heldPrompts)) {
+          if (inView(sessionId)) settleHeldPrompts(sessionId, 'show')
+        }
+      },
+    )
 
     let pauseNoticeOf: (sessionId: string) => PauseNotice | undefined = () => undefined
     /** Lets a store that owns some Harness Sessions word their pause toast and its Open. */
@@ -2548,6 +2561,7 @@ export const useAgentMode = defineStore(
       hasHeldPrompt,
       setLibraryShowing,
       setLibraryHidden,
+      setSettingsShowing,
       trialRunInView,
       registerPauseNotice,
       liveTurnsIn,

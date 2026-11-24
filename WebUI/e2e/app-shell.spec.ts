@@ -70,13 +70,15 @@ test.describe('App shell', () => {
         shell.settingsDialog.getByRole('heading', { name: 'App Settings', exact: true }),
       ).toBeVisible()
 
-      for (const tab of ['Component Manager', 'Model Library'] as const) {
-        await shell.settingsTab(tab).click()
-        await expect(shell.settingsPanel(tab)).toHaveText('Work in progress')
-        await expect(
-          shell.settingsDialog.getByRole('heading', { name: tab, exact: true }),
-        ).toBeVisible()
-      }
+      await shell.settingsTab('Component Manager').click()
+      await expect(shell.settingsPanel('Component Manager')).toHaveText('Work in progress')
+      await shell.settingsTab('Model Library').click()
+      await expect(
+        shell.settingsPanel('Model Library').getByRole('searchbox', { name: 'Search models' }),
+      ).toBeVisible()
+      await expect(
+        shell.settingsDialog.getByRole('heading', { name: 'Model Library', exact: true }),
+      ).toBeVisible()
 
       await shell.ensureSettingsClosed()
       await shell.openAppSettings()
@@ -181,26 +183,26 @@ test.describe('App shell', () => {
       await expect(shell.settingsDialog).toBeHidden()
     })
 
-    await test.step('App Settings opens over a Library and returns to it', async () => {
+    await test.step('The Model Library button opens its App Settings tab', async () => {
       const shell = app.shell
       const modelLibrary = shell.header.getByRole('button', { name: 'Model management' })
       await shell.openAppSettings()
       await expect(shell.appSettingsButton).toHaveAttribute('aria-pressed', 'true')
 
       await modelLibrary.click()
-      await expect(shell.settingsDialog).toBeHidden()
+      await expect(shell.settingsTab('Model Library')).toHaveAttribute('aria-selected', 'true')
       await expect(shell.appSettingsButton).toHaveAttribute('aria-pressed', 'false')
       await expect(modelLibrary).toHaveAttribute('aria-pressed', 'true')
+      await window.keyboard.press('Escape')
+      await expect(shell.settingsDialog).toBeVisible()
 
       await shell.appSettingsButton.click()
-      await expect(shell.settingsDialog).toBeVisible()
+      await expect(shell.settingsTab('App Settings')).toHaveAttribute('aria-selected', 'true')
       await expect(modelLibrary).toHaveAttribute('aria-pressed', 'false')
 
-      await shell.appSettingsButton.click()
-      await expect(shell.settingsDialog).toBeHidden()
-      await expect(modelLibrary).toHaveAttribute('aria-pressed', 'true')
-
       await modelLibrary.click()
+      await modelLibrary.click()
+      await expect(shell.settingsDialog).toBeHidden()
       await expect(modelLibrary).toHaveAttribute('aria-pressed', 'false')
     })
 

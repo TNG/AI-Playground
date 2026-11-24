@@ -472,27 +472,14 @@ describe('creating an Agent', () => {
     expect(tasks.libraryAgents).toEqual([])
   })
 
-  it('is gone when the Model Library replaces the Agent Library before it was edited', async () => {
+  it('stays unedited while the Model Library opens over the Agent Library', async () => {
     const { tasks } = await readyStores()
     const ui = useUIStore()
     const draft = await tasks.createAgentDraft()
     ui.openAgentLibrary({ agentId: draft.agentId })
     await settleMicrotasks()
 
-    ui.openModelManager()
-    await settleMicrotasks()
-
-    expect(tasks.libraryAgents).toEqual([])
-  })
-
-  it('stays once edited, when the Model Library replaces the Agent Library', async () => {
-    const { tasks } = await readyStores()
-    const ui = useUIStore()
-    const draft = await tasks.createAgentDraft()
-    ui.openAgentLibrary({ agentId: draft.agentId })
-    await tasks.editDraft(draft.agentId, { name: 'Digest' })
-
-    ui.openModelManager()
+    ui.openModelLibrary()
     await settleMicrotasks()
 
     expect(tasks.libraryAgents.map((agent) => agent.id)).toEqual([draft.agentId])

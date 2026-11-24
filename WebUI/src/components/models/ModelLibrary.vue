@@ -1,28 +1,20 @@
 <script setup lang="ts">
-// Full-screen model library. A side modal was not an option: the App Settings
-// sidebar is w-100 and this table has nine columns.
-import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { XMarkIcon } from '@heroicons/vue/24/solid'
+import { computed, onMounted, ref } from 'vue'
 import ModelLibraryToolbar from '@/components/models/ModelLibraryToolbar.vue'
-import ModelLibraryTable from '@/components/models/ModelLibraryTable.vue'
+import ModelLibraryList from '@/components/models/ModelLibraryList.vue'
 import EditModelCapabilitiesDialog from '@/components/models/EditModelCapabilitiesDialog.vue'
 import DeleteModelDialog from '@/components/models/DeleteModelDialog.vue'
 import AddModelDialog from '@/components/models/AddModelDialog.vue'
-import { Spinner } from '@/components/ui/spinner'
 import { useModelLibrary } from '@/assets/js/store/modelLibrary'
-import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useI18N } from '@/assets/js/store/i18n'
+import { fillTemplate } from '@/lib/fillTemplate'
 import { useCaseLabel as localizedUseCase, type ModelCategory } from '@/assets/js/models/library'
 import type { ModelCapabilityValues, ModelEntry } from '@/assets/js/models/types'
 
-const emit = defineEmits<{ (e: 'close'): void }>()
-
 const library = useModelLibrary()
-const agentMode = useAgentMode()
 const i18n = useI18N()
 const i18nState = i18n.state
 
-const root = ref<HTMLElement | null>(null)
 const editing = ref<ModelEntry | null>(null)
 const deleting = ref<ModelEntry[] | null>(null)
 const showAddModel = ref(false)
@@ -43,16 +35,14 @@ const editingEntry = computed(() =>
   editing.value ? (library.byId(editing.value.id) ?? editing.value) : null,
 )
 
-onMounted(() => {
-  // The Escape handler lives on the overlay, and a plain <div> receives no key
-  // events until something inside it has focus — so the overlay takes focus itself
-  // the moment it opens, before anything slower gets underway.
-  root.value?.focus()
-  agentMode.setLibraryShowing({ library: 'model' })
-  library.refresh()
-})
+const resultLine = computed(() =>
+  fillTemplate(i18nState.MODEL_MANAGER_RESULT_COUNT, {
+    shown: library.visibleEntries.length,
+    total: library.useCaseTotal,
+  }),
+)
 
-onUnmounted(() => agentMode.setLibraryHidden('model'))
+onMounted(() => library.refresh())
 
 async function saveCapabilities(capabilities: Partial<ModelCapabilityValues>) {
   if (!editing.value) return
@@ -74,57 +64,26 @@ async function confirmDelete() {
 </script>
 
 <template>
-  <!-- Opaque background: at 95% the session view bled through
-       as ghost text behind the table. -->
-  <div
-    ref="root"
-    role="dialog"
-    aria-modal="true"
-    tabindex="-1"
-    :aria-label="languages.MODEL_MANAGER_TITLE"
-    class="absolute inset-0 z-10 flex flex-col bg-background text-foreground focus:outline-none"
-    @keydown.esc="emit('close')"
-  >
-    <header class="flex items-center justify-between border-b border-border px-4 py-3">
-      <div class="flex items-baseline gap-3">
-        <h1 class="text-lg font-semibold">{{ languages.MODEL_MANAGER_TITLE }}</h1>
-        <Spinner v-if="library.scanning || library.deleting" class="size-4" />
-      </div>
-      <button
-        :aria-label="languages.MODEL_MANAGER_CLOSE"
-        class="flex size-7 items-center justify-center rounded hover:bg-muted"
-        @click="emit('close')"
-      >
-        <XMarkIcon class="size-5" />
-      </button>
-    </header>
-
-    <p
-      v-if="library.readOnly"
-      class="border-b border-border bg-warning/10 px-4 py-2 text-sm text-warning"
-    >
-      {{ languages.MODEL_MANAGER_READ_ONLY }}
-    </p>
-
-    <div class="flex min-h-0 flex-1">
-      <nav
-        class="w-52 shrink-0 border-r border-border p-3"
-        :aria-label="languages.MODEL_MANAGER_USE_CASE_NAV"
-      >
-        <ul class="flex flex-col gap-1">
+  <div class="flex min-h-0 min-w-0 flex-1 flex-col">
+    <div class="flex flex-col gap-3 px-6 pt-4 pb-3">
+      <nav :aria-label="languages.MODEL_MANAGER_USE_CASE_NAV">
+        <ul class="flex flex-wrap gap-1.5">
           <li v-for="useCase in useCases" :key="useCase">
             <button
-              class="flex w-full items-center justify-between rounded-md px-3 py-1.5 text-sm hover:bg-muted"
+              type="button"
+              class="flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm transition-colors"
               :class="
                 library.filters.useCase === useCase
-                  ? 'bg-muted font-medium'
-                  : 'text-muted-foreground'
+                  ? 'border-primary/50 bg-primary/15 text-foreground font-medium'
+                  : 'border-border text-muted-foreground hover:bg-muted hover:text-foreground'
               "
+              :aria-label="useCaseLabel(useCase)"
+              :aria-describedby="`model-use-case-count-${useCase}`"
               :aria-current="library.filters.useCase === useCase ? 'true' : undefined"
               @click="library.setFilters({ useCase })"
             >
               <span>{{ useCaseLabel(useCase) }}</span>
-              <span class="text-xs text-muted-foreground">
+              <span :id="`model-use-case-count-${useCase}`" class="text-xs text-muted-foreground">
                 {{ library.useCaseCounts[useCase] || '–' }}
               </span>
             </button>
@@ -132,17 +91,35 @@ async function confirmDelete() {
         </ul>
       </nav>
 
-      <div class="flex min-w-0 flex-1 flex-col">
-        <ModelLibraryToolbar
-          @add-model="showAddModel = true"
-          @delete-selected="deleting = library.selectedDeletable"
-        />
-        <ModelLibraryTable
-          @edit="(entry) => (editing = entry)"
-          @delete="(entry) => (deleting = [entry])"
-        />
+      <p
+        v-if="library.readOnly"
+        class="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning"
+      >
+        {{ languages.MODEL_MANAGER_READ_ONLY }}
+      </p>
+
+      <ModelLibraryToolbar
+        @add-model="showAddModel = true"
+        @delete-selected="deleting = library.selectedDeletable"
+      />
+
+      <div class="flex items-center gap-3 text-xs text-muted-foreground">
+        <p role="status">{{ resultLine }}</p>
+        <button
+          v-if="library.filtersActive"
+          type="button"
+          class="text-primary underline-offset-2 hover:underline"
+          @click="library.clearFilters()"
+        >
+          {{ languages.MODEL_MANAGER_CLEAR_FILTERS }}
+        </button>
       </div>
     </div>
+
+    <ModelLibraryList
+      @edit="(entry) => (editing = entry)"
+      @delete="(entry) => (deleting = [entry])"
+    />
 
     <EditModelCapabilitiesDialog
       v-if="editingEntry"

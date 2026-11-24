@@ -12,7 +12,9 @@ import {
   filterEntries,
   formatBytes,
   formatModifiedAt,
+  hasActiveFilters,
   matchesSearch,
+  modelDetailsLine,
   modelEntryId,
   modelLabel,
   normalizeModelKey,
@@ -20,6 +22,7 @@ import {
   readableModelName,
   sortEntries,
   useCaseLabel,
+  usedBySummary,
   type BuildEntriesInput,
 } from './library'
 import type { ModelEntry, ScannedModel } from './types'
@@ -623,6 +626,26 @@ describe('matchesSearch / filterEntries', () => {
   })
 })
 
+describe('hasActiveFilters', () => {
+  it('is false for the default filters, whatever use case is chosen', () => {
+    expect(hasActiveFilters(DEFAULT_FILTERS)).toBe(false)
+    expect(hasActiveFilters({ ...DEFAULT_FILTERS, useCase: 'media' })).toBe(false)
+    expect(hasActiveFilters({ ...DEFAULT_FILTERS, useCase: 'favorites' })).toBe(false)
+  })
+
+  it('is true once any other filter differs from its default', () => {
+    expect(hasActiveFilters({ ...DEFAULT_FILTERS, search: 'qwen' })).toBe(true)
+    expect(hasActiveFilters({ ...DEFAULT_FILTERS, backend: 'comfyui' })).toBe(true)
+    expect(hasActiveFilters({ ...DEFAULT_FILTERS, capabilities: ['vision'] })).toBe(true)
+    expect(hasActiveFilters({ ...DEFAULT_FILTERS, downloadState: 'downloaded' })).toBe(true)
+    expect(hasActiveFilters({ ...DEFAULT_FILTERS, fitsOnly: true })).toBe(true)
+  })
+
+  it('does not count a search of only whitespace, which filters nothing', () => {
+    expect(hasActiveFilters({ ...DEFAULT_FILTERS, search: '   ' })).toBe(false)
+  })
+})
+
 describe('sortEntries', () => {
   it('pins favorites above everything else', () => {
     const entries = [
@@ -770,5 +793,53 @@ describe('formatBytes / formatModifiedAt', () => {
   it('labels use cases from the locale', () => {
     expect(useCaseLabel('media', english)).toBe('Media creation')
     expect(useCaseLabel('speech', { tag: 'it', strings: { ...enUS, ...italian } })).toBe('Voce')
+  })
+})
+
+describe('modelDetailsLine', () => {
+  const now = Date.UTC(2026, 0, 10)
+  const onDisk = entry({
+    id: '1',
+    name: 'black-forest-labs/FLUX.1/ae.safetensors',
+    useCase: 'media',
+    serviceBackend: 'comfyui',
+    downloaded: true,
+    sizeBytes: 2 * 1024 ** 3,
+    modifiedAt: now - 2 * 86_400_000,
+  })
+
+  it('names use case, repository, backend, size and age under All and Favorites', () => {
+    for (const category of ['all', 'favorites'] as const) {
+      expect(modelDetailsLine(onDisk, category, english, now)).toBe(
+        'Media creation · black-forest-labs/FLUX.1 · ComfyUI · 2.0 GB · 2d ago',
+      )
+    }
+  })
+
+  it('leaves the use case out inside a single use case', () => {
+    expect(modelDetailsLine(onDisk, 'media', english, now)).toBe(
+      'black-forest-labs/FLUX.1 · ComfyUI · 2.0 GB · 2d ago',
+    )
+  })
+
+  it('gives no date for a model that is not on disk, and no size when unknown', () => {
+    const missing = { ...onDisk, downloaded: false, sizeBytes: undefined }
+    expect(modelDetailsLine(missing, 'media', english, now)).toBe(
+      'black-forest-labs/FLUX.1 · ComfyUI',
+    )
+  })
+
+  it('skips the repository when the name has none', () => {
+    const bare = entry({ id: '2', name: 'model.gguf', downloaded: false })
+    expect(modelDetailsLine(bare, 'llm', english, now)).toBe('Llama.cpp')
+  })
+})
+
+describe('usedBySummary', () => {
+  it('names up to two users and counts the rest', () => {
+    expect(usedBySummary([])).toBe('')
+    expect(usedBySummary(['Flux'])).toBe('Flux')
+    expect(usedBySummary(['Flux', 'SDXL'])).toBe('Flux, SDXL')
+    expect(usedBySummary(['Flux', 'SDXL', 'Wan', 'LTX'])).toBe('Flux, SDXL +2')
   })
 })

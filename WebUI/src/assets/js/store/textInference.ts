@@ -1292,7 +1292,7 @@ export const useTextInference = defineStore(
       if (!claimOvmsMtpStaleNotice(modelRepoId, localStorage)) return
       const message = (i18nState.OVMS_MTP_STALE_MODEL ?? '').replace('{model}', modelRepoId ?? '')
       notify(message, () => {
-        uiStore.openModelManager()
+        uiStore.openModelLibrary()
       })
     }
 

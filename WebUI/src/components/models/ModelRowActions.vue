@@ -28,6 +28,21 @@ const emit = defineEmits<{
 
 const i18nState = useI18N().state
 
+// The menu hands focus back to its trigger once it has closed, which would pull it out of the
+// dialog an item just opened, and Escape would no longer reach that dialog.
+let openedDialog = false
+
+function openDialog(event: 'edit' | 'delete') {
+  openedDialog = true
+  if (event === 'edit') emit('edit')
+  else emit('delete')
+}
+
+function onCloseAutoFocus(event: Event) {
+  if (openedDialog) event.preventDefault()
+  openedDialog = false
+}
+
 // The trigger is an icon-only button, so its accessible name has to name the row
 // it belongs to — one "…" per row is otherwise indistinguishable from the next.
 const actionsLabel = computed(() =>
@@ -53,6 +68,7 @@ const canDelete = computed(
     </DropdownMenuTrigger>
     <DropdownMenuContent
       align="end"
+      @close-auto-focus="onCloseAutoFocus"
       class="min-w-[220px] rounded-md border border-border bg-card p-[3px] z-[100]"
     >
       <DropdownMenuItem
@@ -72,7 +88,7 @@ const canDelete = computed(
       <DropdownMenuItem
         v-if="canEditCapabilities"
         class="px-3 py-1.5 text-sm text-foreground hover:bg-muted"
-        @click="emit('edit')"
+        @click="openDialog('edit')"
       >
         {{ languages.MODEL_MANAGER_ACTION_EDIT_CAPABILITIES }}
       </DropdownMenuItem>
@@ -106,7 +122,7 @@ const canDelete = computed(
         <DropdownMenuItem
           v-if="canDelete"
           class="px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10"
-          @click="emit('delete')"
+          @click="openDialog('delete')"
         >
           {{ languages.MODEL_MANAGER_ACTION_DELETE }}
         </DropdownMenuItem>

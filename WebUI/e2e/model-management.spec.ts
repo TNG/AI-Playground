@@ -102,14 +102,14 @@ test('the model library lists, filters and round-trips a model through download,
     expect(await app.models.rows.count()).toBe(1)
   })
 
-  await test.step('A search that matches nothing empties the table', async () => {
+  await test.step('A search that matches nothing empties the list', async () => {
     await app.models.search('no-such-model-anywhere')
     await app.models.expectRowAbsent(target.label)
     expect(await app.models.rows.count()).toBe(0)
     await app.models.search('')
   })
 
-  await test.step('The use-case sidebar filters to one kind of model', async () => {
+  await test.step('The use-case chips filter to one kind of model', async () => {
     await app.models.selectUseCase('Embedding')
     const labels = await app.models.visibleLabels()
     expect(labels.length).toBeGreaterThan(0)
@@ -139,6 +139,42 @@ test('the model library lists, filters and round-trips a model through download,
     // A mixed category always has more than one, so there it is live either way.
     await expect(app.models.backendFilter).toContainText('All backends')
     await expect(app.models.backendFilter).toBeEnabled()
+  })
+
+  await test.step('The filter and sort controls say what they do', async () => {
+    await expect(app.models.backendFilter).toContainText('Backend: ')
+    await expect(app.models.statusFilter).toContainText('Status: ')
+    await expect(app.models.sortControl).toHaveAccessibleName(/^Sort by: .+ ↑$/)
+    await expect(app.models.sortDirectionButton).toHaveAccessibleName('Ascending')
+    await app.models.sortDirectionButton.click()
+    await expect(app.models.sortControl).toHaveAccessibleName(/^Sort by: .+ ↓$/)
+    await expect(app.models.sortDirectionButton).toHaveAccessibleName('Descending')
+    await app.models.sortDirectionButton.click()
+    await expect(app.models.sortControl).toHaveAccessibleName(/^Sort by: .+ ↑$/)
+    await expect(app.models.capabilityFilters).toContainText('Capabilities')
+  })
+
+  await test.step('The result line counts the rows and "Clear filters" keeps the use case', async () => {
+    await app.models.selectUseCase('Embedding')
+    const unfiltered = await app.models.resultCounts()
+    expect(unfiltered.total).toBeGreaterThan(0)
+    expect(unfiltered.shown).toBe(unfiltered.total)
+    expect(await app.models.rows.count()).toBe(unfiltered.shown)
+    // The chosen chip is not a filter "Clear filters" would undo.
+    await expect(app.models.clearFiltersButton).toHaveCount(0)
+
+    await app.models.search('no-such-model-anywhere')
+    await expect(app.models.resultLine).toHaveText(`0 of ${unfiltered.total} models`)
+    await expect(app.models.clearFiltersButton).toBeVisible()
+
+    await app.models.clearFiltersButton.click()
+    await expect(app.models.searchBox).toHaveValue('')
+    await expect(app.models.useCaseChip('Embedding')).toHaveAttribute('aria-current', 'true')
+    await expect(app.models.resultLine).toHaveText(
+      `${unfiltered.total} of ${unfiltered.total} models`,
+    )
+    await expect(app.models.clearFiltersButton).toHaveCount(0)
+    await app.models.selectUseCase('All')
   })
 
   await test.step('Favoriting a model sorts it to the top of the library', async () => {
@@ -175,6 +211,7 @@ test('the model library lists, filters and round-trips a model through download,
   })
 
   await test.step('Selecting a downloadable model enables only the download action', async () => {
+    await expect(app.models.rowDownloadButton(target.label)).toBeVisible()
     await app.models.select(target.label)
     await expect(app.models.downloadSelectedButton).toBeEnabled()
     // Nothing selected is on disk, so deletion stays unavailable.
@@ -195,6 +232,7 @@ test('the model library lists, filters and round-trips a model through download,
     )
     expect(outcome).toBe('downloaded')
     await app.models.expectDownloaded(target.label, true, 60_000)
+    await expect(app.models.rowDownloadButton(target.label)).toHaveCount(0)
   })
 
   await app.models.close()

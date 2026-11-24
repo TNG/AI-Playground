@@ -23,11 +23,11 @@ import {
   countByUseCase,
   entriesForProductMode,
   filterEntries,
+  hasActiveFilters,
   normalizeModelKey,
   sortEntries,
   type ModelLibraryFilters,
   type ModelSort,
-  type ModelSortKey,
   type RequiredModelInput,
   type SpeechModelInput,
 } from '../models/library'
@@ -154,6 +154,10 @@ export const useModelLibrary = defineStore('modelLibrary', () => {
   const categoryEntries = computed(() =>
     filterEntries(entries.value, { ...DEFAULT_FILTERS, useCase: filters.value.useCase }),
   )
+
+  const useCaseTotal = computed(() => categoryEntries.value.length)
+
+  const filtersActive = computed(() => hasActiveFilters(filters.value))
 
   const backendOptions = computed(() => availableBackends(categoryEntries.value))
   const downloadStateOptions = computed(() => availableDownloadStates(categoryEntries.value))
@@ -285,16 +289,13 @@ export const useModelLibrary = defineStore('modelLibrary', () => {
     pruneSelection()
   }
 
-  function resetFilters() {
-    filters.value = { ...DEFAULT_FILTERS }
+  function clearFilters() {
+    filters.value = { ...DEFAULT_FILTERS, useCase: filters.value.useCase }
     pruneSelection()
   }
 
-  function toggleSortKey(key: ModelSortKey) {
-    sort.value =
-      sort.value.key === key
-        ? { key, direction: sort.value.direction === 'asc' ? 'desc' : 'asc' }
-        : { key, direction: 'asc' }
+  function setSort(next: ModelSort) {
+    sort.value = { ...next }
   }
 
   function pruneSelection() {
@@ -452,6 +453,8 @@ export const useModelLibrary = defineStore('modelLibrary', () => {
     entries,
     visibleEntries,
     useCaseCounts,
+    useCaseTotal,
+    filtersActive,
     backendOptions,
     downloadStateOptions,
     fitTargetFor,
@@ -470,8 +473,8 @@ export const useModelLibrary = defineStore('modelLibrary', () => {
     byId,
     refresh,
     setFilters,
-    resetFilters,
-    toggleSortKey,
+    clearFilters,
+    setSort,
     toggleSelected,
     toggleSelectAllVisible,
     clearSelection,

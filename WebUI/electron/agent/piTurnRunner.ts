@@ -24,7 +24,7 @@ import {
   type StreamChunk,
   type TurnSummary,
 } from './piStreamTranslate.ts'
-import type { AgentModeTurnConfig } from '@/types/agentIpc'
+import { HARNESS_TURN_REFUSALS, type AgentModeTurnConfig } from '@/types/agentIpc'
 import type { HistoryEntry } from '@/types/sessionIpc'
 import type { IpcMutationResult } from '@/types/ipcChannels'
 import { clearPointer, readSessionStore, savePointer } from './piSessionStore.ts'
@@ -37,6 +37,7 @@ import {
   type AgentTurn,
 } from './piAgentState.ts'
 import {
+  effectiveHostShell,
   endActiveSession,
   ensureSession,
   reapplySession,
@@ -81,12 +82,14 @@ import {
 import { turnAttachments, withAttachmentReferences } from './workspaceAttachments.ts'
 import { collectAgentCallTimings, turnTimings } from './piCallTiming.ts'
 import { markHarnessTurn, rewindHarnessTurn } from './harnessTurns.ts'
+import { removeHistoryEntries } from '../session/sessionHistory.ts'
 import {
   beginTurnJournal,
   deleteSessionJournals,
   deleteTurnJournal,
   endTurnJournal,
   restoreTurnJournal,
+  turnJournalHostShell,
 } from './workspaceJournal.ts'
 import { computeWindowSince } from '../adapters/hardware/computeMetrics.ts'
 import type { LlamaCppTimings } from '../chat/turnEngine.ts'
@@ -471,16 +474,20 @@ export async function startAgentTurn(
   beginAgentTurnSnapshot(sessionId, turnId)
   emitAgentTurnState(sessionId, turnId, 'queued')
   const verbose = verboseLogging()
+  // The journal and the answer stamp record the shell the turn really runs
+  // with, after developer mode has had its say on the persisted opt-in.
+  const hostShell = effectiveHostShell(config)
   const inSession = config.sessionRef
     ? trackAgentTurnInSession({
         sessionRef: config.sessionRef,
         presetName: config.presetName ?? '',
         workspaceDir: config.workspaceDir,
         prompt,
+        harnessSessionId: sessionId,
+        turnId,
         ...(config.taskRun
           ? { taskRun: { taskName: config.taskRun.taskName, input: config.taskRun.input } }
           : {}),
-        harnessSessionId: sessionId,
         ...(config.followUp ? { followUp: config.followUp } : {}),
       })
     : null
@@ -488,6 +495,7 @@ export async function startAgentTurn(
     emit: (chunk: StreamChunk) => emitAgentChunk(sessionId, turnId, chunk),
     model: config.readiness?.llmModelName ?? config.modelConfig.model,
     turnId,
+    hostShell,
     onToolProgress: ({ toolCallId, toolName, text }) => {
       emitAgentToolProgress(sessionId, turnId, toolCallId, toolName, text)
     },
@@ -581,12 +589,26 @@ export async function startAgentTurn(
       translator.update(summary)
     }
     const rewindId = config.rewindTurnId
+    // A replaced turn that ran with the host shell cannot be rolled back
+    // safely, so the regenerate is refused before anything is touched.
+    if (rewindId && turnJournalHostShell(sessionId, rewindId)) {
+      throw new Error(HARNESS_TURN_REFUSALS.hostShell)
+    }
     const rewound = rewindId ? rewindHarnessTurn(current.session, rewindId) : undefined
     // The replaced turn's diary is spent here: the workspace goes back as that
     // turn found it before the re-run writes over it.
     if (rewindId) {
-      restoreTurnJournal(sessionId, rewindId)
+      const report = await restoreTurnJournal(sessionId, rewindId)
       deleteTurnJournal(sessionId, rewindId)
+      if (config.sessionRef) {
+        await removeHistoryEntries(config.sessionRef, sessionId, new Set([rewindId]))
+      }
+      if (report?.unrestorable.length) {
+        translator.notice(
+          'The replaced turn could not be fully rolled back; these files stay as it left them: ' +
+            `${report.unrestorable.join(', ')}.`,
+        )
+      }
     }
     // The turn's workspace diary (workspaceJournal.ts): every workspace write
     // from here on is recorded so a later regenerate/delete of this turn can
@@ -597,7 +619,7 @@ export async function startAgentTurn(
       turnId,
       workspaceDir: current.workspaceDir,
       mountedFolders: current.mountedFolders,
-      unsandboxed: config.unsandboxed === true,
+      unsandboxed: hostShell,
     })
     const planning = watchPlanningPhase(current)
     markHarnessTurn(current.session, turnId)

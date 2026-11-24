@@ -1126,6 +1126,8 @@
   "AGENT_REGENERATE_NOT_LATEST": "Solo se puede regenerar la respuesta más reciente.",
   "AGENT_REGENERATE_NO_PROMPT": "La respuesta que se va a regenerar no tiene ninguna instrucción.",
   "AGENT_DELETE_TURN_FAILED": "No se pudo eliminar el mensaje.",
+  "AGENT_TURN_EDIT_HOST_SHELL": "Esta respuesta se ejecutó con el shell real del sistema, por lo que no se puede eliminar ni regenerar.",
+  "AGENT_TURN_RESTORE_UNRESTORABLE": "El turno se eliminó, pero estos archivos no se pudieron restaurar: {files}",
   "AGENT_ATTACH_FAILED": "No se pudo adjuntar {file}.",
   "AGENT_DOCUMENT_REMOVE": "Quitar {file}",
   "AGENT_DOCUMENT_REMOVE_FAILED": "No se pudo quitar {file}.",

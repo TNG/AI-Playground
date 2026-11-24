@@ -125,6 +125,7 @@ describe('an Agent Run working in its override folder', () => {
       workspaceDir: override,
       prompt: 'chart it',
       harnessSessionId: 'aipg-agent-1',
+      turnId: 't1',
       taskRun: { taskName: 'Reporter' },
     })
 
@@ -166,6 +167,7 @@ describe('session_history read by the Assistant after an overriding Agent Run', 
       workspaceDir: session.override,
       prompt: 'make things',
       harnessSessionId: 'aipg-agent-1',
+      turnId: 't1',
     })
     for (const [name, bytes] of Object.entries(files)) {
       await saveGeneratedMediaToWorkspace(

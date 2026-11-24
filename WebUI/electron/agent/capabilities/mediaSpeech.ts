@@ -14,7 +14,7 @@ import { speechFailure } from '../../chat/chatSpeechTools.ts'
 import { saveGeneratedAudioFile } from '../../persist/audioFiles.ts'
 import { freeName } from '../../persist/fileOps.ts'
 import { noteGeneratedMedia } from '../generatedMedia.ts'
-import { recordWorkspaceWrite } from '../workspaceJournal.ts'
+import { recordJournalMedia, recordWorkspaceWrite } from '../workspaceJournal.ts'
 import { buildTtsAudioFileName } from '@/lib/ttsAudioFileName'
 import { sessionFolderMediaUrl } from '@/lib/comfyWorkflow'
 import type { AgentMediaDetails } from '@/types/agentMediaDetails'
@@ -158,6 +158,7 @@ async function synthesize(
     recordWorkspaceWrite(host.sessionId, fullPath)
     await fs.promises.writeFile(fullPath, Buffer.from(clip.audioBase64, 'base64'))
     const sessionCopies = await copyIntoSession(host, fullPath)
+    recordJournalMedia(host.sessionId, sessionCopies)
     noteGeneratedMedia(host.workspaceDir, [relativePath], sessionCopies)
     const url = sessionClipUrl(host, relativePath, sessionCopies)
     const appCopyPath = await saveGeneratedAudioFile(

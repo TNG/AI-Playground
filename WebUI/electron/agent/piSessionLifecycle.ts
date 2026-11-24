@@ -651,6 +651,11 @@ function withShellPolicy(config: AgentModeTurnConfig): AgentModeTurnConfig {
   return { ...config, unsandboxed: false }
 }
 
+/** The shell a turn actually runs with: the opt-in only counts in developer mode. */
+export function effectiveHostShell(config: AgentModeTurnConfig): boolean {
+  return withShellPolicy(config).unsandboxed === true
+}
+
 export async function ensureSession(requested: AgentModeTurnConfig): Promise<ActiveSession> {
   const config = withShellPolicy(requested)
   const folders = await turnFolders(config)

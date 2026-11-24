@@ -9,10 +9,12 @@ import {
   deleteTurnJournal,
   endTurnJournal,
   journalRootsOf,
+  recordJournalMedia,
   recordWorkspaceWrite,
   resetWorkspaceJournalsForTest,
   restoreTurnJournal,
   setJournalBackupCapForTest,
+  turnJournalHostShell,
 } from '../../agent/workspaceJournal'
 import { createAgentToolAccess, SANDBOX_WORKDIR } from '../../agent/piToolOperations'
 
@@ -22,6 +24,13 @@ vi.mock('electron', () => ({
     createFromBuffer: () => ({
       isEmpty: () => true,
       getSize: () => ({ width: 0, height: 0 }),
+    }),
+  },
+  shell: {
+    // The journal's media trash goes through Electron; the test deletes for real
+    // so a restored turn's copies can be asserted gone from disk.
+    trashItem: vi.fn(async (target: string) => {
+      fs.rmSync(target, { force: true })
     }),
   },
 }))
@@ -107,7 +116,7 @@ function invoke(tool: ExecutableTool, params: unknown) {
 }
 
 describe('a turn journal', () => {
-  it('restores a modified file to its pre-turn bytes and mode', () => {
+  it('restores a modified file to its pre-turn bytes and mode', async () => {
     write('game.js', 'const original = 1\n')
     fs.chmodSync(path.join(workspace, 'game.js'), 0o644)
     beginTurn()
@@ -115,13 +124,13 @@ describe('a turn journal', () => {
     expect(read('game.js')).toBe('const overwritten = 2\n')
     endTurnJournal(SESSION)
 
-    const report = restoreTurnJournal(SESSION, TURN)
+    const report = await restoreTurnJournal(SESSION, TURN)
     expect(report).toBeDefined()
     expect(read('game.js')).toBe('const original = 1\n')
     expect(report?.restored).toBeGreaterThan(0)
   })
 
-  it('deletes what the turn created, including created folders', () => {
+  it('deletes what the turn created, including created folders', async () => {
     beginTurn()
     journaledWrite(path.join('level', 'one', 'deep.txt'), 'new')
     recordWorkspaceWrite(SESSION, path.join(workspace, 'art'))
@@ -130,24 +139,24 @@ describe('a turn journal', () => {
 
     expect(exists(path.join('level', 'one', 'deep.txt'))).toBe(true)
     expect(exists('art')).toBe(true)
-    restoreTurnJournal(SESSION, TURN)
+    await restoreTurnJournal(SESSION, TURN)
     expect(exists(path.join('level', 'one', 'deep.txt'))).toBe(false)
     expect(exists('level')).toBe(false)
     expect(exists('art')).toBe(false)
   })
 
-  it('re-creates a file the turn deleted', () => {
+  it('re-creates a file the turn deleted', async () => {
     write('todo.md', 'was here\n')
     beginTurn()
     recordWorkspaceWrite(SESSION, path.join(workspace, 'todo.md'))
     fs.rmSync(path.join(workspace, 'todo.md'))
     endTurnJournal(SESSION)
 
-    restoreTurnJournal(SESSION, TURN)
+    await restoreTurnJournal(SESSION, TURN)
     expect(read('todo.md')).toBe('was here\n')
   })
 
-  it('restores a folder a recursive delete took away, contents included', () => {
+  it('restores a folder a recursive delete took away, contents included', async () => {
     fs.mkdirSync(path.join(workspace, 'assets'))
     write('assets/sprite.png', 'png bytes')
     write('assets/readme.txt', 'about the sprites')
@@ -156,12 +165,12 @@ describe('a turn journal', () => {
     fs.rmSync(path.join(workspace, 'assets'), { recursive: true })
     endTurnJournal(SESSION)
 
-    restoreTurnJournal(SESSION, TURN)
+    await restoreTurnJournal(SESSION, TURN)
     expect(read(path.join('assets', 'sprite.png'))).toBe('png bytes')
     expect(read(path.join('assets', 'readme.txt'))).toBe('about the sprites')
   })
 
-  it('undoes a move: the source comes back, the destination goes', () => {
+  it('undoes a move: the source comes back, the destination goes', async () => {
     write('old-name.js', 'the code')
     beginTurn()
     const source = path.join(workspace, 'old-name.js')
@@ -171,12 +180,12 @@ describe('a turn journal', () => {
     fs.renameSync(source, target)
     endTurnJournal(SESSION)
 
-    restoreTurnJournal(SESSION, TURN)
+    await restoreTurnJournal(SESSION, TURN)
     expect(read('old-name.js')).toBe('the code')
     expect(exists('new-name.js')).toBe(false)
   })
 
-  it('composes: rolling back the newest turn restores its predecessor, then that one', () => {
+  it('composes: rolling back the newest turn restores its predecessor, then that one', async () => {
     write('design.md', 'v1')
     beginTurn()
     journaledWrite('design.md', 'v2')
@@ -187,13 +196,13 @@ describe('a turn journal', () => {
     endTurnJournal(SESSION)
     expect(read('design.md')).toBe('v3')
 
-    restoreTurnJournal(SESSION, 'turn-2')
+    await restoreTurnJournal(SESSION, 'turn-2')
     expect(read('design.md')).toBe('v2')
-    restoreTurnJournal(SESSION, TURN)
+    await restoreTurnJournal(SESSION, TURN)
     expect(read('design.md')).toBe('v1')
   })
 
-  it('survives a restart: the manifest is read back from disk', () => {
+  it('survives a restart: the manifest is read back from disk', async () => {
     write('game.js', 'original')
     beginTurn()
     journaledWrite('game.js', 'changed')
@@ -201,44 +210,44 @@ describe('a turn journal', () => {
     // A fresh process has no live journals — only what was persisted.
     resetWorkspaceJournalsForTest()
 
-    restoreTurnJournal(SESSION, TURN)
+    await restoreTurnJournal(SESSION, TURN)
     expect(read('game.js')).toBe('original')
   })
 
-  it('restores nothing for a turn that never had a journal', () => {
+  it('restores nothing for a turn that never had a journal', async () => {
     write('untouched.js', 'as it was')
     beginTurn()
     endTurnJournal(SESSION)
-    expect(restoreTurnJournal(SESSION, TURN)).toBeUndefined()
+    expect(await restoreTurnJournal(SESSION, TURN)).toBeUndefined()
 
-    expect(restoreTurnJournal(SESSION, 'never-ran')).toBeUndefined()
+    expect(await restoreTurnJournal(SESSION, 'never-ran')).toBeUndefined()
     expect(read('untouched.js')).toBe('as it was')
   })
 
-  it('notes a file too large to back up instead of pretending it can restore it', () => {
+  it('notes a file too large to back up instead of pretending it can restore it', async () => {
     setJournalBackupCapForTest(4)
     write('huge.bin', 'way more than four bytes')
     beginTurn()
     journaledWrite('huge.bin', 'overwritten')
     endTurnJournal(SESSION)
 
-    const report = restoreTurnJournal(SESSION, TURN)
+    const report = await restoreTurnJournal(SESSION, TURN)
     expect(report?.unrestorable).toEqual([path.join(workspace, 'huge.bin')])
     expect(read('huge.bin')).toBe('overwritten')
   })
 
-  it("records nothing outside the turn's writable roots", () => {
+  it("records nothing outside the turn's writable roots", async () => {
     const outside = path.join(root, 'elsewhere.txt')
     fs.writeFileSync(outside, 'not the journal business')
     beginTurn()
     recordWorkspaceWrite(SESSION, outside)
     endTurnJournal(SESSION)
 
-    expect(restoreTurnJournal(SESSION, TURN)).toBeUndefined()
+    expect(await restoreTurnJournal(SESSION, TURN)).toBeUndefined()
     expect(fs.readFileSync(outside, 'utf-8')).toBe('not the journal business')
   })
 
-  it('restores a re-pointed symlink', () => {
+  it('restores a re-pointed symlink', async () => {
     fs.symlinkSync('game.js', path.join(workspace, 'link.js'))
     beginTurn()
     const link = path.join(workspace, 'link.js')
@@ -247,11 +256,11 @@ describe('a turn journal', () => {
     fs.symlinkSync('other.js', link)
     endTurnJournal(SESSION)
 
-    restoreTurnJournal(SESSION, TURN)
+    await restoreTurnJournal(SESSION, TURN)
     expect(fs.readlinkSync(link)).toBe('game.js')
   })
 
-  it('is dropped with its turn, and a session drop takes every turn of it', () => {
+  it('is dropped with its turn, and a session drop takes every turn of it', async () => {
     beginTurn()
     journaledWrite('one.js', 'one')
     endTurnJournal(SESSION)
@@ -260,11 +269,11 @@ describe('a turn journal', () => {
     endTurnJournal(SESSION)
 
     deleteTurnJournal(SESSION, TURN)
-    expect(restoreTurnJournal(SESSION, TURN)).toBeUndefined()
-    expect(restoreTurnJournal(SESSION, 'turn-2')).toBeDefined()
+    expect(await restoreTurnJournal(SESSION, TURN)).toBeUndefined()
+    expect(await restoreTurnJournal(SESSION, 'turn-2')).toBeDefined()
 
     deleteSessionJournals(SESSION)
-    expect(restoreTurnJournal(SESSION, 'turn-2')).toBeUndefined()
+    expect(await restoreTurnJournal(SESSION, 'turn-2')).toBeUndefined()
   })
 
   it('keeps read-write mounted folders as roots and leaves read-only ones out', () => {
@@ -278,6 +287,82 @@ describe('a turn journal', () => {
     ])
     expect(roots).toEqual(expect.arrayContaining([workspace, writable]))
     expect(roots).not.toContain(readOnly)
+  })
+
+  it('trashes the apart media copies a turn saved, and counts them', async () => {
+    const apartDir = path.join(root, 'session-files')
+    fs.mkdirSync(apartDir)
+    const apartCopy = path.join(apartDir, 'cover.png')
+    fs.writeFileSync(apartCopy, 'the session copy')
+    beginTurn()
+    recordJournalMedia(SESSION, [apartCopy])
+    endTurnJournal(SESSION)
+
+    const report = await restoreTurnJournal(SESSION, TURN)
+    expect(report?.trashedMedia).toBe(1)
+    expect(report?.unrestorable).toEqual([])
+    expect(fs.existsSync(apartCopy)).toBe(false)
+  })
+
+  it('notes an apart media copy once, and never one inside the roots', async () => {
+    const apartDir = path.join(root, 'session-files')
+    fs.mkdirSync(apartDir)
+    const apartCopy = path.join(apartDir, 'cover.png')
+    const inside = path.join(workspace, 'generated', 'cover.png')
+    fs.writeFileSync(apartCopy, 'the session copy')
+    beginTurn()
+    for (let seen = 0; seen < 3; seen++) recordJournalMedia(SESSION, [apartCopy])
+    recordJournalMedia(SESSION, [inside])
+    recordJournalMedia(SESSION, [])
+    endTurnJournal(SESSION)
+
+    const report = await restoreTurnJournal(SESSION, TURN)
+    expect(report?.trashedMedia).toBe(1)
+  })
+
+  it('reports a media copy the Trash refused as unrestorable', async () => {
+    const { shell } = await import('electron')
+    const apartCopy = path.join(root, 'session-files', 'cover.png')
+    fs.mkdirSync(path.dirname(apartCopy))
+    fs.writeFileSync(apartCopy, 'the session copy')
+    beginTurn()
+    recordJournalMedia(SESSION, [apartCopy])
+    endTurnJournal(SESSION)
+    vi.mocked(shell.trashItem).mockRejectedValueOnce(new Error('trash is full'))
+
+    const report = await restoreTurnJournal(SESSION, TURN)
+    expect(report?.trashedMedia).toBe(0)
+    expect(report?.unrestorable).toEqual([apartCopy])
+    expect(fs.existsSync(apartCopy)).toBe(true)
+    vi.mocked(shell.trashItem).mockClear()
+  })
+
+  it('tells a host-shell turn from a sandboxed one, and a journal-less turn apart', async () => {
+    beginTurn({ unsandboxed: true })
+    journaledWrite('one.js', 'one')
+    endTurnJournal(SESSION)
+    beginTurn({ turnId: 'turn-2' })
+    journaledWrite('two.js', 'two')
+    endTurnJournal(SESSION)
+
+    expect(turnJournalHostShell(SESSION, TURN)).toBe(true)
+    expect(turnJournalHostShell(SESSION, 'turn-2')).toBe(false)
+    expect(turnJournalHostShell(SESSION, 'never-ran')).toBe(false)
+  })
+
+  it('keeps a host-shell turn refused even when it wrote nothing', async () => {
+    beginTurn({ unsandboxed: true, turnId: 'host-shell-empty' })
+    endTurnJournal(SESSION)
+    beginTurn({ turnId: 'sandboxed-empty' })
+    endTurnJournal(SESSION)
+
+    expect(turnJournalHostShell(SESSION, 'host-shell-empty')).toBe(true)
+    await expect(restoreTurnJournal(SESSION, 'host-shell-empty')).resolves.toMatchObject({
+      removedCreated: 0,
+      restored: 0,
+      trashedMedia: 0,
+    })
+    await expect(restoreTurnJournal(SESSION, 'sandboxed-empty')).resolves.toBeUndefined()
   })
 })
 
@@ -305,7 +390,7 @@ describe('the sandbox writes a turn actually makes', () => {
       expect(exists('gone.txt')).toBe(false)
       endTurnJournal(SESSION)
 
-      restoreTurnJournal(SESSION, TURN)
+      await restoreTurnJournal(SESSION, TURN)
       expect(read('game.js')).toBe('const scaffold = true\n')
       expect(read('gone.txt')).toBe('delete me\n')
       expect(exists('fresh')).toBe(false)
@@ -331,7 +416,7 @@ describe('the sandbox writes a turn actually makes', () => {
       })
       endTurnJournal(SESSION)
 
-      restoreTurnJournal(SESSION, TURN)
+      await restoreTurnJournal(SESSION, TURN)
       expect(read('game.js')).toBe('host original')
     } finally {
       await access.dispose()

@@ -501,6 +501,21 @@ describe('an Agent Run in the timeline', () => {
     expect(actionsOf(items[0])).toEqual(['copy', 'speak', 'hide'])
   })
 
+  it('offers only Copy and Speak on a turn that ran with the host shell', () => {
+    const items = sessionTimelineItems(
+      [
+        runMessage('r1', 'user', [{ type: 'text', text: runPrompt }]),
+        {
+          ...runMessage('r2', 'assistant', [{ type: 'text', text: 'Digest ready.' }]),
+          metadata: { agentTurn: runTag, harnessTurnId: 't1', hostShell: true },
+        },
+      ],
+      {},
+    )
+
+    expect(actionsOf(items[0])).toEqual(['copy', 'speak', 'hide'])
+  })
+
   it('keeps every turn in the order it happened when another turn lands in between', () => {
     const turns = timelineTurns([
       runMessage('s1', 'user'),

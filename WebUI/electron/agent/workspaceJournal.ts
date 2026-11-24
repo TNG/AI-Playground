@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { app } from 'electron'
 import { appLoggerInstance } from '../observability/logger.ts'
+import { discardRegularFile } from '../persist/sessionMediaFiles.ts'
 import { isWritable, type ResolvedMountedFolder } from '@/lib/mountedFolders'
 
 // ── Per-turn workspace journal ───────────────────────────────────────────────
@@ -22,9 +23,11 @@ import { isWritable, type ResolvedMountedFolder } from '@/lib/mountedFolders'
 // the workspace correctly.
 //
 // Only paths inside the turn's writable roots (the workspace and read-write
-// Mounted Folders) are recorded, so Session-side media copies and the app's own
-// files stay out. Recording is best-effort by design: a failure is logged and
-// the write proceeds, because the diary must never cost the turn.
+// Mounted Folders) are recorded; a media copy the turn saved apart from its
+// workspace (a Session's own folder holding a game turn's media) is noted in
+// the manifest's `media` section, so a restore trashes it. Recording is
+// best-effort by design: a failure is logged and the write proceeds, because
+// the diary must never cost the turn.
 
 const logger = appLoggerInstance
 const LOG_SOURCE = 'workspaceJournal'
@@ -53,6 +56,8 @@ export type JournalManifest = {
   workspaceDir: string
   /** True when the turn ran with the unsandboxed host shell. */
   unsandboxed?: boolean
+  /** Media copies the turn saved outside its roots; a restore trashes them. */
+  media?: string[]
   createdAt: number
   entries: JournalEntry[]
 }
@@ -63,6 +68,8 @@ type TurnJournal = {
   roots: string[]
   /** Entry paths already captured — first touch wins. */
   recorded: Set<string>
+  /** Media copies already noted, so an apart copy lands in `media` once. */
+  mediaRecorded: Set<string>
   dir: string
   nextBlob: number
 }
@@ -190,7 +197,7 @@ export function beginTurnJournal(info: {
   unsandboxed?: boolean
 }): void {
   const { sessionId, turnId } = info
-  journals.set(sessionId, {
+  const journal: TurnJournal = {
     manifest: {
       schemaVersion: 1,
       sessionId,
@@ -202,9 +209,14 @@ export function beginTurnJournal(info: {
     },
     roots: journalRootsOf(info.workspaceDir, info.mountedFolders ?? []),
     recorded: new Set<string>(),
+    mediaRecorded: new Set<string>(),
     dir: journalDirOf(sessionId, turnId),
     nextBlob: 0,
-  })
+  }
+  journals.set(sessionId, journal)
+  // A host-shell turn is refused a rollback even when it wrote nothing, so its
+  // manifest is on disk from the start rather than from its first write.
+  if (info.unsandboxed) persistManifest(journal)
 }
 
 /** Close the journal when the turn settles; the manifest is already on disk. */
@@ -229,9 +241,46 @@ export function recordWorkspaceWrite(sessionId: string, absolutePath: string): v
   }
 }
 
+/**
+ * Note a media copy the turn saved outside its writable roots — the Session's
+ * own folder holding a game turn's media, say — so restoring the turn trashes
+ * it. A path inside the roots is a regular workspace write and is skipped.
+ */
+export function recordJournalMedia(sessionId: string, absolutePaths: readonly string[]): void {
+  const journal = journals.get(sessionId)
+  if (!journal) return
+  try {
+    let added = false
+    for (const rawPath of absolutePaths) {
+      const filePath = normalizedHostPath(rawPath)
+      if (insideRoots(filePath, journal.roots) || journal.mediaRecorded.has(filePath)) continue
+      journal.mediaRecorded.add(filePath)
+      journal.manifest.media = [...(journal.manifest.media ?? []), filePath]
+      added = true
+    }
+    if (added) persistManifest(journal)
+  } catch (error) {
+    logger.warn(`journal: failed to record media copies: ${error}`, LOG_SOURCE)
+  }
+}
+
+/** Whether the turn ran with the unsandboxed host shell; a turn without a journal did not. */
+export function turnJournalHostShell(sessionId: string, turnId: string): boolean {
+  try {
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(journalDirOf(sessionId, turnId), 'journal.json'), 'utf-8'),
+    )
+    return manifest?.unsandboxed === true
+  } catch {
+    return false
+  }
+}
+
 export type JournalRestoreReport = {
   removedCreated: number
   restored: number
+  /** Apart media copies the restore moved to the Trash. */
+  trashedMedia: number
   unrestorable: string[]
 }
 
@@ -242,14 +291,15 @@ function depthOf(filePath: string): number {
 /**
  * Put the workspace back as the turn found it: remove what the turn created
  * (deepest first, so emptied folders go too), re-create folders it deleted,
- * write backed-up files back, re-point symlinks. A journal that never existed
- * (a turn from before the journal did, or one that wrote nothing) restores as
- * `undefined` — there is nothing it changed.
+ * write backed-up files back, re-point symlinks, and trash the media copies it
+ * saved outside its roots. A journal that never existed (a turn from before the
+ * journal did, or one that wrote nothing) restores as `undefined` — there is
+ * nothing it changed.
  */
-export function restoreTurnJournal(
+export async function restoreTurnJournal(
   sessionId: string,
   turnId: string,
-): JournalRestoreReport | undefined {
+): Promise<JournalRestoreReport | undefined> {
   const dir = journalDirOf(sessionId, turnId)
   let manifest: JournalManifest | undefined
   try {
@@ -259,7 +309,12 @@ export function restoreTurnJournal(
   }
   if (!manifest || manifest.sessionId !== sessionId) return undefined
 
-  const report: JournalRestoreReport = { removedCreated: 0, restored: 0, unrestorable: [] }
+  const report: JournalRestoreReport = {
+    removedCreated: 0,
+    restored: 0,
+    trashedMedia: 0,
+    unrestorable: [],
+  }
   const entries = manifest.entries
 
   const created = entries
@@ -307,6 +362,16 @@ export function restoreTurnJournal(
       // A filesystem that refuses the original mode still gets the bytes back.
     }
     report.restored += 1
+  }
+
+  for (const mediaPath of manifest.media ?? []) {
+    try {
+      await discardRegularFile(mediaPath)
+      report.trashedMedia += 1
+    } catch (error) {
+      logger.warn(`journal: could not trash media copy ${mediaPath}: ${error}`, LOG_SOURCE)
+      report.unrestorable.push(mediaPath)
+    }
   }
 
   return report

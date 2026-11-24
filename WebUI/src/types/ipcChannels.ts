@@ -633,7 +633,7 @@ export const CHANNELS = {
     kind: 'invoke',
     owner: 'main',
     args: [] as unknown as readonly [DeleteAgentTurnsRequest],
-    result: null as unknown as IpcMutationResult,
+    result: null as unknown as IpcOkWith<{ unrestorable: string[] }>,
   },
   /** Hydrate the session-panel records once before mount: session files plus the active id. */
   'agentMode:bootstrapSessions': {

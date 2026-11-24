@@ -9,7 +9,7 @@ import { emitAgentToolImage } from '../kernel/kernelBus.ts'
 import { typedSend } from '../kernel/typedIpc.ts'
 import { freeName, moveEntry } from '../persist/fileOps.ts'
 import { noteGeneratedMedia } from './generatedMedia.ts'
-import { recordWorkspaceWrite } from './workspaceJournal.ts'
+import { recordJournalMedia, recordWorkspaceWrite } from './workspaceJournal.ts'
 import { sessionFolderMediaUrl } from '@/lib/comfyWorkflow'
 import { agentTurns } from './piAgentState.ts'
 import { resolveWorkspaceFile, type AgentFiles } from './workspaceAttachments.ts'
@@ -374,8 +374,10 @@ async function saveOne(
   const filesName = await freeName(filesDir, name)
   const sessionCopy = path.join(filesDir, filesName)
   // Without an apart folder this IS the workspace copy (a game's own folder),
-  // so its pre-state is journaled like any other workspace write.
+  // so its pre-state is journaled like any other workspace write; an apart copy
+  // is noted as turn media, so a restore trashes it.
   record(sessionCopy)
+  if (sessionId) recordJournalMedia(sessionId, [sessionCopy])
   await moveIntoSession(url, sessionCopy)
   let saved = filesName
   if (apart) {

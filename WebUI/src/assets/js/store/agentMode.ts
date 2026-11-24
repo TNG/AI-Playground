@@ -1837,6 +1837,18 @@ export const useAgentMode = defineStore(
         })
         return
       }
+      if (result.unrestorable.length > 0) {
+        errors.report(new Error(result.unrestorable.join(', ')), {
+          category: 'unknown',
+          code: 'agent/delete-turn-unrestorable',
+          severity: 'warning',
+          userMessage: i18n.state.AGENT_TURN_RESTORE_UNRESTORABLE.replace(
+            '{files}',
+            result.unrestorable.join(', '),
+          ),
+          surface: 'toast',
+        })
+      }
       const removed = new Set(ref.messageIds)
       const runtime = turns.runtimeOf(id)
       if (runtime) {

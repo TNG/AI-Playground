@@ -1126,6 +1126,8 @@
   "AGENT_REGENERATE_NOT_LATEST": "只能重新產生最新的回覆。",
   "AGENT_REGENERATE_NO_PROMPT": "要重新產生的回覆沒有提示詞。",
   "AGENT_DELETE_TURN_FAILED": "無法刪除該訊息。",
+  "AGENT_TURN_EDIT_HOST_SHELL": "此回覆使用了真實系統 Shell 執行，因此無法刪除或重新產生。",
+  "AGENT_TURN_RESTORE_UNRESTORABLE": "該輪已刪除，但下列檔案無法還原：{files}",
   "AGENT_ATTACH_FAILED": "無法附加 {file}。",
   "AGENT_DOCUMENT_REMOVE": "移除 {file}",
   "AGENT_DOCUMENT_REMOVE_FAILED": "無法移除 {file}。",

@@ -1126,6 +1126,8 @@
   "AGENT_REGENERATE_NOT_LATEST": "Chỉ có thể tạo lại câu trả lời mới nhất.",
   "AGENT_REGENERATE_NO_PROMPT": "Câu trả lời cần tạo lại không có lời nhắc.",
   "AGENT_DELETE_TURN_FAILED": "Không xóa được tin nhắn.",
+  "AGENT_TURN_EDIT_HOST_SHELL": "Câu trả lời này chạy bằng shell hệ thống thật nên không thể xóa hoặc tạo lại.",
+  "AGENT_TURN_RESTORE_UNRESTORABLE": "Đã xóa lượt đó, nhưng không thể khôi phục các tệp sau: {files}",
   "AGENT_ATTACH_FAILED": "Không thể đính kèm {file}.",
   "AGENT_DOCUMENT_REMOVE": "Xóa {file}",
   "AGENT_DOCUMENT_REMOVE_FAILED": "Không thể xóa {file}.",

@@ -7,7 +7,21 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 // games preset), whose workspace is a game folder in the games library — never
 // part of the Session Folder, so deleting the Session leaves the game alone.
 
-const dirs = vi.hoisted(() => ({ real: '', demo: '', games: '' }))
+const dirs = vi.hoisted(() => ({ real: '', demo: '', games: '', root: '' }))
+
+vi.mock('electron', () => ({
+  app: { getPath: () => dirs.root, isPackaged: false },
+  net: { fetch: () => Promise.reject(new Error('no network in tests')) },
+  nativeImage: {
+    createFromBuffer: () => ({ isEmpty: () => true, getSize: () => ({ width: 0, height: 0 }) }),
+  },
+  shell: {
+    trashItem: async (target: string) => {
+      const { rm } = await import('node:fs/promises')
+      await rm(target, { force: true })
+    },
+  },
+}))
 
 vi.mock('../../persist/userDataPaths.ts', () => ({
   getSessionsDir: () => dirs.real,
@@ -38,9 +52,10 @@ const { noteGeneratedMedia } = await import('../../agent/generatedMedia')
 
 beforeAll(async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'aipg-session-games-'))
-  dirs.real = path.join(root, 'sessions')
-  dirs.demo = path.join(root, 'sessions-demo')
-  dirs.games = path.join(root, 'games')
+  dirs.root = await fs.realpath(root)
+  dirs.real = path.join(dirs.root, 'sessions')
+  dirs.demo = path.join(dirs.root, 'sessions-demo')
+  dirs.games = path.join(dirs.root, 'games')
 })
 
 beforeEach(() => {
@@ -156,6 +171,7 @@ describe("a game turn's History Entry", () => {
     const turn = trackAgentTurnInSession({
       sessionRef: session.id,
       harnessSessionId: 'game-session',
+      turnId: 't1',
       presetName: 'Game Agent',
       workspaceDir: game,
       prompt: 'draw the ship',
@@ -176,5 +192,42 @@ describe("a game turn's History Entry", () => {
         ],
       }),
     ])
+  })
+})
+
+describe("a game turn's apart media copies", () => {
+  it('are recorded in the turn journal, so deleting the turn trashes them', async () => {
+    const { beginTurnJournal, endTurnJournal, restoreTurnJournal } =
+      await import('../../agent/workspaceJournal')
+    const { saveGeneratedMediaToWorkspace, setAppMediaPathResolver } =
+      await import('../../agent/piCustomTools')
+    const { sessionMediaOf } = await import('../../agent/piSessionLifecycle')
+    const session = await createSession()
+    const game = await makeGame('cover-art')
+    const appMedia = path.join(dirs.root, 'app-media')
+    await fs.mkdir(appMedia, { recursive: true })
+    await fs.writeFile(path.join(appMedia, 'cover.png'), 'the cover')
+    setAppMediaPathResolver((url) => path.join(appMedia, new URL(url).pathname))
+
+    const harnessId = 'aipg-agent-journal-game'
+    beginTurnJournal({ sessionId: harnessId, turnId: 't1', workspaceDir: game })
+    try {
+      await saveGeneratedMediaToWorkspace(
+        { images: [{ imageUrl: 'aipg-media://media/cover.png' }] },
+        game,
+        sessionMediaOf(session.id, game),
+        harnessId,
+      )
+    } finally {
+      endTurnJournal(harnessId)
+      setAppMediaPathResolver(null)
+    }
+
+    const apartDir = await ensureSessionWorkspace(session.id)
+    expect(await fs.readFile(path.join(apartDir, 'cover.png'), 'utf8')).toBe('the cover')
+
+    const report = await restoreTurnJournal(harnessId, 't1')
+    expect(report?.trashedMedia).toBe(1)
+    await expect(fs.readFile(path.join(apartDir, 'cover.png'), 'utf8')).rejects.toThrow()
   })
 })

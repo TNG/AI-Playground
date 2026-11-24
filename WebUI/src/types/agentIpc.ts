@@ -104,6 +104,7 @@ export const HARNESS_TURN_REFUSALS = {
   running: 'AGENT_TURN_EDIT_RUNNING',
   notLatest: 'AGENT_REGENERATE_NOT_LATEST',
   noPrompt: 'AGENT_REGENERATE_NO_PROMPT',
+  hostShell: 'AGENT_TURN_EDIT_HOST_SHELL',
 } as const
 
 export type HarnessTurnRefusal = (typeof HARNESS_TURN_REFUSALS)[keyof typeof HARNESS_TURN_REFUSALS]

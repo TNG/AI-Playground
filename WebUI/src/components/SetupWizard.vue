@@ -394,18 +394,17 @@ const cloudModeReady = computed(
 )
 const cloudRow = computed<SetupWizardRowView>(() => ({
   displayName: HYBRID_CLOUD_NAME,
-  infoTooltip:
-    'Adds an OpenAI-compatible endpoint to run inference on beside this device — hosted, cloud, or another machine on your LAN. No install: point it at a provider in its Setup screen.',
+  infoTooltip: languages.COMPONENT_MANAGER_CLOUD_INFO,
   statusColor: !cloudMode.isFeatureEnabled
     ? mapStatusToColor('notInstalled')
     : cloudModeReady.value
       ? mapStatusToColor('running')
       : mapStatusToColor('notYetStarted'),
   statusText: !cloudMode.isFeatureEnabled
-    ? languages.COM_DISABLED || 'Disabled'
+    ? languages.COM_DISABLED
     : cloudModeReady.value
-      ? languages.COM_ENABLED || 'Enabled'
-      : 'Enabled — add a provider in Setup',
+      ? languages.COM_ENABLED
+      : languages.COMPONENT_MANAGER_CLOUD_NEEDS_PROVIDER,
   versionDisplay: '',
   enabled: cloudMode.isFeatureEnabled,
   toggleTooltip: cloudMode.isFeatureEnabled

@@ -609,8 +609,8 @@ const inFlightWork = createInFlightWork({
 /** Components the window reports holding (speech turns, model downloads), as last heard. */
 let windowComponentHolds: HeldComponent[] = []
 
-// The in-use guard (ticket 04): main's own work plus the window's report, in one
-// admission rule the IPC handlers and the Component Manager both consult.
+// Main's own work plus the window's report, in one admission rule the IPC
+// handlers and the Component Manager both consult.
 const componentChanges = createComponentChanges({
   heldComponents: () => [...openComponentHolds(), ...windowComponentHolds],
   hasInFlightWork: () =>
@@ -924,7 +924,7 @@ async function createWindow() {
   setAgentModeMainWindow(win)
   setKernelEventWindow(win)
   bindRendererWorkReset(win.webContents, inFlightWork.setRendererWork)
-  bindRendererWorkReset(win.webContents, setWindowComponentHolds)
+  bindRendererWorkReset(win.webContents, () => setWindowComponentHolds([]))
   // The renderer that was asked a media request cannot answer from a new
   // window; settle its pendings so waiters fail instead of hanging. The same
   // holds for a chat tool execution the old renderer was told to run. Artifact

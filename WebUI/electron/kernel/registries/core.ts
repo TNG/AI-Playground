@@ -756,6 +756,18 @@ export function buildCoreInvokeRegistry(deps: CoreDeps) {
       return ''
     },
 
+    componentChangeAdmission: (
+      _event: IpcMainInvokeEvent,
+      serviceName: BackendServiceName,
+    ): ComponentChangeResult => {
+      const refusal = refusedChange(serviceName, deps.componentChanges.change(serviceName))
+      if (refusal) {
+        deps.appLogger.warn(`Refused to change ${serviceName}: it is in use`, 'electron-backend')
+        return refusal
+      }
+      return { success: true }
+    },
+
     uninstall: async (
       _event: IpcMainInvokeEvent,
       serviceName: string,

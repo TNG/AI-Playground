@@ -21,6 +21,7 @@ const wizardState = await vi.hoisted(async () => {
   return {
     preferredDeviceOptions: ref([] as Array<Record<string, unknown>>),
     pendingPreferredDevice: ref(null as PreferredDevice | null),
+    disabledBackends: ref(new Set<string>()),
   }
 })
 
@@ -54,6 +55,22 @@ vi.mock('@/assets/js/store/setupWizard', () => ({
     preferredDeviceKey,
     setPendingPreferredDevice,
     applyPreferredDevice,
+    comfyUiNeedsVariantSwitch: false,
+    pendingProductMode: null,
+    get disabledBackends() {
+      return wizardState.disabledBackends.value
+    },
+    restoreDisabledBackends: async () => {
+      const persisted = (localSettings.value.disabledBackends ?? []) as string[]
+      wizardState.disabledBackends.value = new Set(persisted)
+    },
+    setBackendDisabled: (name: string, disabled: boolean) => {
+      const next = new Set(wizardState.disabledBackends.value)
+      if (disabled) next.add(name)
+      else next.delete(name)
+      wizardState.disabledBackends.value = next
+      void updateLocalSettings({ disabledBackends: [...next] })
+    },
   }),
 }))
 
@@ -193,6 +210,7 @@ beforeEach(() => {
   productModeState.mode.value = 'studio'
   wizardState.preferredDeviceOptions.value = []
   wizardState.pendingPreferredDevice.value = null
+  wizardState.disabledBackends.value = new Set()
 })
 
 describe('Component Manager row vocabulary', () => {
@@ -205,12 +223,12 @@ describe('Component Manager row vocabulary', () => {
     const manager = useComponentManager()
     await manager.hydrateFromSettings()
 
-    expect(row(manager, 'ai-backend').subtitle).toMatch(/^Running/)
-    expect(row(manager, 'comfyui-backend').subtitle).toMatch(/^Running/)
+    expect(row(manager, 'ai-backend').statusText).toMatch(/^Running/)
+    expect(row(manager, 'comfyui-backend').statusText).toMatch(/^Running/)
 
     await manager.setEnabled('comfyui-backend', false)
 
-    expect(row(manager, 'comfyui-backend').subtitle).toMatch(/^Disabled/)
+    expect(row(manager, 'comfyui-backend').statusText).toMatch(/^Disabled/)
     expect(row(manager, 'comfyui-backend').enabled).toBe(false)
   })
 
@@ -220,7 +238,7 @@ describe('Component Manager row vocabulary', () => {
     const manager = useComponentManager()
     await manager.hydrateFromSettings()
 
-    expect(row(manager, 'whisper-backend').subtitle).toMatch(/^Installed/)
+    expect(row(manager, 'whisper-backend').statusText).toMatch(/^Installed/)
     expect(row(manager, 'whisper-backend').enabled).toBe(true)
   })
 
@@ -230,7 +248,7 @@ describe('Component Manager row vocabulary', () => {
     const manager = useComponentManager()
     await manager.hydrateFromSettings()
 
-    expect(row(manager, 'home-agent-backend').subtitle).toMatch(/^Not Installed$/)
+    expect(row(manager, 'home-agent-backend').statusText).toMatch(/^Not Installed$/)
     expect(row(manager, 'home-agent-backend').enabled).toBe(false)
     expect(row(manager, 'home-agent-backend').toggleDisabled).toBe(true)
 
@@ -250,7 +268,7 @@ describe('Component Manager live enable/disable', () => {
     await manager.setEnabled('llamacpp-backend', true)
 
     expect(startService).toHaveBeenCalledWith('llamacpp-backend')
-    expect(row(manager, 'llamacpp-backend').subtitle).toMatch(/^Running/)
+    expect(row(manager, 'llamacpp-backend').statusText).toMatch(/^Running/)
   })
 
   it('stops a running Component when it is disabled', async () => {
@@ -279,7 +297,7 @@ describe('Component Manager live enable/disable', () => {
     await reopened.hydrateFromSettings()
 
     expect(row(reopened, 'comfyui-backend').enabled).toBe(false)
-    expect(row(reopened, 'comfyui-backend').subtitle).toMatch(/^Disabled/)
+    expect(row(reopened, 'comfyui-backend').statusText).toMatch(/^Disabled/)
   })
 })
 

@@ -5,11 +5,10 @@ import { windowComponentHolds } from '@/lib/componentHoldsRegistry'
 import type { BackendServiceName } from './backendServices'
 import type { ComponentWork, HeldComponent } from '@/types/componentChange'
 
-// The in-use guard's renderer view (ticket 04): which Components Work holds right
-// now, and whether any In-flight Work exists. Main pushes its own holds (turns,
-// Agent Runs, media runs) on the kernel stream; the window's own (speech turns,
-// model downloads) are read from the hold registry and reported back to main, so
-// the tab's disabled state and the kernel's refusal never disagree.
+// Which Components Work holds right now, and whether any In-flight Work exists.
+// Main pushes its own holds (turns, Agent Runs, media runs) on the kernel stream;
+// the window's own (speech turns, model downloads) are read from the hold registry
+// and reported back to main, so the tab and the kernel refuse the same changes.
 
 export const useComponentHolds = defineStore('componentHolds', () => {
   const mainHolds = shallowRef<HeldComponent[]>([])

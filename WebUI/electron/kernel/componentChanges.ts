@@ -1,9 +1,8 @@
 import type { BackendServiceName } from '@/assets/js/store/backendServices'
 import type { ComponentChangeRefusal, HeldComponent } from '@/types/componentChange'
 
-// The in-use guard (ticket 04): one admission rule keyed by Component. Install,
-// repair, update and uninstall consult it in the kernel, so no surface can
-// bypass it; the live manager's disable action consults the same decision.
+// One admission rule keyed by Component, consulted in the kernel by every
+// install/repair/update/uninstall path so no surface can bypass it.
 
 export type ComponentChange = { allowed: true } | ({ allowed: false } & ComponentChangeRefusal)
 

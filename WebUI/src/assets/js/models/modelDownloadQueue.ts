@@ -119,7 +119,7 @@ export function createModelDownloadQueue(deps: {
   const downloads = reactive<ModelDownload[]>([])
   const records = new Map<string, WaiterRecord>()
   const controllers = new Map<string, AbortController>()
-  /** A running download holds the Components whose models it is fetching (ticket 04). */
+  /** A running download holds the Components whose models it is fetching. */
   const componentHolds = new Map<string, Array<() => void>>()
   const listeners = new Map<string, Set<ModelDownloadListener>>()
   let stopping: Promise<void> | null = null

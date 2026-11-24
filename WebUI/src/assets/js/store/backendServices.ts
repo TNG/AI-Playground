@@ -478,11 +478,18 @@ export const useBackendServices = defineStore('backendServices', () => {
     return serverStartupsCompleted
   }
 
+  /** Ask the kernel before stopping anything: a held Component must not lose its work. */
+  async function admitComponentChange(serviceName: BackendServiceName): Promise<void> {
+    const result = await window.electronAPI.componentChangeAdmission(serviceName)
+    if (!result.success) throw new Error(result.error)
+  }
+
   async function uninstallService(serviceName: BackendServiceName): Promise<void> {
     const listener = serviceListeners.get(serviceName)
     if (!listener) {
       throw new Error(`service name ${serviceName} not found.`)
     }
+    await admitComponentChange(serviceName)
     listener.isActive = true
     try {
       try {
@@ -539,6 +546,8 @@ export const useBackendServices = defineStore('backendServices', () => {
     if (!listener) {
       throw new Error(`service name ${serviceName} not found.`)
     }
+
+    await admitComponentChange(serviceName)
 
     listener.clearErrorDetails()
     const runToken = listener.beginRun()

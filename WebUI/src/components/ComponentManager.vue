@@ -9,6 +9,7 @@ import { useI18N } from '@/assets/js/store/i18n'
 import type { BackendServiceName } from '@/assets/js/store/backendServices'
 import { CORE_DEPENDENT_BACKENDS } from '@/lib/wizardInstallDefaults'
 import { HYBRID_CLOUD_NAME } from '@/lib/cloudModeName'
+import { fillTemplate } from '@/lib/fillTemplate'
 import { mapStatusToColor } from '@/lib/utils'
 import ComponentPanel, {
   type ComponentPanelBackendRow,
@@ -77,33 +78,24 @@ function toRowView(row: ComponentRow): SetupWizardRowView {
     displayName: row.displayName,
     statusColor: row.statusColor,
     statusText: row.statusText,
-    versionDisplay: row.subtitle,
+    versionDisplay: row.versionDisplay,
     enabled: row.enabled,
     toggleDisabled: row.toggleDisabled,
     isInstalling: row.isInstalling,
     installProgressText: row.installProgressText,
     availableInCurrentMode: row.availableInCurrentMode,
     showInstall: row.canInstall,
-    installLabel: (languages.COM_INSTALL_COMPONENT || 'Install {name}').replace(
-      '{name}',
-      row.displayName,
-    ),
+    installLabel: fillTemplate(languages.COM_INSTALL_COMPONENT, { name: row.displayName }),
     showUpdate: row.updateAvailable && row.availableInCurrentMode,
-    updateLabel: (languages.COM_UPDATE_TO || 'Update to {version}').replace(
-      '{version}',
-      row.updateTargetText,
-    ),
-    updateAriaLabel: (languages.COM_UPDATE_COMPONENT || 'Update {name}').replace(
-      '{name}',
-      row.displayName,
-    ),
+    updateLabel: fillTemplate(languages.COM_UPDATE_TO, { version: row.updateTargetText }),
+    updateAriaLabel: fillTemplate(languages.COM_UPDATE_COMPONENT, { name: row.displayName }),
     showRepair: row.canRepair,
     repairDisabled: wizard.isBusy || row.inUseWork !== null,
     showUninstall: row.canUninstall,
-    uninstallLabel: languages.COMPONENT_MANAGER_UNINSTALL || 'Uninstall',
-    uninstallAriaLabel: (
-      languages.COMPONENT_MANAGER_UNINSTALL_ACTION || 'Uninstall {name}'
-    ).replace('{name}', row.displayName),
+    uninstallLabel: languages.COMPONENT_MANAGER_UNINSTALL,
+    uninstallAriaLabel: fillTemplate(languages.COMPONENT_MANAGER_UNINSTALL_ACTION, {
+      name: row.displayName,
+    }),
     uninstallDisabled: row.inUseWork !== null || row.isInstalling || wizard.isBusy,
     showError: row.failed,
     inUseReason: row.inUseReason ?? undefined,
@@ -145,18 +137,17 @@ const cloudModeReady = computed(
 )
 const cloudRow = computed<SetupWizardRowView>(() => ({
   displayName: HYBRID_CLOUD_NAME,
-  infoTooltip:
-    'Adds an OpenAI-compatible endpoint to run inference on beside this device — hosted, cloud, or another machine on your LAN. No install: point it at a provider in its Setup screen.',
+  infoTooltip: languages.COMPONENT_MANAGER_CLOUD_INFO,
   statusColor: !cloudMode.isFeatureEnabled
     ? mapStatusToColor('notInstalled')
     : cloudModeReady.value
       ? mapStatusToColor('running')
       : mapStatusToColor('notYetStarted'),
   statusText: !cloudMode.isFeatureEnabled
-    ? languages.COM_DISABLED || 'Disabled'
+    ? languages.COM_DISABLED
     : cloudModeReady.value
-      ? languages.COM_ENABLED || 'Enabled'
-      : 'Enabled — add a provider in Setup',
+      ? languages.COM_ENABLED
+      : languages.COMPONENT_MANAGER_CLOUD_NEEDS_PROVIDER,
   versionDisplay: '',
   enabled: cloudMode.isFeatureEnabled,
 }))
@@ -179,13 +170,11 @@ const recommendedMode = computed(
 )
 
 const healthText = computed(() =>
-  (
-    languages.COMPONENT_MANAGER_HEALTH ||
-    '{running} running · {updates} with updates · {attention} needing attention'
-  )
-    .replace('{running}', String(manager.health.running))
-    .replace('{updates}', String(manager.health.updates))
-    .replace('{attention}', String(manager.health.attention)),
+  fillTemplate(languages.COMPONENT_MANAGER_HEALTH, {
+    running: manager.health.running,
+    updates: manager.health.updates,
+    attention: manager.health.attention,
+  }),
 )
 
 function onToggle({ row, enabled }: ComponentPanelToggleIntent) {
@@ -301,7 +290,7 @@ function openCloudSetup() {
             :disabled="!cloudMode.isFeatureEnabled"
           >
             <DropdownMenuItem @select="openCloudSetup">{{
-              languages.COM_GO_TO_SETUP || 'Go to Setup'
+              languages.COM_GO_TO_SETUP
             }}</DropdownMenuItem>
           </SettingsMenu>
         </template>
@@ -319,28 +308,24 @@ function openCloudSetup() {
           <AlertDialogHeader>
             <AlertDialogTitle>
               {{
-                (languages.COMPONENT_MANAGER_UNINSTALL_TITLE || 'Uninstall {name}?').replace(
-                  '{name}',
-                  uninstallTarget.displayName,
-                )
+                fillTemplate(languages.COMPONENT_MANAGER_UNINSTALL_TITLE, {
+                  name: uninstallTarget.displayName,
+                })
               }}
             </AlertDialogTitle>
             <AlertDialogDescription>
               <span class="block">{{ uninstallTarget.uninstallStopsText }}</span>
               <span class="block pt-2">
-                {{
-                  languages.COMPONENT_MANAGER_UNINSTALL_KEEPS_WEIGHTS ||
-                  'Only the runtime is removed. Model weights are kept, so reinstalling does not download them again.'
-                }}
+                {{ languages.COMPONENT_MANAGER_UNINSTALL_KEEPS_WEIGHTS }}
               </span>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel @click="uninstallTarget = null">{{
-              languages.COM_CANCEL || 'Cancel'
+              languages.COM_CANCEL
             }}</AlertDialogCancel>
             <AlertDialogAction @click="confirmUninstall">{{
-              languages.COMPONENT_MANAGER_UNINSTALL || 'Uninstall'
+              languages.COMPONENT_MANAGER_UNINSTALL
             }}</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

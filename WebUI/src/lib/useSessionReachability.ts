@@ -4,6 +4,8 @@ import { useChannels } from '@/assets/js/store/channels'
 import { useSessions } from '@/assets/js/store/sessions'
 import { useSessionSettings } from '@/assets/js/store/sessionSettings'
 import { useSetupWizard } from '@/assets/js/store/setupWizard'
+import { useGlobalSetup } from '@/assets/js/store/globalSetup'
+import { useUIStore } from '@/assets/js/store/ui'
 import { HARNESS_CHAT_PRESET } from '@/lib/harnessChatPreset'
 import { reachabilityIndicator } from '@/lib/reachabilityIndicator'
 
@@ -14,6 +16,8 @@ export function useSessionReachability() {
   const sessionSettings = useSessionSettings()
   const channelStore = useChannels()
   const setupWizard = useSetupWizard()
+  const globalSetup = useGlobalSetup()
+  const ui = useUIStore()
 
   function usesRealShell(sessionRef: string): boolean {
     return Object.values(agentMode.sessions).some(
@@ -42,8 +46,10 @@ export function useSessionReachability() {
     const state = indicator.value
     const sessionRef = sessions.openSessionId
     if (!state || !sessionRef) return
-    if (state.action === 'setUp') setupWizard.openChannelsSetup()
-    else if (state.action === 'toggle') await setReachable(sessionRef, !state.reachable)
+    if (state.action === 'setUp') {
+      if (globalSetup.loadingState === 'setupWizard') void setupWizard.openChannelsSetup()
+      else ui.openComponentManagerChannels()
+    } else if (state.action === 'toggle') await setReachable(sessionRef, !state.reachable)
   }
 
   return { indicator, activate }

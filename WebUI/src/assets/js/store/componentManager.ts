@@ -10,68 +10,40 @@ import { useSetupWizard } from './setupWizard'
 import { useComponentHolds } from './componentHolds'
 import { useI18N } from './i18n'
 import { useErrors } from './errors'
-import { compareVersions, mapServiceNameToDisplayName, mapStatusToColor } from '@/lib/utils'
+import {
+  componentHealth,
+  deriveComponentRows,
+  type ComponentHealth,
+  type ComponentRowState,
+  type DerivedComponentRow,
+} from '@/lib/componentRows'
 import { isComponentAvailableInMode } from '@/lib/productModeAvailability'
 import { updateLocalSettingsReported } from '@/lib/localSettingsUpdate'
-import { setupProgressLabel } from '@/lib/setupProgress'
+import { fillTemplate } from '@/lib/fillTemplate'
 import type { ComponentWork } from '@/types/componentChange'
 
-/** What the health line summarises, derived once from the live rows. */
-export type ComponentHealth = {
-  running: number
-  updates: number
-  attention: number
-}
+export type { ComponentHealth }
 
-export type ComponentRow = {
-  serviceName: BackendServiceName
-  displayName: string
-  isRequired: boolean
-  installed: boolean
-  enabled: boolean
-  running: boolean
-  availableInCurrentMode: boolean
-  updateAvailable: boolean
-  /** The version the inline "Update to <version>" action installs; '' when there is none. */
-  updateTargetText: string
-  failed: boolean
-  /** Offers Install: nothing on disk and available in the current Hardware Mode. */
-  canInstall: boolean
-  /** Offers Repair and its error log: broken but available in the current Hardware Mode. */
-  canRepair: boolean
-  /** Offers Uninstall: installed and never a required Component. */
-  canUninstall: boolean
+export type ComponentRow = DerivedComponentRow & {
+  statusText: string
+  toggleDisabled: boolean
   /** What stops working if it is uninstalled; '' when it cannot be uninstalled. */
   uninstallStopsText: string
-  statusText: string
-  statusColor: string
-  /** The installed version, or '' when nothing is on disk. */
-  versionText: string
-  /** The row's visible subtitle: the status word, then the version. */
-  subtitle: string
-  toggleDisabled: boolean
-  isInstalling: boolean
-  installProgressText: string | null
   /** The work holding this Component right now; null when it is free to change. */
   inUseWork: ComponentWork | null
   /** Why the row's change actions are blocked, e.g. "Finish the running turn first". */
   inUseReason: string | null
 }
 
-function displayNameFor(serviceName: BackendServiceName): string {
-  if (serviceName === 'ai-backend') return 'Core Services'
-  return mapServiceNameToDisplayName(serviceName)
-}
-
-/** OpenVINO weekly builds differ in the fourth segment; only the first three decide a version. */
-function comparableVersion(serviceName: BackendServiceName, version: string): string {
-  if (serviceName === 'openvino-backend') return version.split('.').slice(0, 3).join('.')
-  return version
-}
-
-function formatVersion(version: { version: string; releaseTag?: string } | undefined): string {
-  if (!version?.version) return ''
-  return version.releaseTag ? `${version.releaseTag} / ${version.version}` : version.version
+const STATE_LABELS: Record<ComponentRowState, { key: string; fallback: string }> = {
+  notInstalled: { key: 'BACKEND_STATUS_NOT_INSTALLED', fallback: 'Not Installed' },
+  failed: { key: 'BACKEND_STATUS_FAILED', fallback: 'Failed' },
+  installing: { key: 'BACKEND_STATUS_INSTALLING', fallback: 'Installing' },
+  starting: { key: 'BACKEND_STATUS_STARTING', fallback: 'Starting' },
+  stopping: { key: 'BACKEND_STATUS_STOPPING', fallback: 'Stopping' },
+  disabled: { key: 'BACKEND_STATUS_DISABLED', fallback: 'Disabled' },
+  running: { key: 'BACKEND_STATUS_RUNNING', fallback: 'Running' },
+  installed: { key: 'BACKEND_STATUS_INSTALLED', fallback: 'Installed' },
 }
 
 export const useComponentManager = defineStore('componentManager', () => {
@@ -82,7 +54,6 @@ export const useComponentManager = defineStore('componentManager', () => {
   const languages = useI18N().state
   const errors = useErrors()
 
-  const disabledBackends = ref(new Set<BackendServiceName>())
   const hydrated = ref(false)
 
   const deviceOptions = computed(() => wizard.preferredDeviceOptions)
@@ -160,18 +131,18 @@ export const useComponentManager = defineStore('componentManager', () => {
     },
   }
 
-  function uninstallStopsText(serviceName: BackendServiceName, canUninstall: boolean): string {
+  function uninstallStopsText(
+    serviceName: BackendServiceName,
+    canUninstall: boolean,
+    displayName: string,
+  ): string {
     if (!canUninstall) return ''
     const entry = UNINSTALL_STOPS[serviceName]
     if (entry) return label(entry.key, entry.fallback)
-    return label('COMPONENT_MANAGER_UNINSTALL_STOPS_GENERIC', '{name} stops working.').replace(
-      '{name}',
-      displayNameFor(serviceName),
+    return fillTemplate(
+      label('COMPONENT_MANAGER_UNINSTALL_STOPS_GENERIC', '{name} stops working.'),
+      { name: displayName },
     )
-  }
-
-  function isAvailableInCurrentMode(serviceName: BackendServiceName): boolean {
-    return isComponentAvailableInMode(productMode.productMode, serviceName)
   }
 
   const hardwareMode = computed(() => productMode.productMode)
@@ -213,153 +184,75 @@ export const useComponentManager = defineStore('componentManager', () => {
     await wizard.syncPresetsForCurrentProductMode()
   }
 
-  function advertisedUpdateTarget(
-    serviceName: BackendServiceName,
-    installed: boolean,
-    versionState: Record<string, unknown>,
-  ): string {
-    if (!installed || serviceName === 'ai-backend') return ''
-    const versions = versionState[serviceName] as
-      | {
-          installed?: { version: string; releaseTag?: string }
-          uiOverride?: { version: string; releaseTag?: string }
-          target?: { version: string; releaseTag?: string }
-        }
-      | undefined
-    const installedVersion = versions?.installed?.version
-    const target = versions?.uiOverride ?? versions?.target
-    if (!installedVersion || !target?.version) return ''
-    const isNewer =
-      compareVersions(
-        comparableVersion(serviceName, installedVersion),
-        comparableVersion(serviceName, target.version),
-      ) < 0
-    return isNewer ? formatVersion(target) : ''
+  function comfyVariantSwitch(): { needed: boolean; targetMode: ProductMode | null } {
+    const mode = productMode.productMode
+    const installedVariant = backendServices.info.find(
+      (entry) => entry.serviceName === 'comfyui-backend',
+    )?.comfyUiInstalledVariant
+    if (installedVariant) {
+      return {
+        needed: mode === 'nvidia' ? installedVariant !== 'cuda' : installedVariant === 'cuda',
+        targetMode: mode,
+      }
+    }
+    return {
+      needed: wizard.comfyUiNeedsVariantSwitch,
+      targetMode: wizard.pendingProductMode ?? mode,
+    }
   }
 
+  const derivedRows = computed<DerivedComponentRow[]>(() =>
+    deriveComponentRows({
+      serviceNames: allBackendServiceNames,
+      infoFor: (serviceName) =>
+        backendServices.info.find((entry) => entry.serviceName === serviceName),
+      versionState: backendServices.versionState,
+      mode: productMode.productMode,
+      enabledFor: (serviceName, info) => {
+        if (!(info?.isSetUp ?? false)) return false
+        return (
+          (info?.isRequired ?? serviceName === 'ai-backend') ||
+          !wizard.disabledBackends.has(serviceName)
+        )
+      },
+      progressFor: (serviceName) => backendServices.latestSetupProgress.get(serviceName),
+      phisonVariant: backendServices.llamaCppBuildVariant,
+      comfyVariantSwitch: comfyVariantSwitch(),
+      displayDisabled: true,
+    }),
+  )
+
   const rows = computed<ComponentRow[]>(() =>
-    allBackendServiceNames.map((serviceName) => {
-      const info = backendServices.info.find((entry) => entry.serviceName === serviceName)
-      const installed = info?.isSetUp ?? false
-      const status = info?.status ?? ('notInstalled' as BackendStatus)
-      const isRequired = info?.isRequired ?? serviceName === 'ai-backend'
-      const available = isAvailableInCurrentMode(serviceName)
-      const enabled = installed && (isRequired || !disabledBackends.value.has(serviceName))
-      const running = status === 'running'
-      const failed = status === 'failed' || status === 'installationFailed'
-      const busy = status === 'installing' || status === 'starting' || status === 'stopping'
-
-      let statusText: string
-      if (!installed) statusText = label('BACKEND_STATUS_NOT_INSTALLED', 'Not Installed')
-      else if (failed) statusText = label('BACKEND_STATUS_FAILED', 'Failed')
-      else if (status === 'installing')
-        statusText = label('BACKEND_STATUS_INSTALLING', 'Installing')
-      else if (status === 'starting') statusText = label('BACKEND_STATUS_STARTING', 'Starting')
-      else if (status === 'stopping') statusText = label('BACKEND_STATUS_STOPPING', 'Stopping')
-      else if (!enabled) statusText = label('BACKEND_STATUS_DISABLED', 'Disabled')
-      else if (running) statusText = label('BACKEND_STATUS_RUNNING', 'Running')
-      else statusText = label('BACKEND_STATUS_INSTALLED', 'Installed')
-
-      let statusColor: string
-      if (!installed) statusColor = mapStatusToColor('notInstalled')
-      else if (failed) statusColor = mapStatusToColor('failed')
-      else if (busy) statusColor = mapStatusToColor(status)
-      else if (!enabled) statusColor = mapStatusToColor('notInstalled')
-      else if (running) statusColor = mapStatusToColor('running')
-      else statusColor = mapStatusToColor('stopped')
-
-      const versionText = installed
-        ? formatVersion(
-            (
-              backendServices.versionState[serviceName] as {
-                installed?: { version: string; releaseTag?: string }
-              }
-            )?.installed,
-          )
-        : ''
-
-      const progress = busy ? backendServices.latestSetupProgress.get(serviceName) : undefined
-      const updateText = advertisedUpdateTarget(
-        serviceName,
-        installed,
-        backendServices.versionState as unknown as Record<string, unknown>,
-      )
-      const inUseWork = installed ? componentHolds.workFor(serviceName) : null
-      const canUninstall = installed && !isRequired
-      const installProgressText = busy
-        ? status === 'installing'
-          ? progress
-            ? setupProgressLabel(serviceName, progress)
-            : label('BACKEND_STATUS_INSTALLING', 'Installing')
-          : status === 'starting'
-            ? label('BACKEND_STATUS_STARTING', 'Starting')
-            : label('BACKEND_STATUS_STOPPING', 'Stopping')
-        : null
-
+    derivedRows.value.map((row) => {
+      const inUseWork = row.installed ? componentHolds.workFor(row.serviceName) : null
+      const labelEntry = STATE_LABELS[row.state]
       return {
-        serviceName,
-        displayName: displayNameFor(serviceName),
-        isRequired,
-        installed,
-        enabled,
-        running,
-        availableInCurrentMode: available,
-        failed,
-        updateAvailable: updateText !== '',
-        updateTargetText: updateText,
-        canInstall: !installed && available,
-        canRepair: failed && available,
-        canUninstall,
-        uninstallStopsText: uninstallStopsText(serviceName, canUninstall),
-        statusText,
-        statusColor,
-        versionText,
-        subtitle: versionText ? `${statusText} · ${versionText}` : statusText,
+        ...row,
+        statusText: row.statusOverride ?? label(labelEntry.key, labelEntry.fallback),
+        uninstallStopsText: uninstallStopsText(row.serviceName, row.canUninstall, row.displayName),
         toggleDisabled:
-          isRequired || !installed || busy || !available || (inUseWork !== null && enabled),
-        isInstalling: busy,
-        installProgressText,
+          row.isRequired ||
+          !row.installed ||
+          row.busy ||
+          !row.availableInCurrentMode ||
+          (inUseWork !== null && row.enabled),
         inUseWork,
         inUseReason: inUseReason(inUseWork),
       }
     }),
   )
 
-  const health = computed<ComponentHealth>(() => {
-    let running = 0
-    let updates = 0
-    let attention = 0
-    for (const row of rows.value) {
-      if (row.running) running += 1
-      if (row.updateAvailable) updates += 1
-      if (row.failed || row.updateAvailable || (row.isRequired && !row.running)) attention += 1
-    }
-    return { running, updates, attention }
-  })
+  const health = computed<ComponentHealth>(() => componentHealth(rows.value))
 
   function rowFor(serviceName: BackendServiceName): ComponentRow | undefined {
     return rows.value.find((entry) => entry.serviceName === serviceName)
   }
 
-  function isBackendName(name: string): name is BackendServiceName {
-    return (allBackendServiceNames as readonly string[]).includes(name)
-  }
-
   async function hydrateFromSettings(): Promise<void> {
-    try {
-      const settings = await window.electronAPI.getLocalSettings()
-      const persisted = settings.disabledBackends ?? []
-      disabledBackends.value = new Set(persisted.filter(isBackendName))
-    } catch (error) {
-      errors.report(error, { category: 'backend', surface: 'silent' })
-    }
+    await wizard.restoreDisabledBackends()
     // The mode catalog is normally filled by the wizard; the manager needs it too.
     if (!productMode.hardwareRecommendation) await productMode.detectRecommendation()
     hydrated.value = true
-  }
-
-  function persistDisabled(): void {
-    void updateLocalSettingsReported({ disabledBackends: [...disabledBackends.value] }, 'silent')
   }
 
   async function setEnabled(serviceName: BackendServiceName, enabled: boolean): Promise<void> {
@@ -367,10 +260,7 @@ export const useComponentManager = defineStore('componentManager', () => {
 
     if (enabled) {
       if (!info?.isSetUp) return
-      if (disabledBackends.value.delete(serviceName)) {
-        disabledBackends.value = new Set(disabledBackends.value)
-        persistDisabled()
-      }
+      wizard.setBackendDisabled(serviceName, false)
       if (info.status === 'stopped' || info.status === 'notYetStarted') {
         try {
           await backendServices.startService(serviceName)
@@ -383,9 +273,7 @@ export const useComponentManager = defineStore('componentManager', () => {
 
     if (info?.isRequired) return
     if (componentHolds.workFor(serviceName)) return
-    disabledBackends.value.add(serviceName)
-    disabledBackends.value = new Set(disabledBackends.value)
-    persistDisabled()
+    wizard.setBackendDisabled(serviceName, true)
     if (info?.status === 'running') {
       try {
         await backendServices.stopService(serviceName)
@@ -431,7 +319,6 @@ export const useComponentManager = defineStore('componentManager', () => {
   return {
     rows,
     health,
-    disabledBackends,
     hydrated,
     deviceOptions,
     selectedDeviceKey,

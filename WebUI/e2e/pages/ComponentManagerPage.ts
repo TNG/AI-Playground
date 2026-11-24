@@ -1,4 +1,5 @@
 import { type Locator, type Page, expect } from '@playwright/test'
+import type { BackendDisplayName } from '../backends'
 
 /**
  * Page object for App Settings' Component Manager tab (`components/ComponentManager.vue`)
@@ -9,6 +10,8 @@ import { type Locator, type Page, expect } from '@playwright/test'
  * `Enable <name>`, and the header shortcut is a button named "Component Manager"
  * that stays pressed only while this tab shows.
  */
+type ComponentRowName = BackendDisplayName | 'Hybrid Cloud'
+
 export class ComponentManagerPage {
   constructor(private readonly page: Page) {}
 
@@ -30,59 +33,59 @@ export class ComponentManagerPage {
   }
 
   /** A Component row, named after the Component. */
-  row(name: string): Locator {
+  row(name: ComponentRowName): Locator {
     return this.tabPanel.getByRole('group', { name, exact: true })
   }
 
   /** A row's enable switch. */
-  toggle(name: string): Locator {
+  toggle(name: ComponentRowName): Locator {
     return this.row(name).getByRole('switch', { name: `Enable ${name}`, exact: true })
   }
 
   /** The inline Install action on a Component that is not on disk. */
-  installButton(name: string): Locator {
+  installButton(name: BackendDisplayName): Locator {
     return this.row(name).getByRole('button', { name: `Install ${name}`, exact: true })
   }
 
   /** The inline Repair action on a failed Component. */
-  repairButton(name: string): Locator {
+  repairButton(name: BackendDisplayName): Locator {
     return this.row(name).getByRole('button', { name: 'Repair', exact: true })
   }
 
   /** The inline error-log action on a failed Component. */
-  errorLogButton(name: string): Locator {
+  errorLogButton(name: BackendDisplayName): Locator {
     return this.row(name).getByRole('button', { name: 'View error log', exact: true })
   }
 
   /** The inline "Update to <version>" action, shown only when a newer version exists. */
-  updateButton(name: string): Locator {
+  updateButton(name: BackendDisplayName): Locator {
     return this.row(name).getByRole('button', { name: `Update ${name}`, exact: true })
   }
 
   /** The inline Uninstall action on an optional installed Component. */
-  uninstallButton(name: string): Locator {
+  uninstallButton(name: BackendDisplayName): Locator {
     return this.row(name).getByRole('button', { name: `Uninstall ${name}`, exact: true })
   }
 
   /** The uninstall confirmation dialog, named after the Component it removes. */
-  uninstallDialog(name: string): Locator {
+  uninstallDialog(name: BackendDisplayName): Locator {
     return this.page.getByRole('alertdialog', { name: `Uninstall ${name}?`, exact: true })
   }
 
   /** Cancel the uninstall confirmation, leaving the Component installed. */
-  async cancelUninstall(name: string): Promise<void> {
+  async cancelUninstall(name: BackendDisplayName): Promise<void> {
     await this.uninstallDialog(name).getByRole('button', { name: 'Cancel', exact: true }).click()
   }
 
   /** Inline install/start/stop progress text while the row is busy. */
-  progressText(name: string): Locator {
+  progressText(name: ComponentRowName): Locator {
     return this.row(name).getByText(
       /^(Installing|Downloading|Extracting|Preparing|Starting|Stopping)/,
     )
   }
 
   /** The row's existing options menu (reinstall, version change, settings, Channels setup). */
-  optionsButton(name: string): Locator {
+  optionsButton(name: BackendDisplayName): Locator {
     return this.row(name).getByRole('button', { name: `${name} options`, exact: true })
   }
 
@@ -123,7 +126,7 @@ export class ComponentManagerPage {
   }
 
   /** A Component's options menu, opened by its gear. */
-  async openOptions(name: string): Promise<void> {
+  async openOptions(name: BackendDisplayName): Promise<void> {
     await this.row(name)
       .getByRole('button', { name: `Configure ${name} providers`, exact: true })
       .click()
@@ -140,7 +143,9 @@ export class ComponentManagerPage {
   /** Open the Hybrid Cloud provider setup from its row's options menu. */
   async openCloudFromRow(): Promise<void> {
     await this.open()
-    await this.openOptions('Hybrid Cloud')
+    await this.row('Hybrid Cloud')
+      .getByRole('button', { name: 'Configure Hybrid Cloud providers', exact: true })
+      .click()
     await this.page.getByRole('menuitem', { name: 'Go to Setup', exact: true }).click()
     await expect(this.cloudView).toBeVisible()
   }
@@ -236,7 +241,7 @@ export class ComponentManagerPage {
   }
 
   /** Switch a Component on or off, leaving it in the requested state. */
-  async setEnabled(name: string, enabled: boolean): Promise<void> {
+  async setEnabled(name: ComponentRowName, enabled: boolean): Promise<void> {
     const toggle = this.toggle(name)
     if ((await toggle.isChecked()) !== enabled) await toggle.click()
     await expect(toggle).toBeChecked({ checked: enabled })

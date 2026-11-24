@@ -439,7 +439,7 @@ let componentHolds: HeldComponent[] = []
 let anyInFlightWork = false
 let componentHoldsSignature = ''
 
-/** Replaces the in-use guard's view; emits only when the held set or work presence changed. */
+/** Emits only when the held set or work presence changed. */
 export function setComponentHolds(holds: HeldComponent[], inFlight: boolean): void {
   const signature = JSON.stringify([holds, inFlight])
   componentHolds = [...holds]

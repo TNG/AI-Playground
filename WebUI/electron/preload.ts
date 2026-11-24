@@ -116,6 +116,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   startService: (serviceName: string) => invoke('startService', serviceName),
   stopService: (serviceName: string) => invoke('stopService', serviceName),
   setUpService: (serviceName: BackendServiceName) => invoke('setUpService', serviceName),
+  componentChangeAdmission: (serviceName: BackendServiceName) =>
+    invoke('componentChangeAdmission', serviceName),
   updatePresetsFromIntelRepo: () => invoke('updatePresetsFromIntelRepo'),
   reloadPresets: () => invoke('reloadPresets'),
   getUserPresetsPath: () => invoke('getUserPresetsPath'),

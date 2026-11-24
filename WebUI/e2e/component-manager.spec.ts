@@ -1,4 +1,5 @@
 import { expect, test } from './fixtures'
+import type { BackendDisplayName } from './backends'
 import { ChannelsPage } from './pages/ChannelsPage'
 
 // One test: launching the app and installing backends costs minutes, so every
@@ -83,7 +84,12 @@ test('the Component Manager shows the machine as it is and toggles a Component',
       app.components.tabPanel.getByRole('group', { name: 'AI Playground', exact: true }),
     ).toBeVisible()
 
-    for (const name of ['Core Services', 'Channels', 'ComfyUI', 'Llama.cpp - GGUF']) {
+    for (const name of [
+      'Core Services',
+      'Channels',
+      'ComfyUI',
+      'Llama.cpp - GGUF',
+    ] as BackendDisplayName[]) {
       await expect(app.components.row(name)).toBeVisible()
     }
 
@@ -113,7 +119,7 @@ test('the Component Manager shows the machine as it is and toggles a Component',
       app.components.row('Core Services').getByRole('button', { name: /^Uninstall/ }),
     ).toHaveCount(0)
 
-    for (const name of ['ComfyUI', 'Llama.cpp - GGUF']) {
+    for (const name of ['ComfyUI', 'Llama.cpp - GGUF'] as BackendDisplayName[]) {
       const uninstall = app.components.uninstallButton(name)
       if ((await uninstall.count()) === 0) continue
 
@@ -133,7 +139,7 @@ test('the Component Manager shows the machine as it is and toggles a Component',
   })
 
   await test.step('only a failed Component offers Repair and its error log', async () => {
-    for (const name of ['ComfyUI', 'Llama.cpp - GGUF']) {
+    for (const name of ['ComfyUI', 'Llama.cpp - GGUF'] as BackendDisplayName[]) {
       const failed = /Failed/i.test(await app.components.row(name).innerText())
       if (failed) {
         await expect(app.components.repairButton(name)).toBeVisible()

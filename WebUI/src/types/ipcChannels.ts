@@ -1073,6 +1073,13 @@ export const CHANNELS = {
     args: [] as unknown as readonly [BackendServiceName],
     result: null as unknown as ComponentChangeResult,
   },
+  /** Whether a Component may be changed now; a refusal names the work, so a caller can ask before stopping it. */
+  componentChangeAdmission: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [BackendServiceName],
+    result: null as unknown as ComponentChangeResult,
+  },
   /** The pinned release for a service: remote versions file, local fallback. */
   resolveBackendVersion: {
     kind: 'invoke',

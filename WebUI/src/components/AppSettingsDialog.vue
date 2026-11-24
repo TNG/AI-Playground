@@ -106,6 +106,7 @@ import {
   XMarkIcon,
 } from '@heroicons/vue/24/outline'
 import { useDemoMode } from '@/assets/js/store/demoMode'
+import { developerMode } from '@/assets/js/store/debugSettings'
 import { useI18N } from '@/assets/js/store/i18n'
 import AppSettingsLanguage from '@/components/AppSettingsLanguage.vue'
 import AppSettingsPromptBarStyle from '@/components/AppSettingsPromptBarStyle.vue'
@@ -159,7 +160,11 @@ const languages = useI18N().state
 const activeTab = ref<AppSettingsTab>('app')
 
 const sections = computed(() =>
-  appSettingsSections({ demoMode: demoMode.enabled, hasDemoPasscode: demoMode.hasPasscode }),
+  appSettingsSections({
+    demoMode: demoMode.enabled,
+    hasDemoPasscode: demoMode.hasPasscode,
+    developerMode: developerMode(),
+  }),
 )
 const sectionLabels = computed<Record<AppSettingsSectionId, string>>(() => ({
   language: languages.SETTINGS_BASIC_LANGUAGE,

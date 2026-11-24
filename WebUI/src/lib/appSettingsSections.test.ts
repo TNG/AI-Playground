@@ -3,7 +3,11 @@ import { appSettingsSections } from './appSettingsSections'
 
 describe('appSettingsSections', () => {
   it('lists the ten sections in order outside demo mode, nothing blocked', () => {
-    const sections = appSettingsSections({ demoMode: false, hasDemoPasscode: false })
+    const sections = appSettingsSections({
+      demoMode: false,
+      hasDemoPasscode: false,
+      developerMode: true,
+    })
 
     expect(sections.map((section) => section.id)).toEqual([
       'language',
@@ -20,16 +24,33 @@ describe('appSettingsSections', () => {
     expect(sections.flatMap((section) => section.parts).some((part) => part.blocked)).toBe(false)
   })
 
+  it('hides Remote inference outside developer mode, leaving the other nine sections', () => {
+    const sections = appSettingsSections({
+      demoMode: false,
+      hasDemoPasscode: false,
+      developerMode: false,
+    })
+
+    expect(sections.map((section) => section.id)).not.toContain('remoteKernel')
+    expect(sections).toHaveLength(9)
+  })
+
   it('drops the Theme section in demo mode instead of leaving an empty band', () => {
-    const sections = appSettingsSections({ demoMode: true, hasDemoPasscode: true })
+    const sections = appSettingsSections({
+      demoMode: true,
+      hasDemoPasscode: true,
+      developerMode: true,
+    })
 
     expect(sections.map((section) => section.id)).not.toContain('theme')
   })
 
   it('blocks what demo mode blocked before and leaves the prompt-bar style and demo toggle usable', () => {
-    const parts = appSettingsSections({ demoMode: true, hasDemoPasscode: true }).flatMap(
-      (section) => section.parts,
-    )
+    const parts = appSettingsSections({
+      demoMode: true,
+      hasDemoPasscode: true,
+      developerMode: true,
+    }).flatMap((section) => section.parts)
 
     expect(parts).toEqual([
       { id: 'language', blocked: true, disabled: false },
@@ -48,7 +69,7 @@ describe('appSettingsSections', () => {
 
   it('always shows the demo-mode toggle, disabled until a passcode is set', () => {
     const advanced = (hasDemoPasscode: boolean) =>
-      appSettingsSections({ demoMode: false, hasDemoPasscode }).find(
+      appSettingsSections({ demoMode: false, hasDemoPasscode, developerMode: true }).find(
         (section) => section.id === 'advanced',
       )?.parts
 
@@ -65,10 +86,12 @@ describe('appSettingsSections', () => {
   })
 
   it.each([
-    { demoMode: false, hasDemoPasscode: false },
-    { demoMode: false, hasDemoPasscode: true },
-    { demoMode: true, hasDemoPasscode: false },
-    { demoMode: true, hasDemoPasscode: true },
+    { demoMode: false, hasDemoPasscode: false, developerMode: true },
+    { demoMode: false, hasDemoPasscode: true, developerMode: true },
+    { demoMode: true, hasDemoPasscode: false, developerMode: true },
+    { demoMode: true, hasDemoPasscode: true, developerMode: true },
+    { demoMode: false, hasDemoPasscode: true, developerMode: false },
+    { demoMode: true, hasDemoPasscode: true, developerMode: false },
   ])('never renders a section with nothing in it (%o)', (state) => {
     for (const section of appSettingsSections(state)) {
       expect(section.parts.length, section.id).toBeGreaterThan(0)

@@ -64,12 +64,15 @@ const SECTIONS: SectionSpec[] = [
 export function appSettingsSections(state: {
   demoMode: boolean
   hasDemoPasscode: boolean
+  developerMode: boolean
 }): AppSettingsSectionLayout[] {
   return SECTIONS.map((section) => ({
     id: section.id,
     heading: section.heading,
     parts: section.parts
       .filter((part) => !(state.demoMode && part.demo === 'hide'))
+      // Remote inference is a developer preview; the same flag hides it as the debug controls.
+      .filter((part) => part.id !== 'remoteKernel' || state.developerMode)
       .map((part) => ({
         id: part.id,
         blocked: state.demoMode && part.demo === 'block',

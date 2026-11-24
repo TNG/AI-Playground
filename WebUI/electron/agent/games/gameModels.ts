@@ -21,6 +21,8 @@ export type ImportedAsset = {
   scriptPath: string
   libPath: string
   bytes: number
+  /** A sprite image with no alpha channel: it shows as a rectangle in the scene. */
+  opaque?: boolean
 }
 
 function bundledThreeLib(): string {
@@ -66,6 +68,16 @@ const SPRITE_TYPES: Record<string, string> = {
 }
 const MAX_SPRITE_BYTES = 8 * 1024 * 1024
 
+// Read off the PNG header (colour type 4 or 6, or a tRNS chunk): image models
+// write plain RGB, and only the Remove Background workflow adds alpha. WebP is
+// given the benefit of the doubt.
+function hasNoAlpha(image: Buffer, mime: string): boolean {
+  if (mime === 'image/jpeg') return true
+  if (mime !== 'image/png' || image.length < 26) return false
+  const colourType = image[25]
+  return colourType !== 4 && colourType !== 6 && !image.includes('tRNS')
+}
+
 /** An image as sprites/<name>.js, for THREE.loadGameTexture / THREE.makeGameSprite. */
 export function importGameSprite(
   workspaceDir: string,
@@ -95,7 +107,13 @@ export function importGameSprite(
       `;(window.GAME_SPRITES = window.GAME_SPRITES || {})[${JSON.stringify(name)}] =\n` +
       `  'data:${mime};base64,${image.toString('base64')}'\n`,
   )
-  return { name, scriptPath, libPath: THREE_LIB_PATH, bytes: image.length }
+  return {
+    name,
+    scriptPath,
+    libPath: THREE_LIB_PATH,
+    bytes: image.length,
+    opaque: hasNoAlpha(image, mime),
+  }
 }
 
 export function importGameModel(

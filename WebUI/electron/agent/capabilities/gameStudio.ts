@@ -148,7 +148,9 @@ function gameStudioSkill(mediaTools: string[]): SkillSource {
       '  presses Space, then steers, and reports `state title→playing` when that worked.',
       `- The model comes once the game plays: concept art first, with ${MEDIA_TOOL} — one object,`,
       '  whole and centred, in a three-quarter view on a plain light background, with no ground,',
-      '  shadow or text. Then the image-to-3D workflow the tool lists (for example Pixel3D-Trellis),',
+      '  shadow or text. Make it a shaded render with volume, never pixel art or a flat icon,',
+      "  whatever the game's 2D art looks like: image-to-3D turns a flat picture into a flat model.",
+      '  Then the image-to-3D workflow the tool lists (for example Pixel3D-Trellis),',
       '  with that image as the source: no prompt needed, the game-ready variant is chosen for you,',
       '  and it takes several minutes. Then',
       '  `game {"action":"import_model","path":"<the .glb from savedFiles>","modelName":"enemy"}`',
@@ -160,6 +162,11 @@ function gameStudioSkill(mediaTools: string[]): SkillSource {
       '  and `sprite: "rock"` on that kind in `MODELS`. Never hand an image path to',
       '  `THREE.TextureLoader`: WebGL refuses an image file once the game is played from disk, and',
       '  the preview hides that, so it breaks only for the user.',
+      '- An image that already exists but still shows its background is cut out, not made again:',
+      '  ask for Remove Background with that image as `sourceImagePath`.',
+      '- Ground tiles (grass, path, base) are imported with `import_sprite` too, but drawn flat:',
+      "  `THREE.loadGameTexture('grass')` once per kind, as the `map` of the tile meshes' material.",
+      '  They keep their background; a generated tile left unimported is just a coloured box.',
       '- One or two models per game: every conversion holds the GPU for minutes.',
       '- Keep `window.__game` on the game state (wave, lives, enemies alive): the probe can see that',
       '  pixels changed, but only your hook says whether the game is being played.',
@@ -307,9 +314,20 @@ function importedSpriteText(imported: ImportedAsset): string {
     `below its "models:" comment (keep the comment), then set sprite: '${imported.name}' on the`,
     'matching entry of the MODELS map in game.js (add an entry if the kind is new).',
     'makeObject(kind) then hands out a camera-facing sprite of it instead of a box.',
+    `For a ground tile or anything lying flat, use the image as a texture instead: load it once`,
+    `with THREE.loadGameTexture('${imported.name}') and share it as the map of every such tile's`,
+    'MeshStandardMaterial.',
     `Without the scaffold: THREE.makeGameSprite('${imported.name}', size) after loading that script.`,
     'Never load the image file itself into the 3D scene: WebGL refuses it once the game is',
     'played from disk, even though the preview shows it.',
+    ...(imported.opaque
+      ? [
+          'This image has no transparency, so it shows as a rectangle with its background. That',
+          'is right for a ground tile; for anything standing in the scene, have media run the',
+          'Remove Background workflow on this image (its path as sourceImagePath) and import',
+          'the cut-out under the same name.',
+        ]
+      : []),
   ].join('\n')
 }
 

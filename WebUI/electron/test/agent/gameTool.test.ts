@@ -276,6 +276,31 @@ describe('game tool, 3D models', () => {
     expect(sprites.rock).toBe(`data:image/png;base64,${png.toString('base64')}`)
   })
 
+  // A tower defence imported its level-2 and level-3 towers straight from the
+  // image model, white box and all, because nothing said they still had one.
+  it('says when a sprite has no transparency, and how to cut it out', async () => {
+    const pngWithColourType = (colourType: number) => {
+      const header = Buffer.alloc(33)
+      Buffer.from('\x89PNG\r\n\x1a\n', 'binary').copy(header)
+      header.write('IHDR', 12)
+      header[25] = colourType
+      return header
+    }
+    fs.mkdirSync(path.join(workspaceDir, 'generated'), { recursive: true })
+    fs.writeFileSync(path.join(workspaceDir, 'generated/rgb.png'), pngWithColourType(2))
+    fs.writeFileSync(path.join(workspaceDir, 'generated/rgba.png'), pngWithColourType(6))
+    noteGeneratedMedia(workspaceDir, ['generated/rgb.png', 'generated/rgba.png'])
+    const tool = await gameToolFor(workspaceDir)
+    const run = async (file: string, modelName: string) =>
+      textOf(await tool.execute('call-1', { action: 'import_sprite', path: file, modelName }))
+
+    const opaque = await run('generated/rgb.png', 'tower')
+    expect(opaque).toContain('This image has no transparency')
+    expect(opaque).toContain('Remove Background workflow on this image')
+    expect(await run('generated/rgba.png', 'tower')).not.toContain('no transparency')
+    expect(opaque).toContain("THREE.loadGameTexture('tower')")
+  })
+
   it('refuses a sprite no media call produced, or a file that is not an image', async () => {
     writeWorkspaceFile('generated/made-up.png')
     writeModel('attachments/ship.glb')

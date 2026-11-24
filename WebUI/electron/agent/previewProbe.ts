@@ -227,9 +227,18 @@ export const PROBE_SCRIPT = `(function () {
     return found ? out : null
   }
 
+  function hasNaNVertex(geometry) {
+    var position = geometry && geometry.attributes && geometry.attributes.position
+    if (!position || !position.array) return false
+    var values = position.array
+    for (var i = 0; i < values.length; i++) if (values[i] !== values[i]) return true
+    return false
+  }
+
   // Read off the scene the game bundle last rendered (lib/three-game.js records
   // it), so a 3D game is checked even after its own debug hook was rewritten.
-  // A NaN anywhere in an object's transform makes three.js skip it silently.
+  // A NaN in an object's transform or vertices makes three.js skip it silently:
+  // a ground built from a CONFIG field the agent deleted is a NaN-sized plane.
   function inspectScene() {
     var T = window.THREE
     var last = T && T.__lastRender
@@ -251,6 +260,10 @@ export const PROBE_SCRIPT = `(function () {
             out.broken++
             return
           }
+        }
+        if (hasNaNVertex(object.geometry)) {
+          out.broken++
+          return
         }
         if (frustum.intersectsBox(box.setFromObject(object))) out.inView++
       })
@@ -441,7 +454,7 @@ export function formatProbeReport(report: ProbeReport): string {
     lines.push(
       `3D scene: ${scene.objects} objects, ${scene.inView} in the camera's view` +
         (scene.broken > 0
-          ? `, ${scene.broken} with NaN in position/rotation/scale (never drawn)`
+          ? `, ${scene.broken} with NaN in their transform or geometry (never drawn)`
           : ''),
     )
   }
@@ -492,8 +505,9 @@ function verdict(report: ProbeReport): string {
   const broken = report.scene?.broken ?? 0
   if (broken > 0) {
     return (
-      `${broken} 3D objects have NaN in their position, rotation or scale, so three.js skips ` +
-      'them. Look for arithmetic on a value that is undefined, e.g. a game field reset() never sets.'
+      `${broken} 3D objects have NaN in their position, rotation, scale or geometry, so ` +
+      'three.js skips them. Look for arithmetic on a value that is undefined — a game field ' +
+      'reset() never sets, or a CONFIG key another section still reads.'
     )
   }
   // Reported by the 3D scaffold's hook: a 3D scene can be fully drawn and

@@ -1184,9 +1184,10 @@ on Windows, `~/AI-Playground/games` elsewhere — and every game folder holds it
   variant — 1024 textures, 50k faces — which agent tools pick when no variant is named. The probe
   reads a WebGL canvas only when the renderer has `preserveDrawingBuffer: true`. The bundle's
   `WebGLRenderer` records the last scene and camera it rendered (`THREE.__lastRender`), so the
-  probe counts objects in view and objects with a `NaN` transform — which three.js skips without a
-  word — even after the agent rewrote the scaffold's `window.__game` hook (a tower-defence run's
-  enemies were invisible from `Math.sin(undefined)` while the canvas read 68% drawn). It also
+  probe counts objects in view and objects with `NaN` in their transform or vertices — which
+  three.js skips without a word — even after the agent rewrote the scaffold's `window.__game` hook
+  (a tower-defence run's enemies were invisible from `Math.sin(undefined)` while the canvas read
+  68% drawn; a lane runner lost its ground when a config rewrite dropped `arena`). It also
   counts calls into the page's key listeners per press, so "delivered and ignored" no longer reads
   as "the probe cannot press keys".
 - The agent fills the library card itself with the `game` tool (`set_metadata`, `set_icon`),

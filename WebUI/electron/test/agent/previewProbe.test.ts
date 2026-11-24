@@ -151,9 +151,9 @@ describe('formatProbeReport', () => {
       scene: { objects: 12, broken: 4, inView: 8 },
     })
     expect(text).toContain(
-      "3D scene: 12 objects, 8 in the camera's view, 4 with NaN in position/rotation/scale",
+      "3D scene: 12 objects, 8 in the camera's view, 4 with NaN in their transform or geometry",
     )
-    expect(text).toMatch(/Verdict: 4 3D objects have NaN in their position/)
+    expect(text).toMatch(/Verdict: 4 3D objects have NaN in their position, rotation, scale/)
   })
 
   // A 3D scene can be drawn and animated with the player behind the camera.

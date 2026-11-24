@@ -218,6 +218,8 @@ const GAME_JS_3D = `// This game already runs in 3D: a three.js scene with a cam
 // "// === name ===" markers rather than rewriting the file.
 
 // === config ===
+// The scene section reads background, ground and arena: keep them when you
+// rewrite this block, or the ground is built from undefined and vanishes.
 const CONFIG = {
   background: 0x0b1020,
   ground: 0x1d2b3a,

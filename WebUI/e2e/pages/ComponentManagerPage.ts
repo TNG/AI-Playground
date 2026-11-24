@@ -115,7 +115,7 @@ export class ComponentManagerPage {
     return this.tabPanel.getByRole('heading', { name: 'Hybrid Cloud Setup', exact: true })
   }
 
-  /** The sub-view footer's Back, returning to the Component list. */
+  /** The sub-view header's Back, returning to the Component list. */
   get backButton(): Locator {
     return this.tabPanel.getByRole('button', { name: '← Back', exact: true })
   }

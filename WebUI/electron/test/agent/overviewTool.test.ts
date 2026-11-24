@@ -174,6 +174,14 @@ describe('overview_data', () => {
     expect(named.window).toEqual({ from: TODAY, to: TODAY + DAY })
   })
 
+  it('accepts a kind tag in range beside the real field, and ignores its case', async () => {
+    const tagged = await dataWith(hostFor(), { range: 'lastHours', lastHours: 1 })
+    expect(tagged.window).toEqual({ from: NOW - HOUR, to: NOW })
+
+    const upper = await dataWith(hostFor(), { range: 'LAST-24H' })
+    expect(upper.window).toEqual({ from: NOW - DAY, to: NOW })
+  })
+
   it('accepts a window a model sent as a JSON string or a string number', async () => {
     const nested = await dataWith(hostFor(), { range: JSON.stringify({ lastHours: 2 }) })
     expect(nested.window).toEqual({ from: NOW - 2 * HOUR, to: NOW })

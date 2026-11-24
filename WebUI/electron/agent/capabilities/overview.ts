@@ -40,12 +40,14 @@ export const OVERVIEW_SUMMARY_CAP = 600
  */
 const RANGE_PROPERTIES: Record<string, unknown> = {
   range: {
+    // Deliberately not an `enum`: a grammar-constrained model reads the sibling fields as a
+    // kind tag ("range": "lastHours") and an enum turns that into a hard validation failure
+    // it cannot learn from. An unknown value is ignored and the siblings are used.
     type: 'string',
-    enum: [...OVERVIEW_NAMED_RANGES],
     description:
-      'A named range: "last-24h" rolls back 24 hours from now, "today" and "yesterday" are ' +
-      'local calendar days, "last-7-days" and "last-30-days" start at local midnight. Use this, ' +
-      'or lastHours, or from+to — never more than one.',
+      'The name of a range: "last-24h" (24 hours back from now), "today", "yesterday", ' +
+      '"last-7-days" or "last-30-days" (those two start at local midnight). Leave it out when ' +
+      'you pass lastHours or from+to; it is not a tag for which field you used.',
   },
   lastHours: {
     type: 'integer',
@@ -137,11 +139,17 @@ function hoursOf(value: unknown): number | null {
   return whole ? (hours as number) : null
 }
 
+function namedRangeOf(value: string): OverviewRangeInput | null {
+  const key = value.trim().toLowerCase()
+  return (OVERVIEW_NAMED_RANGES as readonly string[]).includes(key)
+    ? (key as OverviewRangeInput)
+    : null
+}
+
 function rangeOf(value: unknown): OverviewRangeInput | null {
   if (typeof value === 'string') {
-    if ((OVERVIEW_NAMED_RANGES as readonly string[]).includes(value)) {
-      return value as OverviewRangeInput
-    }
+    const named = namedRangeOf(value)
+    if (named) return named
     const parsed = jsonObjectOf(value)
     return parsed ? rangeOf(parsed) : null
   }
@@ -157,6 +165,8 @@ function rangeOf(value: unknown): OverviewRangeInput | null {
 
 /** The window as the tool's arguments carry it: the flat fields, or one `range` value. */
 function rangeOfParams(params: Record<string, unknown>): OverviewRangeInput | null {
+  // `range` may be a name, or a model's kind tag ("lastHours") beside the real fields;
+  // an unrecognised value simply falls through to them.
   const viaRange = rangeOf(params.range)
   if (viaRange) return viaRange
   const hours = hoursOf(params.lastHours)

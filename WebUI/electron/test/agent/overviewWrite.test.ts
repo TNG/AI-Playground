@@ -240,6 +240,18 @@ describe('overview_write', () => {
     expect(html).not.toContain('<ol')
   })
 
+  it('accepts the window a model sends: a kind tag in range beside lastHours', async () => {
+    const id = await titled(await seedSession([historyEntry({ timestamp: NOW - HOUR })]), 'Tagged')
+
+    const result = await writeJson(await writeTool(hostFor()), {
+      range: 'lastHours',
+      lastHours: 1,
+      summaries: { [id]: 'A quiet hour.' },
+    })
+
+    expect(result).toMatchObject({ written: true, window: { from: NOW - HOUR, to: NOW } })
+  })
+
   it('escapes the Title and the summary it writes', async () => {
     const id = await titled(await seedSession([historyEntry({})]), '<b>Bold</b> & "quoted"')
     const host = hostFor()

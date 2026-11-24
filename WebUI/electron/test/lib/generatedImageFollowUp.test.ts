@@ -46,6 +46,16 @@ describe('attachGeneratedImageFollowUps', () => {
     expect(messages.filter((message) => message.role === 'user')).toHaveLength(1)
   })
 
+  // A Home Agent turn took the attached result for a new photo and edited it again.
+  it('says the attached image is the result, not a new image from the user', async () => {
+    const messages = await attachGeneratedImageFollowUps([toolMessage()], {
+      read: async () => 'data:image/png;base64,red',
+      vision: true,
+    })
+    const followUp = messages.find((message) => message.role === 'user')
+    expect(JSON.stringify(followUp?.content)).toContain('not a new image from the user')
+  })
+
   it('does not attach a file part when the model has no vision', async () => {
     const read = vi.fn(async () => 'data:image/png;base64,red')
     const messages = await attachGeneratedImageFollowUps([toolMessage()], {

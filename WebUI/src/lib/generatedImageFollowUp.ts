@@ -108,11 +108,20 @@ async function readImage(url: string, read: GeneratedImageReader): Promise<strin
   return await read(url)
 }
 
+// It has to be a user message (tool results cannot carry images on the
+// OpenAI-compatible wire), so it must not read like one: "Here is the
+// generated image to inspect", right after "Make it anime", was taken for a
+// new photo and edited a second time.
+const FOLLOW_UP_TEXT =
+  'Attached below is what the tool call above produced, so you can check it. It is the ' +
+  'finished result of that call, not a new image from the user: do not process it again ' +
+  'unless the user asks for another change.'
+
 function followUpMessage(dataUris: string[]): ModelMessage {
   return {
     role: 'user',
     content: [
-      { type: 'text', text: 'Here is the generated image to inspect:' },
+      { type: 'text', text: FOLLOW_UP_TEXT },
       ...dataUris.map((dataUri) => ({
         type: 'file' as const,
         mediaType: mediaTypeOf(dataUri),

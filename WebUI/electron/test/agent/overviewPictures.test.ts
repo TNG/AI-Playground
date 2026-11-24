@@ -121,12 +121,20 @@ function textOf(result: unknown): string {
     .join('\n')
 }
 
-async function write(): Promise<{ result: Record<string, unknown>; html: string }> {
+async function write(
+  covers?: Record<string, string>,
+): Promise<{ result: Record<string, unknown>; html: string }> {
   const host = hostFor()
   const tools = await overviewCapability.buildTools!(host)
   const tool = tools.find((candidate) => candidate.name === 'overview_write') as unknown as Tool
   const result = JSON.parse(
-    textOf(await tool.execute('call-1', { range: 'last-24h', opening: 'A quiet day.' })),
+    textOf(
+      await tool.execute('call-1', {
+        range: 'last-24h',
+        opening: 'A quiet day.',
+        ...(covers ? { covers } : {}),
+      }),
+    ),
   ) as Record<string, unknown>
   const html = await fs.readFile(path.join(host.workspaceDir, String(result.path)), 'utf8')
   return { result, html }
@@ -200,6 +208,37 @@ async function seedImageSession(key: string, updatedAt = NOW): Promise<string> {
   await mutateSession(id, (file) => ({ ...file, updatedAt }))
   await setSessionIncludedInOverviews(id, true)
   return id
+}
+
+/** A Session with several picture candidates, newest first by timestamp. */
+async function seedPictureSession(
+  pictures: { key: string; time: number }[],
+): Promise<{ id: string; paths: Record<string, string> }> {
+  const { id } = await createSession()
+  const paths: Record<string, string> = {}
+  for (const picture of pictures) {
+    const filePath = path.join(sessionPaths(id).filesDir, `${picture.key}.png`)
+    await writeFile(filePath, picture.key)
+    paths[picture.key] = filePath
+  }
+  await writeHistoryLines(
+    id,
+    pictures.map((picture) =>
+      JSON.stringify(
+        historyEntry({
+          kind: 'image',
+          preset: 'Image Gen',
+          prompt: picture.key,
+          timestamp: picture.time,
+          artifacts: [{ path: `files/${picture.key}.png`, mediaType: 'image' }],
+        }),
+      ),
+    ),
+  )
+  const updatedAt = Math.max(...pictures.map((picture) => picture.time))
+  await mutateSession(id, (file) => ({ ...file, updatedAt }))
+  await setSessionIncludedInOverviews(id, true)
+  return { id, paths }
 }
 
 /** One `<section class="session">` block per reported Session, in report order. */
@@ -383,6 +422,59 @@ describe('Overview pictures', () => {
     expect(decoded).toContain('budget-3')
     expect(decoded).toContain('budget-2')
     expect(decoded).not.toContain('budget-1')
+  })
+
+  it('uses the picture the agent picked for a Session', async () => {
+    const session = await seedPictureSession([
+      { key: 'newest', time: NOW - HOUR },
+      { key: 'chosen', time: NOW - 5 * HOUR },
+    ])
+
+    const { result, html } = await write({ [session.id]: session.paths.chosen })
+
+    expect(result).toMatchObject({ written: true, pictures: 1, picturesOmitted: 0 })
+    expect(imageSources(html)).toEqual([dataUriOf('chosen')])
+    expect(image.resizeCalls.map((call) => call.key)).toContain('chosen')
+    expect(image.resizeCalls.map((call) => call.key)).not.toContain('newest')
+  })
+
+  it('falls back to the newest picture when the agent leaves a Session out', async () => {
+    await seedPictureSession([
+      { key: 'newest', time: NOW - HOUR },
+      { key: 'older', time: NOW - 5 * HOUR },
+    ])
+
+    const { html } = await write()
+
+    expect(imageSources(html)).toEqual([dataUriOf('newest')])
+    expect(image.resizeCalls.map((call) => call.key)).not.toContain('older')
+  })
+
+  it('applies the page budget to the chosen pictures', async () => {
+    image.extraBytes.set('big-a', 3_000_000)
+    image.extraBytes.set('big-b', 3_000_000)
+    image.extraBytes.set('big-c', 3_000_000)
+    const first = await seedPictureSession([
+      { key: 'newest-a', time: NOW - HOUR },
+      { key: 'big-a', time: NOW - 2 * HOUR },
+    ])
+    const second = await seedPictureSession([
+      { key: 'newest-b', time: NOW - 2 * HOUR },
+      { key: 'big-b', time: NOW - 3 * HOUR },
+    ])
+    const third = await seedPictureSession([
+      { key: 'newest-c', time: NOW - 3 * HOUR },
+      { key: 'big-c', time: NOW - 4 * HOUR },
+    ])
+
+    const { result, html } = await write({
+      [first.id]: first.paths['big-a'],
+      [second.id]: second.paths['big-b'],
+      [third.id]: third.paths['big-c'],
+    })
+
+    expect(result).toMatchObject({ written: true, pictures: 1, picturesOmitted: 2 })
+    expect(imageSources(html)).toEqual([dataUriOf('big-a', 3_000_000)])
   })
 
   it('leaves a Session with no picture alone, and a decode failure is only that', async () => {

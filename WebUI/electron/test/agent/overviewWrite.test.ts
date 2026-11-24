@@ -54,6 +54,7 @@ const {
   createSession,
   mutateSession,
   resetSessionsForTest,
+  sessionPaths,
   setSessionDeps,
   setSessionIncludedInOverviews,
 } = await import('../../session/sessions')
@@ -139,6 +140,47 @@ async function seedSession(
   await mutateSession(id, (file) => ({ ...file, updatedAt: newest }))
   await setSessionIncludedInOverviews(id, options.included ?? true)
   return id
+}
+
+async function seedPictureSession(
+  key: string,
+  time = NOW - HOUR,
+): Promise<{ id: string; path: string }> {
+  const { id } = await createSession()
+  const picturePath = path.join(sessionPaths(id).filesDir, `${key}.png`)
+  await fs.mkdir(path.dirname(picturePath), { recursive: true })
+  await fs.writeFile(picturePath, key)
+  await writeHistoryLines(id, [
+    JSON.stringify(
+      historyEntry({
+        kind: 'image',
+        preset: 'Image Gen',
+        prompt: key,
+        timestamp: time,
+        artifacts: [{ path: `files/${key}.png`, mediaType: 'image' }],
+      }),
+    ),
+  ])
+  await mutateSession(id, (file) => ({ ...file, updatedAt: time }))
+  await setSessionIncludedInOverviews(id, true)
+  return { id, path: picturePath }
+}
+
+async function writeText(
+  host: Host,
+  range: unknown,
+  opening: string,
+  covers?: Record<string, string>,
+): Promise<string> {
+  return textOf(
+    await (
+      await writeTool(host)
+    ).execute('call-1', {
+      range,
+      opening,
+      ...(covers ? { covers } : {}),
+    }),
+  )
 }
 
 async function htmlFiles(): Promise<string[]> {
@@ -300,5 +342,59 @@ describe('overview_write', () => {
     const html = await fs.readFile(path.join(host.workspaceDir, String(result.path)), 'utf8')
     expect(html).toContain('<html lang="de">')
     expect(html).toContain('Überblick: 2026-11-23 15:30 bis 2026-11-24 15:30')
+  })
+
+  it("refuses a picture that is another Session's candidate", async () => {
+    const first = await seedPictureSession('first-picture')
+    const second = await seedPictureSession('second-picture')
+    const host = hostFor()
+
+    const text = await writeText(host, 'last-24h', 'An opening.', { [first.id]: second.path })
+
+    expect(text).toMatch(/belongs to/i)
+    expect(text).toContain(second.path)
+    expect(await htmlFiles()).toEqual([])
+  })
+
+  it('refuses a picture from outside the range', async () => {
+    const { id } = await createSession()
+    const outsidePath = path.join(sessionPaths(id).filesDir, 'last-month.png')
+    await fs.mkdir(path.dirname(outsidePath), { recursive: true })
+    await fs.writeFile(outsidePath, 'old')
+    await writeHistoryLines(id, [
+      JSON.stringify(
+        historyEntry({
+          kind: 'image',
+          preset: 'Image Gen',
+          prompt: 'last month',
+          timestamp: NOW - 10 * DAY,
+          artifacts: [{ path: 'files/last-month.png', mediaType: 'image' }],
+        }),
+      ),
+      JSON.stringify(historyEntry({ prompt: 'today', timestamp: NOW - HOUR })),
+    ])
+    await mutateSession(id, (file) => ({ ...file, updatedAt: NOW }))
+    await setSessionIncludedInOverviews(id, true)
+    const host = hostFor()
+
+    const text = await writeText(host, 'last-24h', 'An opening.', { [id]: outsidePath })
+
+    expect(text).toMatch(/no picture candidate/i)
+    expect(text).toContain(outsidePath)
+    expect(await htmlFiles()).toEqual([])
+  })
+
+  it('refuses a Session the report does not show', async () => {
+    await seedPictureSession('shown')
+    const quiet = await seedSession([historyEntry({ timestamp: NOW - 10 * DAY })])
+    const host = hostFor()
+
+    const text = await writeText(host, 'last-24h', 'An opening.', {
+      [quiet]: path.join(dirs.real, 'anything.png'),
+    })
+
+    expect(text).toMatch(/no Session/i)
+    expect(text).toContain(quiet)
+    expect(await htmlFiles()).toEqual([])
   })
 })

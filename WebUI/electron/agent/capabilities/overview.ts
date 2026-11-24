@@ -71,6 +71,15 @@ const OVERVIEW_WRITE_SCHEMA: Record<string, unknown> = {
         'Your own opening paragraph for the Overview, as plain text. It is the first ' +
         `paragraph of the page; anything beyond ${OVERVIEW_OPENING_CAP} characters is cut off.`,
     },
+    covers: {
+      type: 'object',
+      description:
+        'Optional. Maps a Session id from `overview_data` to one of the cover paths it returned ' +
+        'for that Session, to choose the picture that fits what you wrote. Leave a Session out ' +
+        'and its newest picture is used. A path from another Session, from outside the range, ' +
+        'or a Session the report does not show is refused.',
+      additionalProperties: { type: 'string' },
+    },
   },
   required: ['range', 'opening'],
 }
@@ -129,6 +138,74 @@ function reportOf(
   }
 }
 
+type CoverSelection = { ok: true; bySession: Map<string, string> } | { ok: false; message: string }
+
+/** Only a path this range's data result offered for that Session may be chosen. */
+function coverSelectionOf(data: OverviewData, value: unknown): CoverSelection {
+  if (value === undefined || value === null) return { ok: true, bySession: new Map() }
+  if (!isRecord(value) || Array.isArray(value)) {
+    return {
+      ok: false,
+      message:
+        '"covers" must be an object mapping a Session id to one of the picture paths ' +
+        '`overview_data` returned for that Session. Leave it out to use each Session’s newest picture.',
+    }
+  }
+  const bySession = new Map<string, string>()
+  for (const [sessionId, chosen] of Object.entries(value)) {
+    if (typeof chosen !== 'string') {
+      return {
+        ok: false,
+        message: `The picture for Session "${sessionId}" must be one of the paths overview_data returned.`,
+      }
+    }
+    const session = data.sessions.find((candidate) => candidate.id === sessionId)
+    if (!session) {
+      const offered = data.sessions.map((entry) => `"${entry.title}" (${entry.id})`).join(', ')
+      return {
+        ok: false,
+        message:
+          `No Session "${sessionId}" is in this Overview, so its picture cannot be used. ` +
+          (offered
+            ? `Choose among the Sessions overview_data returned: ${offered}.`
+            : 'Do not pass a picture for it.'),
+      }
+    }
+    if (session.covers.some((candidate) => candidate.path === chosen)) {
+      bySession.set(sessionId, chosen)
+      continue
+    }
+    const owner = data.sessions.find((candidate) =>
+      candidate.covers.some((cover) => cover.path === chosen),
+    )
+    if (owner) {
+      return {
+        ok: false,
+        message:
+          `That picture ("${chosen}") belongs to "${owner.title}", not "${session.title}". ` +
+          `Pick one of "${session.title}"’s paths from overview_data, or leave it out to use ` +
+          'its newest picture.',
+      }
+    }
+    if (session.covers.length === 0) {
+      return {
+        ok: false,
+        message:
+          `"${session.title}" has no picture candidate in this range, so "${chosen}" cannot be used. ` +
+          'Leave it out and the Session will have no picture.',
+      }
+    }
+    return {
+      ok: false,
+      message:
+        `"${session.title}" has no candidate at "${chosen}". Choose one of the paths ` +
+        `overview_data returned for it (${session.covers.map((cover) => cover.path).join(', ')}), ` +
+        'or leave it out to use its newest picture.',
+    }
+  }
+  return { ok: true, bySession }
+}
+
 function sameFolder(a: string, b: string): boolean {
   const normalize = (value: string) => path.resolve(value).replace(/\\/g, '/')
   const left = normalize(a)
@@ -174,13 +251,16 @@ type OverviewPictures = { bySession: Map<string, string>; omitted: number }
  */
 async function resolvePictures(
   sessions: readonly OverviewSessionData[],
+  chosen: ReadonlyMap<string, string>,
 ): Promise<OverviewPictures> {
   const bySession = new Map<string, string>()
   let remaining = OVERVIEW_PICTURE_BUDGET_BYTES
   let budgetBound = false
   let omitted = 0
   for (const session of sessions) {
-    const candidate = session.covers[0]
+    const wanted = chosen.get(session.id)
+    const candidate =
+      (wanted && session.covers.find((cover) => cover.path === wanted)) || session.covers[0]
     if (!candidate) continue
     if (budgetBound) {
       omitted += 1
@@ -235,12 +315,18 @@ async function buildOverviewTools(host: CapabilityHost): Promise<ToolDefinition[
       description:
         'Render the Overview for a time range and write it into this Session’s Workspace as ' +
         'one self-contained HTML file, then return its link. Call it after `overview_data`, ' +
-        'with the same range and the opening paragraph you wrote. It re-reads the range itself, ' +
-        'so you cannot disagree with the page; when the range has nothing to report it writes ' +
-        'no file and tells you why. Never write the HTML yourself: this tool owns the page.',
+        'with the same range, the opening paragraph you wrote, and optionally `covers` to pick ' +
+        'each Session’s picture that fits the text (a Session left out uses its newest picture). ' +
+        'It re-reads the range itself, so you cannot disagree with the page, and it accepts no ' +
+        'picture it did not offer for that Session. When the range has nothing to report it ' +
+        'writes no file and tells you why. Never write the HTML yourself: this tool owns the page.',
       parameters: jsonSchemaParameters(OVERVIEW_WRITE_SCHEMA),
       execute: async (_toolCallId, params) => {
-        const { range, opening } = params as { range?: unknown; opening?: unknown }
+        const { range, opening, covers } = params as {
+          range?: unknown
+          opening?: unknown
+          covers?: unknown
+        }
         const input = rangeOf(range)
         if (!input) return textResult(invalidRange())
         if (typeof opening !== 'string') {
@@ -259,8 +345,10 @@ async function buildOverviewTools(host: CapabilityHost): Promise<ToolDefinition[
               message: data.message,
             })
           }
+          const selection = coverSelectionOf(data, covers)
+          if (!selection.ok) return textResult(selection.message)
           const chrome = (host.overviewChrome ?? {}) as OverviewChrome
-          const pictures = await resolvePictures(data.sessions)
+          const pictures = await resolvePictures(data.sessions, selection.bySession)
           const report = reportOf(data, opening, host.responseLocale ?? 'en-US', pictures.bySession)
           const fileName = overviewFileName(data.window)
           await fs.mkdir(host.workspaceDir, { recursive: true })

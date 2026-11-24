@@ -63,10 +63,13 @@ const props = defineProps<{
   groupRows: ComponentPanelBackendRow[]
   groupToggle: SetupWizardGroupToggle | null
   cloudRow: SetupWizardRowView
-  demoModeRow: SetupWizardRowView
+  /** Live mode has no Demo Mode row: that setting stays in App Settings. */
+  demoModeRow: SetupWizardRowView | null
   ungroupedRows: ComponentPanelBackendRow[]
   phisonRow: PhisonAidaptivRowViewModel | null
   coreServicesOpen: boolean
+  /** Shows the choices but changes nothing — the live tab's mode/device changes are later work. */
+  selectionReadOnly?: boolean
 }>()
 
 defineSlots<{
@@ -101,7 +104,8 @@ function backendOptionsRow(row: ComponentPanelBackendRow): ComponentPanelOptions
 }
 
 function featureOptionsRow(kind: 'cloud' | 'demo'): ComponentPanelOptionsRow {
-  return { kind, view: kind === 'cloud' ? props.cloudRow : props.demoModeRow }
+  if (kind === 'cloud') return { kind, view: props.cloudRow }
+  return { kind, view: props.demoModeRow! }
 }
 
 function toggleBackend(row: ComponentPanelBackendRow, enabled: boolean) {
@@ -115,6 +119,11 @@ function toggleFeature(kind: 'cloud' | 'demo', enabled: boolean) {
 function onSelectDevice(key: unknown) {
   if (typeof key === 'string') emit('selectDevice', key)
 }
+
+function onSelectMode(mode: ProductMode) {
+  if (props.selectionReadOnly) return
+  emit('selectMode', mode)
+}
 </script>
 
 <template>
@@ -127,13 +136,14 @@ function onSelectDevice(key: unknown) {
         <label
           v-for="option in modeOptions"
           :key="option.mode"
-          class="flex items-start gap-2.5 p-3 rounded-lg border cursor-pointer transition-colors"
-          :class="
+          class="flex items-start gap-2.5 p-3 rounded-lg border transition-colors"
+          :class="[
             selectedMode === option.mode
               ? 'border-primary bg-primary/10'
-              : 'border-border hover:border-muted/50'
-          "
-          @click="emit('selectMode', option.mode)"
+              : 'border-border hover:border-muted/50',
+            selectionReadOnly ? 'cursor-default' : 'cursor-pointer',
+          ]"
+          @click="onSelectMode(option.mode)"
         >
           <div class="shrink-0 mt-0.5">
             <div
@@ -192,7 +202,8 @@ function onSelectDevice(key: unknown) {
           <DropdownMenuTrigger as-child>
             <button
               type="button"
-              class="w-full flex items-center justify-between gap-2 p-3 rounded-lg border border-border hover:border-muted/50 transition-colors text-left"
+              :disabled="selectionReadOnly"
+              class="w-full flex items-center justify-between gap-2 p-3 rounded-lg border border-border transition-colors text-left disabled:opacity-60 disabled:hover:border-border enabled:hover:border-muted/50"
             >
               <span class="min-w-0">
                 <span class="block text-xs font-medium truncate">{{
@@ -253,6 +264,7 @@ function onSelectDevice(key: unknown) {
         <label class="flex items-center gap-2.5 pt-3 cursor-pointer">
           <Switch
             :model-value="overrideDeviceSelection"
+            :disabled="selectionReadOnly"
             @update:model-value="(v: boolean) => emit('overrideDevice', v)"
           />
           <span class="text-xs text-muted-foreground">
@@ -350,6 +362,7 @@ function onSelectDevice(key: unknown) {
           </SetupWizardRow>
 
           <SetupWizardRow
+            v-if="demoModeRow"
             :row="demoModeRow"
             compact
             @toggle="(v: boolean) => toggleFeature('demo', v)"
@@ -455,7 +468,7 @@ function onSelectDevice(key: unknown) {
           </div>
         </div>
       </div>
-      <p class="text-xs text-muted-foreground pt-3">
+      <p v-if="applyMode === 'draft'" class="text-xs text-muted-foreground pt-3">
         {{
           languages.SETUP_WIZARD_BACKENDS_INTRO ||
           'Required components will be installed automatically. Optional components can be toggled on or off.'

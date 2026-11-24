@@ -28,6 +28,9 @@ export const useUIStore = defineStore('ui', () => {
   let themePanelLeaveGuard: LeaveGuard = (leave) => leave()
 
   const agentLibrary = computed(() => agentLibraryView.value)
+  const componentManagerShowing = computed(
+    () => appSettingsOpen.value && appSettingsTab.value === 'components',
+  )
   const frontmost = computed<FrontmostSurface | null>(() => {
     if (appSettingsOpen.value) return appSettingsTab.value === 'models' ? 'models' : 'settings'
     return agentLibraryView.value ? 'agent' : null
@@ -77,6 +80,15 @@ export const useUIStore = defineStore('ui', () => {
     else openModelLibrary()
   }
 
+  function openComponentManager() {
+    openAppSettings('components')
+  }
+
+  function toggleComponentManager() {
+    if (componentManagerShowing.value) closeAppSettings()
+    else openComponentManager()
+  }
+
   function setAgentLibraryView(view: AgentLibraryView) {
     agentLibraryView.value = view
   }
@@ -124,8 +136,11 @@ export const useUIStore = defineStore('ui', () => {
     closeThemePanel,
     setThemePanelLeaveGuard,
     frontmost,
+    componentManagerShowing,
     openModelLibrary,
     toggleModelLibrary,
+    openComponentManager,
+    toggleComponentManager,
     agentLibrary,
     openAgentLibrary,
     selectLibraryAgent,

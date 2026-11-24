@@ -8,6 +8,7 @@ import { AgentModePage, type GameSummary } from './pages/AgentModePage'
 import { SpecificSettingsPage } from './pages/SpecificSettingsPage'
 import { DownloadDialogPage } from './pages/DownloadDialogPage'
 import { ModelLibraryPage } from './pages/ModelLibraryPage'
+import { ComponentManagerPage } from './pages/ComponentManagerPage'
 import { ToolSettingsPage } from './pages/ToolSettingsPage'
 import {
   AssistantSettingsPage,
@@ -79,6 +80,7 @@ export class AppDriver {
   readonly settings: SpecificSettingsPage
   readonly downloads: DownloadDialogPage
   readonly models: ModelLibraryPage
+  readonly components: ComponentManagerPage
   readonly tools: ToolSettingsPage
   readonly assistant: AssistantSettingsPage
 
@@ -91,6 +93,7 @@ export class AppDriver {
     this.settings = new SpecificSettingsPage(window)
     this.downloads = new DownloadDialogPage(window)
     this.models = new ModelLibraryPage(window)
+    this.components = new ComponentManagerPage(window)
     this.tools = new ToolSettingsPage(window)
     this.assistant = new AssistantSettingsPage(window)
   }

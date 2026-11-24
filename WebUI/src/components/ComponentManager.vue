@@ -1,0 +1,179 @@
+<script setup lang="ts">
+import { computed, onMounted, ref } from 'vue'
+import { useComponentManager, type ComponentRow } from '@/assets/js/store/componentManager'
+import { useProductMode } from '@/assets/js/store/productMode'
+import { useCloudMode } from '@/assets/js/store/cloudMode'
+import { useSetupWizard } from '@/assets/js/store/setupWizard'
+import { useI18N } from '@/assets/js/store/i18n'
+import type { BackendServiceName } from '@/assets/js/store/backendServices'
+import { CORE_DEPENDENT_BACKENDS } from '@/lib/wizardInstallDefaults'
+import { HYBRID_CLOUD_NAME } from '@/lib/cloudModeName'
+import { mapStatusToColor } from '@/lib/utils'
+import ComponentPanel, {
+  type ComponentPanelBackendRow,
+  type ComponentPanelToggleIntent,
+} from '@/components/ComponentPanel.vue'
+import type { SetupWizardRowView } from '@/components/SetupWizardRow.vue'
+import type { SetupWizardGroupToggle } from '@/components/SetupWizardGroup.vue'
+
+const manager = useComponentManager()
+const productModeStore = useProductMode()
+const cloudMode = useCloudMode()
+const wizard = useSetupWizard()
+const i18n = useI18N()
+const languages = i18n.state
+
+const coreServicesOpen = ref(false)
+
+onMounted(() => void manager.hydrateFromSettings())
+
+function t(key: string): string {
+  return languages[key] ?? key
+}
+
+const AI_PLAYGROUND_GROUP = ['ai-backend', 'home-agent-backend']
+const CORE_DEPENDENTS: BackendServiceName[] = [...CORE_DEPENDENT_BACKENDS]
+
+const coreRow = computed(() => manager.rows.find((row) => row.serviceName === 'ai-backend') ?? null)
+const coreDependentRows = computed(() =>
+  manager.rows.filter((row) => CORE_DEPENDENTS.includes(row.serviceName)),
+)
+const aiPlaygroundOptionalRows = computed(() =>
+  manager.rows.filter(
+    (row) => AI_PLAYGROUND_GROUP.includes(row.serviceName) && row.serviceName !== 'ai-backend',
+  ),
+)
+const ungroupedRows = computed(() =>
+  manager.rows.filter(
+    (row) =>
+      !AI_PLAYGROUND_GROUP.includes(row.serviceName) && !CORE_DEPENDENTS.includes(row.serviceName),
+  ),
+)
+
+function toRowView(row: ComponentRow): SetupWizardRowView {
+  return {
+    displayName: row.displayName,
+    statusColor: row.statusColor,
+    statusText: row.statusText,
+    versionDisplay: row.subtitle,
+    enabled: row.enabled,
+    toggleDisabled: row.toggleDisabled,
+    isInstalling: row.isInstalling,
+    installProgressText: row.installProgressText,
+    availableInCurrentMode: row.availableInCurrentMode,
+  }
+}
+
+function toPanelRows(rows: ComponentRow[]): ComponentPanelBackendRow[] {
+  return rows.map((row) => ({ serviceName: row.serviceName, view: toRowView(row) }))
+}
+
+const coreRowData = computed<ComponentPanelBackendRow | null>(() =>
+  coreRow.value ? { serviceName: coreRow.value.serviceName, view: toRowView(coreRow.value) } : null,
+)
+const coreDependentRowData = computed(() => toPanelRows(coreDependentRows.value))
+const aiPlaygroundOptionalRowData = computed(() => toPanelRows(aiPlaygroundOptionalRows.value))
+const ungroupedRowData = computed(() => toPanelRows(ungroupedRows.value))
+
+const groupToggle = computed<SetupWizardGroupToggle | null>(() => {
+  const toggleable = aiPlaygroundOptionalRows.value.filter((row) => !row.toggleDisabled)
+  if (toggleable.length === 0 && !cloudMode.isFeatureEnabled) return null
+  return {
+    enabled: toggleable.some((row) => row.enabled) || cloudMode.isFeatureEnabled,
+    disabled: aiPlaygroundOptionalRows.value.some((row) => row.isInstalling),
+  }
+})
+
+async function setAiPlaygroundGroup(value: boolean) {
+  for (const row of aiPlaygroundOptionalRows.value) {
+    if (row.toggleDisabled) continue
+    await manager.setEnabled(row.serviceName, value)
+  }
+  if (!value) await cloudMode.toggleFeature(false)
+}
+
+const cloudModeReady = computed(
+  () => cloudMode.isFeatureEnabled && !!cloudMode.activeProviderBaseUrl,
+)
+const cloudRow = computed<SetupWizardRowView>(() => ({
+  displayName: HYBRID_CLOUD_NAME,
+  infoTooltip:
+    'Adds an OpenAI-compatible endpoint to run inference on beside this device — hosted, cloud, or another machine on your LAN. No install: point it at a provider in its Setup screen.',
+  statusColor: !cloudMode.isFeatureEnabled
+    ? mapStatusToColor('notInstalled')
+    : cloudModeReady.value
+      ? mapStatusToColor('running')
+      : mapStatusToColor('notYetStarted'),
+  statusText: !cloudMode.isFeatureEnabled
+    ? languages.COM_DISABLED || 'Disabled'
+    : cloudModeReady.value
+      ? languages.COM_ENABLED || 'Enabled'
+      : 'Enabled — add a provider in Setup',
+  versionDisplay: '',
+  enabled: cloudMode.isFeatureEnabled,
+}))
+
+const modeOptions = computed(() => {
+  const catalog = productModeStore.hardwareRecommendation?.modeCatalog ?? []
+  return catalog.map((entry) => ({
+    mode: entry.mode,
+    experimental: entry.experimental,
+    titleOne: t(entry.ui.i18n.titleOne),
+    titleTwo: t(entry.ui.i18n.titleTwo),
+    subtitle: entry.ui.i18n.subtitle ? t(entry.ui.i18n.subtitle) : '',
+    description: t(entry.ui.i18n.description),
+    supportedHardware: t(entry.ui.i18n.supportedHardware),
+  }))
+})
+
+const recommendedMode = computed(
+  () => productModeStore.hardwareRecommendation?.recommendedMode ?? null,
+)
+
+const healthText = computed(() =>
+  (
+    languages.COMPONENT_MANAGER_HEALTH ||
+    '{running} running · {updates} with updates · {attention} needing attention'
+  )
+    .replace('{running}', String(manager.health.running))
+    .replace('{updates}', String(manager.health.updates))
+    .replace('{attention}', String(manager.health.attention)),
+)
+
+function onToggle({ row, enabled }: ComponentPanelToggleIntent) {
+  if (row.kind === 'backend') void manager.setEnabled(row.serviceName, enabled)
+  else if (row.kind === 'cloud') void cloudMode.toggleFeature(enabled)
+}
+</script>
+
+<template>
+  <div class="flex flex-col">
+    <p role="status" class="text-sm text-muted-foreground">
+      {{ healthText }}
+    </p>
+
+    <ComponentPanel
+      apply-mode="live"
+      selection-read-only
+      :mode-options="modeOptions"
+      :selected-mode="productModeStore.productMode"
+      :recommended-mode="recommendedMode"
+      :device-options="wizard.preferredDeviceOptions"
+      :selected-device-key="wizard.preferredDeviceKey(wizard.pendingPreferredDevice)"
+      :override-device-selection="false"
+      :core-row="coreRowData"
+      :core-dependent-rows="coreDependentRowData"
+      :group-rows="aiPlaygroundOptionalRowData"
+      :group-toggle="groupToggle"
+      :cloud-row="cloudRow"
+      :demo-mode-row="null"
+      :ungrouped-rows="ungroupedRowData"
+      :phison-row="wizard.phisonAidaptivRow"
+      :core-services-open="coreServicesOpen"
+      @group-toggle="setAiPlaygroundGroup"
+      @toggle="onToggle"
+      @toggle-phison="wizard.togglePhisonAidaptiv"
+      @update:core-services-open="(value: boolean) => (coreServicesOpen = value)"
+    />
+  </div>
+</template>

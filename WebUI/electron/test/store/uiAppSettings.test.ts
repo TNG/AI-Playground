@@ -219,3 +219,52 @@ describe('The theme panel', () => {
     expect(unsaved.asking).toBe(false)
   })
 })
+
+describe('The Component Manager tab', () => {
+  beforeEach(() => setActivePinia(createPinia()))
+
+  it('opens App Settings on the Component Manager tab from the header button', () => {
+    const ui = useUIStore()
+
+    ui.toggleComponentManager()
+
+    expect(ui.appSettingsOpen).toBe(true)
+    expect(ui.appSettingsTab).toBe('components')
+    expect(ui.componentManagerShowing).toBe(true)
+  })
+
+  it('closes App Settings when its pressed button is clicked again', () => {
+    const ui = useUIStore()
+    ui.toggleComponentManager()
+
+    ui.toggleComponentManager()
+
+    expect(ui.appSettingsOpen).toBe(false)
+    expect(ui.componentManagerShowing).toBe(false)
+  })
+
+  it('switches to the Component Manager tab when its button is clicked over another tab', () => {
+    const ui = useUIStore()
+    ui.openAppSettings('app')
+
+    ui.toggleComponentManager()
+
+    expect(ui.appSettingsOpen).toBe(true)
+    expect(ui.appSettingsTab).toBe('components')
+    expect(ui.componentManagerShowing).toBe(true)
+  })
+
+  it('is not pressed while another App Settings tab or no dialog shows', () => {
+    const ui = useUIStore()
+
+    expect(ui.componentManagerShowing).toBe(false)
+
+    ui.openAppSettings('app')
+
+    expect(ui.componentManagerShowing).toBe(false)
+
+    ui.openModelLibrary()
+
+    expect(ui.componentManagerShowing).toBe(false)
+  })
+})

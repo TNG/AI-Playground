@@ -81,6 +81,8 @@ const BROWSER_DEBUGGING_SKILL: SkillSource = {
     '   to start the game and then steer — and it reports what each one changed in',
     '   `window.__game` (`state title→playing`). Drive input this way rather than dispatching',
     '   events yourself: an event you dispatch reaches a window listener only if it bubbles.',
+    "   The presses are real DOM events and it says how often the page's key listeners ran;",
+    "   a key that ran a listener and changed nothing is the game's handler, not the probe.",
     '3. browser {"action":"console"} — the raw log, when the probe\'s first few errors are not',
     '   enough.',
     '4. Edit the workspace file (relative path, e.g. "game.js") to fix the root cause, then',

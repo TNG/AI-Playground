@@ -1182,7 +1182,13 @@ on Windows, `~/AI-Playground/games` elsewhere — and every game folder holds it
   hidden window drawing WebGL gets ~2 fps whatever `backgroundThrottling` says, and agents then
   tore apart working 3D games (deleting the generated model) chasing a "frozen loop". Models come from Pixel3D-Trellis's `Fast` ("Game-ready")
   variant — 1024 textures, 50k faces — which agent tools pick when no variant is named. The probe
-  reads a WebGL canvas only when the renderer has `preserveDrawingBuffer: true`.
+  reads a WebGL canvas only when the renderer has `preserveDrawingBuffer: true`. The bundle's
+  `WebGLRenderer` records the last scene and camera it rendered (`THREE.__lastRender`), so the
+  probe counts objects in view and objects with a `NaN` transform — which three.js skips without a
+  word — even after the agent rewrote the scaffold's `window.__game` hook (a tower-defence run's
+  enemies were invisible from `Math.sin(undefined)` while the canvas read 68% drawn). It also
+  counts calls into the page's key listeners per press, so "delivered and ignored" no longer reads
+  as "the probe cannot press keys".
 - The agent fills the library card itself with the `game` tool (`set_metadata`, `set_icon`),
   following the `html-game-studio` skill (which asks for `set_metadata` _first_ — all three 35B
   benchmark runs ran out of turns before naming their game); **Add to Arcade** in the game bar

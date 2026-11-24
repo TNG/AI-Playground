@@ -41,10 +41,32 @@ export const PROBE_SCRIPT = `(function () {
     note('Unhandled rejection: ' + ((reason && reason.stack) || reason))
   })
 
+  // Key listeners are wrapped so a press can report whether the game's own
+  // handler ran: "delivered and ignored" and "never arrived" look identical in
+  // pixels, and models read the silence as the probe being broken.
+  var keyCalls = 0
+  var wrapped = new WeakMap()
   var rawAdd = EventTarget.prototype.addEventListener
-  EventTarget.prototype.addEventListener = function (type) {
+  var rawRemove = EventTarget.prototype.removeEventListener
+  EventTarget.prototype.addEventListener = function (type, listener, options) {
     listeners[type] = (listeners[type] || 0) + 1
+    if (/^key/.test(type) && typeof listener === 'function') {
+      var wrapper = wrapped.get(listener)
+      if (!wrapper) {
+        wrapper = function () {
+          keyCalls++
+          return listener.apply(this, arguments)
+        }
+        wrapped.set(listener, wrapper)
+      }
+      return rawAdd.call(this, type, wrapper, options)
+    }
     return rawAdd.apply(this, arguments)
+  }
+  EventTarget.prototype.removeEventListener = function (type, listener, options) {
+    var wrapper = typeof listener === 'function' && wrapped.get(listener)
+    if (wrapper) rawRemove.call(this, type, wrapper, options)
+    return rawRemove.apply(this, arguments)
   }
 
   // Counting callbacks rather than trusting the game to report: a loop that
@@ -205,6 +227,39 @@ export const PROBE_SCRIPT = `(function () {
     return found ? out : null
   }
 
+  // Read off the scene the game bundle last rendered (lib/three-game.js records
+  // it), so a 3D game is checked even after its own debug hook was rewritten.
+  // A NaN anywhere in an object's transform makes three.js skip it silently.
+  function inspectScene() {
+    var T = window.THREE
+    var last = T && T.__lastRender
+    if (!last || !last.scene || !last.camera) return null
+    try {
+      var camera = last.camera
+      last.scene.updateMatrixWorld()
+      camera.updateMatrixWorld()
+      var view = new T.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse)
+      var frustum = new T.Frustum().setFromProjectionMatrix(view)
+      var box = new T.Box3()
+      var out = { objects: 0, broken: 0, inView: 0 }
+      last.scene.traverseVisible(function (object) {
+        if (!object.isMesh && !object.isSprite) return
+        out.objects++
+        var elements = object.matrixWorld.elements
+        for (var i = 0; i < 16; i++) {
+          if (!isFinite(elements[i])) {
+            out.broken++
+            return
+          }
+        }
+        if (frustum.intersectsBox(box.setFromObject(object))) out.inView++
+      })
+      return out
+    } catch (error) {
+      return null
+    }
+  }
+
   window.__aipgProbe = async function (options) {
     var keys = (options && options.keys) || ['ArrowLeft', ' ']
     var startFrames = frames
@@ -235,12 +290,19 @@ export const PROBE_SCRIPT = `(function () {
       var key = keys[i]
       var before = samplePixels(canvas)
       var target = inputTarget()
+      var callsBefore = keyCalls
       target.dispatchEvent(keyEvent('keydown', key))
       await wait(${KEY_HOLD_MS})
       var after = samplePixels(canvas)
       target.dispatchEvent(keyEvent('keyup', key))
-      report.keys.push({ key: key, delta: pixelDelta(before, after), game: readGameHook() })
+      report.keys.push({
+        key: key,
+        delta: pixelDelta(before, after),
+        game: readGameHook(),
+        handled: keyCalls - callsBefore,
+      })
     }
+    report.scene = inspectScene()
     report.errorCount = errors.length
     report.errors = errors.slice(0, 5)
     return report
@@ -269,8 +331,12 @@ export type ProbeReport = {
     key: string
     delta: number | null
     game?: Record<string, string | number | boolean> | null
+    /** Calls into the page's key listeners during this press (keydown and keyup). */
+    handled?: number
   }[]
   game?: Record<string, string | number | boolean> | null
+  /** The three.js scene last rendered, read after the key presses. */
+  scene?: { objects: number; broken: number; inView: number } | null
   errors?: string[]
   errorCount?: number
 }
@@ -365,12 +431,24 @@ export function formatProbeReport(report: ProbeReport): string {
       (key.delta === null
         ? `Pressed ${label}: could not compare pixels`
         : `Pressed ${label}: ${percent(key.delta)} of pixels changed`) +
+        (key.handled ? `; the page's key listeners ran ${key.handled}×` : '') +
         (changed ? `; game hook ${changed}` : ''),
     )
   }
 
-  if (report.game) {
-    const fields = Object.entries(report.game)
+  const scene = report.scene
+  if (scene) {
+    lines.push(
+      `3D scene: ${scene.objects} objects, ${scene.inView} in the camera's view` +
+        (scene.broken > 0
+          ? `, ${scene.broken} with NaN in position/rotation/scale (never drawn)`
+          : ''),
+    )
+  }
+
+  const game = latestGame(report)
+  if (game) {
+    const fields = Object.entries(game)
       .map(([name, value]) => `${name}=${value}`)
       .join(' ')
     lines.push(`Game hook: ${fields}`)
@@ -380,6 +458,12 @@ export function formatProbeReport(report: ProbeReport): string {
 
   lines.push(`Verdict: ${verdict(report)}`)
   return lines.join('\n')
+}
+
+/** The hook as the last key press left it, which is what the game is now. */
+function latestGame(report: ProbeReport): Record<string, string | number | boolean> | null {
+  const pressed = (report.keys ?? []).filter((key) => key.game)
+  return pressed.length > 0 ? (pressed[pressed.length - 1].game ?? null) : (report.game ?? null)
 }
 
 /** "state title→playing, entities 0→2", or nothing when no field moved. */
@@ -405,14 +489,54 @@ function verdict(report: ProbeReport): string {
   if (report.canvas && ink !== null && ink !== undefined && ink < MIN_INK) {
     return 'the canvas is effectively blank. Check that draw() runs and uses canvas.width/height.'
   }
+  const broken = report.scene?.broken ?? 0
+  if (broken > 0) {
+    return (
+      `${broken} 3D objects have NaN in their position, rotation or scale, so three.js skips ` +
+      'them. Look for arithmetic on a value that is undefined, e.g. a game field reset() never sets.'
+    )
+  }
   // Reported by the 3D scaffold's hook: a 3D scene can be fully drawn and
   // animated with the player behind the camera, and nothing else here sees that.
-  if (report.game?.playerOnScreen === false) {
+  if (latestGame(report)?.playerOnScreen === false) {
     return "the player is outside the camera's view. Aim the camera at it (scene section) first."
   }
   const hasKeyboard = (report.listeners ?? []).some((type) => type.startsWith('key'))
   if (!hasKeyboard) {
     return 'nothing listens for the keyboard. Add key handling before calling the game playable.'
   }
+  const ignored = ignoredKeys(report)
+  if (ignored.length > 0) {
+    const state = report.game?.state
+    const where = state === undefined ? '' : ` in state=${state}`
+    return (
+      `${ignored.join(', ')} reached the game's key listeners and changed nothing — ` +
+      `not the picture, not window.__game. The keys are being delivered: if they should do ` +
+      `something${where}, the handler's logic is the bug. Otherwise probe with the keys this game uses.`
+    )
+  }
   return 'running, drawing and listening for input.'
+}
+
+/** Below this share of changed pixels a press counts as having changed nothing. */
+const STILL = 0.005
+
+/**
+ * Labels of the pressed keys, when every one of them was handled and none moved
+ * the picture or the hook. Empty as soon as one key did something, or when the
+ * page has no hook or unreadable pixels to judge by.
+ */
+function ignoredKeys(report: ProbeReport): string[] {
+  const keys = report.keys ?? []
+  let previous = report.game ?? null
+  if (!previous || keys.length === 0) return []
+  const labels: string[] = []
+  for (const key of keys) {
+    const after = key.game ?? null
+    if (!key.handled || key.delta === null || key.delta >= STILL) return []
+    if (gameChanges(previous, after)) return []
+    if (after) previous = after
+    labels.push(key.key === ' ' ? 'Space' : key.key)
+  }
+  return labels
 }

@@ -20,6 +20,21 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 
 const THREE = Object.assign({}, core, { GLTFLoader, RoomEnvironment })
 
+// Remembers what was drawn last, for the play-test probe: the game keeps its
+// scene in a script-local const, so this is the only way the probe can find
+// objects that are off camera or never drawn. render is assigned per instance in
+// WebGLRenderer's constructor, hence wrapping the constructor, not the prototype.
+THREE.WebGLRenderer = function WebGLRenderer(parameters) {
+  const renderer = new core.WebGLRenderer(parameters)
+  const render = renderer.render
+  renderer.render = function (scene, camera) {
+    THREE.__lastRender = { scene, camera }
+    return render.call(this, scene, camera)
+  }
+  return renderer
+}
+THREE.WebGLRenderer.prototype = core.WebGLRenderer.prototype
+
 // Generated models carry metallic PBR materials, which reflect nothing and
 // render black under plain lights; an environment map is what makes them read.
 THREE.addGameEnvironment = function addGameEnvironment(renderer, scene) {

@@ -46,6 +46,27 @@ describe('the probe script', () => {
   it('installs itself only once per page', () => {
     expect(PROBE_SCRIPT).toContain('if (window.__aipgProbe) return')
   })
+
+  // Key listeners are wrapped to count calls; a game that removes one must still
+  // be able to, or a title-screen handler would keep firing during play.
+  it('lets the game remove a key listener it added', () => {
+    const rawAdd = EventTarget.prototype.addEventListener
+    const rawRemove = EventTarget.prototype.removeEventListener
+    try {
+      const page = Object.assign(new EventTarget(), { requestAnimationFrame: () => 0 })
+      new Function('window', PROBE_SCRIPT)(page)
+      let calls = 0
+      const onKey = () => calls++
+      page.addEventListener('keydown', onKey)
+      page.dispatchEvent(new Event('keydown'))
+      page.removeEventListener('keydown', onKey)
+      page.dispatchEvent(new Event('keydown'))
+      expect(calls).toBe(1)
+    } finally {
+      EventTarget.prototype.addEventListener = rawAdd
+      EventTarget.prototype.removeEventListener = rawRemove
+    }
+  })
 })
 
 const HEALTHY: ProbeReport = {
@@ -94,6 +115,45 @@ describe('formatProbeReport', () => {
       'Pressed Space: 40.0% of pixels changed; game hook state title→playing, entities 0→2',
     )
     expect(text).toMatch(/Pressed ArrowLeft: 2\.0% of pixels changed\n/)
+    expect(text).toContain('Game hook: state=playing score=0 entities=2')
+  })
+
+  // A model that saw "0.0% changed" concluded the probe could not press keys and
+  // stopped play-testing; saying the handler ran points it at the game instead.
+  it('says when keys reached the game and changed nothing', () => {
+    const text = formatProbeReport({
+      ...HEALTHY,
+      game: { state: 'title', score: 0 },
+      keys: [{ key: ' ', delta: 0, handled: 2, game: { state: 'title', score: 0 } }],
+    })
+    expect(text).toContain("Pressed Space: 0.0% of pixels changed; the page's key listeners ran 2×")
+    expect(text).toMatch(/Verdict: Space reached the game's key listeners and changed nothing/)
+    expect(text).toContain('if they should do something in state=title')
+  })
+
+  it('does not call keys ignored when one of them did something', () => {
+    const text = formatProbeReport({
+      ...HEALTHY,
+      game: { state: 'title', score: 0 },
+      keys: [
+        { key: 'ArrowLeft', delta: 0, handled: 2, game: { state: 'title', score: 0 } },
+        { key: ' ', delta: 0, handled: 2, game: { state: 'playing', score: 0 } },
+      ],
+    })
+    expect(text).toContain('Verdict: running, drawing and listening for input.')
+  })
+
+  // The tower-defence run's enemies bobbed by Math.sin(undefined): invisible, and
+  // the canvas still read as 68% drawn because the ground filled it.
+  it('calls out 3D objects three.js cannot draw', () => {
+    const text = formatProbeReport({
+      ...HEALTHY,
+      scene: { objects: 12, broken: 4, inView: 8 },
+    })
+    expect(text).toContain(
+      "3D scene: 12 objects, 8 in the camera's view, 4 with NaN in position/rotation/scale",
+    )
+    expect(text).toMatch(/Verdict: 4 3D objects have NaN in their position/)
   })
 
   // A 3D scene can be drawn and animated with the player behind the camera.

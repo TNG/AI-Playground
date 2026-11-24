@@ -154,6 +154,16 @@ export const AgentModeTurnConfigSchema = z.object({
   /** Developer setting: skip the GPU swap around in-process media calls. */
   keepModelsLoaded: z.boolean().optional(),
   /**
+   * The language the Session was frozen with, carried even when the reply is not
+   * language-directed: a report's chrome follows the reader's locale.
+   */
+  responseLocale: z.string().optional(),
+  /**
+   * The Overview chrome strings, resolved by the renderer for `responseLocale`.
+   * Main reads no translation files, so the renderer ships the resolved copy.
+   */
+  overviewChrome: z.record(z.string(), z.string()).optional(),
+  /**
    * Local backend load facts (step 15). Main occupies as a `text` request then
    * loads; absent for cloud and for older tests that only exercise the harness.
    */

@@ -1,49 +1,76 @@
+import fs from 'node:fs/promises'
+import path from 'node:path'
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent'
 import {
   collectOverviewData,
   OVERVIEW_NAMED_RANGES,
+  type OverviewData,
   type OverviewRangeInput,
 } from '../../session/overviewData.ts'
+import {
+  OVERVIEW_OPENING_CAP,
+  overviewFileName,
+  renderOverviewHtml,
+  type OverviewReport,
+} from '../../session/overviewHtml.ts'
+import { resolvePreviewUrl, workspacePreviewRoot } from '../piWorkspaceRuntime.ts'
 import { jsonResult, jsonSchemaParameters, textResult } from '../piCustomTools.ts'
 import { loadPi } from '../piRuntime.ts'
 import type { AgentCapability, CapabilityHost } from './types.ts'
 import { OVERVIEW_CAPABILITY_ID } from '@/types/agentCapabilities'
+import type { OverviewChrome } from '@/types/overviewChrome'
 
 // ── overview capability ──────────────────────────────────────────────────────
 //
-// The read half of Overviews: one range in, the History of the Sessions the user
-// included out. The inclusion switch is the boundary (ADR-0019) — this capability
+// One range in, the History of the Sessions the user included out, and one HTML
+// file back. The inclusion switch is the boundary (ADR-0019) — this capability
 // cannot widen it, and the reporting Session never appears in its own Overview.
-// Writing the report is `overview_write`'s job (a later ticket), so this one
-// answers with structured data the Overview Agent turns into prose.
+// The model supplies the opening paragraph and picture choices; the page itself
+// is code's (overviewHtml.ts), never markup the model writes.
 
 const OVERVIEW_DATA_TOOL = 'overview_data'
+const OVERVIEW_WRITE_TOOL = 'overview_write'
+
+const RANGE_SCHEMA: Record<string, unknown> = {
+  description:
+    'The window to report on: one of the named ranges, or an explicit window. ' +
+    '"last-24h" rolls back 24 hours from now; "today" and "yesterday" are local calendar ' +
+    'days; "last-7-days" and "last-30-days" start at local midnight. An explicit window ' +
+    'takes local dates (YYYY-MM-DD) or ISO timestamps, includes "from" and excludes "to".',
+  anyOf: [
+    { type: 'string', enum: [...OVERVIEW_NAMED_RANGES] },
+    {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        from: { type: 'string', description: 'Start of the window, inclusive.' },
+        to: { type: 'string', description: 'End of the window, exclusive.' },
+      },
+      required: ['from', 'to'],
+    },
+  ],
+}
 
 const OVERVIEW_DATA_SCHEMA: Record<string, unknown> = {
   type: 'object',
   additionalProperties: false,
+  properties: { range: RANGE_SCHEMA },
+  required: ['range'],
+}
+
+const OVERVIEW_WRITE_SCHEMA: Record<string, unknown> = {
+  type: 'object',
+  additionalProperties: false,
   properties: {
-    range: {
+    range: RANGE_SCHEMA,
+    opening: {
+      type: 'string',
       description:
-        'The window to report on: one of the named ranges, or an explicit window. ' +
-        '"last-24h" rolls back 24 hours from now; "today" and "yesterday" are local calendar ' +
-        'days; "last-7-days" and "last-30-days" start at local midnight. An explicit window ' +
-        'takes local dates (YYYY-MM-DD) or ISO timestamps, includes "from" and excludes "to".',
-      anyOf: [
-        { type: 'string', enum: [...OVERVIEW_NAMED_RANGES] },
-        {
-          type: 'object',
-          additionalProperties: false,
-          properties: {
-            from: { type: 'string', description: 'Start of the window, inclusive.' },
-            to: { type: 'string', description: 'End of the window, exclusive.' },
-          },
-          required: ['from', 'to'],
-        },
-      ],
+        'Your own opening paragraph for the Overview, as plain text. It is the first ' +
+        `paragraph of the page; anything beyond ${OVERVIEW_OPENING_CAP} characters is cut off.`,
     },
   },
-  required: ['range'],
+  required: ['range', 'opening'],
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -60,6 +87,48 @@ function rangeOf(value: unknown): OverviewRangeInput | null {
     return { from: value.from, to: value.to }
   }
   return null
+}
+
+function invalidRange(): string {
+  return (
+    `"range" must be one of ${OVERVIEW_NAMED_RANGES.join(', ')} or an object with ` +
+    '"from" and "to" (local dates or ISO timestamps).'
+  )
+}
+
+function reportOf(data: OverviewData, opening: string, locale: string): OverviewReport {
+  const trimmed = opening.trim()
+  const shortened = trimmed.length > OVERVIEW_OPENING_CAP
+  return {
+    window: data.window,
+    locale,
+    opening: shortened ? trimmed.slice(0, OVERVIEW_OPENING_CAP) : trimmed,
+    sessions: data.sessions.map((session) => ({
+      title: session.title,
+      entries: session.entries,
+      totalEntries: session.totalEntries,
+      truncated: session.truncated,
+    })),
+    shownEntries: data.sessions.reduce((sum, session) => sum + session.entries.length, 0),
+    totalEntries: data.sessions.reduce((sum, session) => sum + session.totalEntries, 0),
+    truncated: data.truncated,
+    ...(shortened
+      ? { openingTruncated: { shown: OVERVIEW_OPENING_CAP, total: trimmed.length } }
+      : {}),
+  }
+}
+
+function sameFolder(a: string, b: string): boolean {
+  const normalize = (value: string) => path.resolve(value).replace(/\\/g, '/')
+  const left = normalize(a)
+  const right = normalize(b)
+  return process.platform === 'win32' ? left.toLowerCase() === right.toLowerCase() : left === right
+}
+
+/** The live preview URL, but only when that server is serving the folder the file went into. */
+function previewUrlOf(workspaceDir: string, fileName: string): string | undefined {
+  const root = workspacePreviewRoot()
+  return root && sameFolder(root, workspaceDir) ? resolvePreviewUrl(fileName) : undefined
 }
 
 async function buildOverviewTools(host: CapabilityHost): Promise<ToolDefinition[]> {
@@ -79,18 +148,69 @@ async function buildOverviewTools(host: CapabilityHost): Promise<ToolDefinition[
       execute: async (_toolCallId, params) => {
         const { range } = params as { range?: unknown }
         const input = rangeOf(range)
-        if (!input) {
-          return textResult(
-            `"range" must be one of ${OVERVIEW_NAMED_RANGES.join(', ')} or an object with ` +
-              '"from" and "to" (local dates or ISO timestamps).',
-          )
-        }
+        if (!input) return textResult(invalidRange())
         try {
           const data = await collectOverviewData({
             range: input,
             ...(host.sessionRef ? { excludingSessionId: host.sessionRef } : {}),
           })
           return jsonResult(data)
+        } catch (error) {
+          return textResult(error instanceof Error ? error.message : String(error))
+        }
+      },
+    }) as ToolDefinition,
+    pi.defineTool({
+      name: OVERVIEW_WRITE_TOOL,
+      label: OVERVIEW_WRITE_TOOL,
+      description:
+        'Render the Overview for a time range and write it into this Session’s Workspace as ' +
+        'one self-contained HTML file, then return its link. Call it after `overview_data`, ' +
+        'with the same range and the opening paragraph you wrote. It re-reads the range itself, ' +
+        'so you cannot disagree with the page; when the range has nothing to report it writes ' +
+        'no file and tells you why. Never write the HTML yourself: this tool owns the page.',
+      parameters: jsonSchemaParameters(OVERVIEW_WRITE_SCHEMA),
+      execute: async (_toolCallId, params) => {
+        const { range, opening } = params as { range?: unknown; opening?: unknown }
+        const input = rangeOf(range)
+        if (!input) return textResult(invalidRange())
+        if (typeof opening !== 'string') {
+          return textResult('"opening" must be the paragraph you want the Overview to open with.')
+        }
+        try {
+          const data = await collectOverviewData({
+            range: input,
+            ...(host.sessionRef ? { excludingSessionId: host.sessionRef } : {}),
+          })
+          if (data.outcome !== 'ok') {
+            return jsonResult({
+              written: false,
+              outcome: data.outcome,
+              window: data.window,
+              message: data.message,
+            })
+          }
+          const chrome = (host.overviewChrome ?? {}) as OverviewChrome
+          const report = reportOf(data, opening, host.responseLocale ?? 'en-US')
+          const fileName = overviewFileName(data.window)
+          await fs.mkdir(host.workspaceDir, { recursive: true })
+          await fs.writeFile(
+            path.join(host.workspaceDir, fileName),
+            renderOverviewHtml(report, chrome),
+            'utf8',
+          )
+          const url = previewUrlOf(host.workspaceDir, fileName)
+          return jsonResult({
+            written: true,
+            path: fileName,
+            ...(url ? { url } : {}),
+            window: data.window,
+            sessions: data.sessions.length,
+            shownEntries: report.shownEntries,
+            totalEntries: report.totalEntries,
+            truncated: report.truncated,
+            ...(report.openingTruncated ? { openingTruncated: report.openingTruncated } : {}),
+          })
         } catch (error) {
           return textResult(error instanceof Error ? error.message : String(error))
         }
@@ -104,8 +224,8 @@ export const overviewCapability: AgentCapability = {
   label: 'Overviews',
   summary:
     'Reads the turns and results of the Sessions marked "Included in Overviews" over a time ' +
-    'range, so they can be summarised into an Overview. Activate it when the user asks what ' +
-    'happened across their Sessions.',
+    'range and writes the Overview as one HTML file in this Session’s Workspace. Activate it ' +
+    'when the user asks what happened across their Sessions.',
   buildTools: buildOverviewTools,
   // The data call is the first step of the whole task; deferring it would cost a
   // round trip before anything else can happen.

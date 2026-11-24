@@ -157,10 +157,10 @@ afterEach(async () => {
 })
 
 describe('overview_data', () => {
-  it('is the one tool of the overview capability', async () => {
+  it('is the read tool of the overview capability', async () => {
     expect(overviewCapability.id).toBe('overview')
     const tools = await overviewCapability.buildTools!(hostFor())
-    expect(tools.map((tool) => tool.name)).toEqual(['overview_data'])
+    expect(tools.map((tool) => tool.name)).toEqual(['overview_data', 'overview_write'])
   })
 
   it('resolves every named range and echoes the concrete window', async () => {

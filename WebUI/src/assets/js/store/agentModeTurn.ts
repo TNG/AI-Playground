@@ -104,6 +104,10 @@ export async function buildTurnConfig(options: {
   planningThinkingOnly: boolean
   textInference: InferenceForTurn
   cloudMode: CloudForTurn
+  /** The Session's frozen language, for a report's chrome (not the reply language). */
+  responseLocale?: string
+  /** The Overview chrome, resolved for `responseLocale`. */
+  overviewChrome?: Record<string, string>
   /** Tool settings stored on the session; the live ones when absent. */
   tools?: ToolsForTurn
   answer?: AgentAnswerOrigin
@@ -158,6 +162,8 @@ export async function buildTurnConfig(options: {
       unsandboxed: options.unsandboxed,
       ...folderOverridesOf(options.folderOverrides),
       keepModelsLoaded: useDeveloperSettings().keepModelsLoaded,
+      ...(options.responseLocale ? { responseLocale: options.responseLocale } : {}),
+      ...(options.overviewChrome ? { overviewChrome: options.overviewChrome } : {}),
       ...(options.answer ? { answer: options.answer } : {}),
       ...embeddingConfigOf(textInference),
     }
@@ -202,6 +208,8 @@ export async function buildTurnConfig(options: {
     unsandboxed: options.unsandboxed,
     ...folderOverridesOf(options.folderOverrides),
     keepModelsLoaded: useDeveloperSettings().keepModelsLoaded,
+    ...(options.responseLocale ? { responseLocale: options.responseLocale } : {}),
+    ...(options.overviewChrome ? { overviewChrome: options.overviewChrome } : {}),
     ...(options.answer ? { answer: options.answer } : {}),
     planningThinkingOnly:
       textInference.modelSupportsThinkingToggle &&

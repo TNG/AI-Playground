@@ -280,6 +280,8 @@ async function createSession(
     supportsVision: config.modelConfig.supportsVision === true,
     keepModelsLoaded: config.keepModelsLoaded ?? false,
     sessionMedia,
+    ...(config.responseLocale ? { responseLocale: config.responseLocale } : {}),
+    ...(config.overviewChrome ? { overviewChrome: config.overviewChrome } : {}),
     ...(config.embeddingModel
       ? {
           embeddingModel: config.embeddingModel,

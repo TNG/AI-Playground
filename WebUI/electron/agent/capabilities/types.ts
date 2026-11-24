@@ -63,6 +63,10 @@ export type CapabilityHost = {
   sessionMedia?: SessionMediaTarget
   /** What the model may be given; absent grants everything. */
   modelToolUse?: ModelToolUse
+  /** The Session's frozen language; a report's chrome follows the reader, not the reply. */
+  responseLocale?: string
+  /** The Overview chrome, resolved by the renderer for `responseLocale`. */
+  overviewChrome?: Record<string, string>
 }
 
 /** A slash command a capability offers, runnable as a prompt of its own. */

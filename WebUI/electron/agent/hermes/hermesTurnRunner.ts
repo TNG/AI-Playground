@@ -118,7 +118,13 @@ export async function startHermesTurn(
   const turn: AgentTurn = { sessionId, turnId, abort: abortController, live: null }
   agentTurns.set(sessionId, turn)
   beginAgentTurnSnapshot(sessionId, turnId)
-  emitAgentTurnState(sessionId, turnId, 'queued')
+  emitAgentTurnState(
+    sessionId,
+    turnId,
+    'queued',
+    undefined,
+    config.userMessageId ? { prompt, userMessageId: config.userMessageId } : undefined,
+  )
   const inSession = sessionRef
     ? trackAgentTurnInSession({
         sessionRef,
@@ -126,6 +132,7 @@ export async function startHermesTurn(
         workspaceDir: config.workspaceDir,
         prompt,
         harnessSessionId: sessionId,
+        turnId,
       })
     : null
 

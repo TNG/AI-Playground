@@ -129,6 +129,7 @@ export const INVOKE_ROUTES = {
   startService: 'remote',
   stopService: 'remote',
   setUpService: 'remote',
+  componentChangeAdmission: 'remote',
   resolveBackendVersion: 'remote',
   getInstalledBackendVersion: 'remote',
   getGitHubRepoUrl: 'remote',
@@ -282,6 +283,7 @@ export const INVOKE_ROUTES = {
   'remoteKernel:discover': 'local',
   'remoteKernel:pair': 'local',
   'remoteKernel:forgetHost': 'local',
+  'hermes:openDashboard': 'remote',
 } as const satisfies Record<InvokeChannelName, IpcRoute>
 
 export const SEND_ROUTES = {
@@ -299,6 +301,7 @@ export const SEND_ROUTES = {
   setFullScreen: 'local',
   laminarTelemetryEvent: 'local',
   'lifecycle:reportWork': 'local',
+  'lifecycle:reportComponentHolds': 'local',
   'lifecycle:requestClose': 'local',
   'lifecycle:bridgeReady': 'local',
   'lifecycle:answerClose': 'local',

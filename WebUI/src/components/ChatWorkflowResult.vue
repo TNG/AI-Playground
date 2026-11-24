@@ -78,7 +78,7 @@ const gridStyle = computed<StyleValue>(() => {
   return {
     gap: `${ARTIFACT_GRID_GAP_PX}px`,
     gridTemplateColumns: `repeat(${grid.columns}, minmax(0, 1fr))`,
-    ...(grid.maxWidth ? { maxWidth: `${grid.maxWidth}px` } : {}),
+    maxWidth: `${grid.maxWidth}px`,
   }
 })
 

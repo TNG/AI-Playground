@@ -13,7 +13,8 @@ import { turnDetailsShown, turnDetailsSummaryText, turnLiveText } from '@/lib/tu
 import type { SessionTimelineItem, TurnDetails, TurnResultPart } from '@/lib/turnTypes'
 import type { AudioArtifact } from '@/lib/audioArtifacts'
 import {
-  artifactFrameSize,
+  ARTIFACT_CARD_PX,
+  ARTIFACT_GRID_GAP_PX,
   artifactGrid,
   artifactGridWidth,
   type TurnArtifact,
@@ -1298,6 +1299,90 @@ describe('Turn Details and the Result', () => {
         result: [{ kind: 'audio' }],
       },
     ])
+  })
+})
+
+describe('the media workflows a chat or agent Turn ran, named in its header', () => {
+  const imageFrom = (id: string, preset: string, variant?: string) => ({
+    id,
+    type: 'image',
+    state: 'done',
+    imageUrl: `${id}.png`,
+    settings: { preset, ...(variant ? { variant } : {}) },
+  })
+  const chatToolWith = (id: string, preset: string, variant?: string) => ({
+    type: 'tool-comfyUI',
+    toolCallId: id,
+    state: 'output-available',
+    input: { workflow: preset, prompt: 'a red ship' },
+    output: { images: [imageFrom(id, preset, variant)] },
+  })
+  const mediaToolWith = (id: string, item: object) => ({
+    type: 'dynamic-tool',
+    toolName: 'media',
+    toolCallId: id,
+    state: 'output-available',
+    input: { request: 'a red ship' },
+    output: { details: { items: [item] } },
+  })
+  const chatTurn = (parts: object[]) =>
+    timelineTurns([
+      chatMessage('u1', 'user', 'draw a ship'),
+      { id: 'a1', role: 'assistant', parts, metadata: { chatTurn: true } },
+    ])[0]
+  const agentTurnWith = (parts: object[]) =>
+    timelineTurns([
+      agentMessage('u1', 'user', 'draw a ship'),
+      { id: 'a1', role: 'assistant', parts, metadata: { agentTurn } },
+    ])[0]
+  const workflowsOf = (turn: object) => (turn as { details?: TurnDetails }).details?.workflows
+
+  it("names the workflow a chat tool's image came from, with its variant", () => {
+    const turn = chatTurn([chatToolWith('t1', 'Draft Image', 'Fast')])
+
+    expect(workflowsOf(turn)).toEqual([{ preset: 'Draft Image', icon: 'image', variant: 'Fast' }])
+  })
+
+  it('names the workflow a delegated agent media run chose, with a film icon for video', () => {
+    const turn = agentTurnWith([
+      mediaToolWith('t1', {
+        id: 'v1',
+        type: 'video',
+        state: 'done',
+        videoUrl: 'v1.mp4',
+        settings: { preset: 'Wan' },
+      }),
+    ])
+
+    expect(workflowsOf(turn)).toEqual([{ preset: 'Wan', icon: 'video' }])
+  })
+
+  it('dedupes a workflow used twice and lists each of several once', () => {
+    const turn = chatTurn([
+      chatToolWith('t1', 'Draft Image'),
+      chatToolWith('t2', 'Draft Image'),
+      chatToolWith('t3', 'Colorize'),
+    ])
+
+    expect(workflowsOf(turn)).toEqual([
+      { preset: 'Draft Image', icon: 'image' },
+      { preset: 'Colorize', icon: 'image' },
+    ])
+  })
+
+  it('leaves the variant out when the same workflow ran with more than one', () => {
+    const turn = chatTurn([
+      chatToolWith('t1', 'Draft Image', 'Fast'),
+      chatToolWith('t2', 'Draft Image', 'Detailed'),
+    ])
+
+    expect(workflowsOf(turn)).toEqual([{ preset: 'Draft Image', icon: 'image' }])
+  })
+
+  it('names no workflow for a turn that made no media', () => {
+    const turn = chatTurn([{ type: 'text', text: 'no image this time' }])
+
+    expect(workflowsOf(turn)).toBeUndefined()
   })
 })
 
@@ -2958,6 +3043,57 @@ describe('failed and cancelled artifacts on every Turn', () => {
   })
 })
 
+describe('website screenshots in the timeline', () => {
+  const shotItem = {
+    id: 'screenshot-t1',
+    type: 'image' as const,
+    imageUrl: 'aipg-media://folders/s1/f1/shot.png',
+    mode: 'imageGen' as const,
+    settings: {},
+    state: 'done' as const,
+    workspacePath: 'shot.png',
+    createdAt: 1_700_000_000_000,
+  }
+  const webShotTurn = (state: string, output?: object) => [
+    agentMessage('u1', 'user', 'show me the pricing table'),
+    {
+      id: 'a1',
+      role: 'assistant',
+      createdAt: 2,
+      metadata: { agentTurn },
+      parts: [
+        {
+          type: 'dynamic-tool',
+          toolName: 'webScreenshot',
+          toolCallId: 't1',
+          state,
+          input: { url: 'https://example.com/pricing' },
+          ...(output ? { output } : {}),
+        },
+      ],
+    },
+  ]
+  const withShot = {
+    content: [{ type: 'text', text: 'Saved screenshot to shot.png' }],
+    details: { items: [shotItem] },
+  }
+
+  it('shows a settled website capture in the Result, like generated images', () => {
+    const [turn] = sessionTimelineItems(webShotTurn('output-available', withShot), {})
+    expect(turn).toMatchObject({
+      result: [{ kind: 'artifact', messageId: 'a1', index: 0 }],
+      details: { parts: [{ kind: 'tool', messageId: 'a1', index: 0 }] },
+    })
+  })
+
+  it('keeps a website capture out of the Result while it runs or carries no media', () => {
+    const [running] = sessionTimelineItems(webShotTurn('input-available'), {})
+    expect(running).toMatchObject({ result: [] })
+    const [bare] = sessionTimelineItems(webShotTurn('output-available', { content: [] }), {})
+    expect(bare).toMatchObject({ result: [] })
+  })
+})
+
 describe('one audio card', () => {
   const clipUrl = 'aipg-media://sessions/s1/files/clip.wav'
   const ttsTurn = (audio: object) => [
@@ -3190,13 +3326,17 @@ describe('the grid a Result lays its artifacts out in', () => {
     expect(artifactGrid([], 2400).columns).toBe(1)
   })
 
-  it('caps the grid at the width the artifacts asked for, so it never upscales them', () => {
-    expect(artifactGrid(Array(2).fill(sized(512, 512)), 2400).maxWidth).toBe(2 * 512 + 12)
-    expect(artifactGrid([sized(512, 512), sized(768, 512)], 2400).maxWidth).toBe(2 * 768 + 12)
+  it('caps the grid at the fixed boxes every card letterboxes in, whatever the artifacts asked for', () => {
+    const pair = 2 * ARTIFACT_CARD_PX + ARTIFACT_GRID_GAP_PX
+    expect(artifactGrid(Array(2).fill(sized(512, 512)), 2400).maxWidth).toBe(pair)
+    expect(artifactGrid([sized(512, 512), sized(768, 512)], 2400).maxWidth).toBe(pair)
   })
 
-  it('leaves the grid uncapped when an artifact has no requested size', () => {
-    expect(artifactGrid([sized(512, 512), {}], 2400).maxWidth).toBeUndefined()
+  it('caps the grid the same even when an artifact carries no size', () => {
+    expect(artifactGrid([sized(512, 512), {}], 2400).maxWidth).toBe(
+      2 * ARTIFACT_CARD_PX + ARTIFACT_GRID_GAP_PX,
+    )
+    expect(artifactGrid([sized(512, 512)], 2400).maxWidth).toBe(ARTIFACT_CARD_PX)
   })
 })
 
@@ -3212,43 +3352,12 @@ describe('the width an artifact grid is laid out at', () => {
   })
 
   it('keeps its columns when a scrollbar coming or going is all that would change them', () => {
-    expect(artifactGrid(batch, 990).columns).not.toBe(artifactGrid(batch, 1000).columns)
-    expect(artifactGridWidth(batch, 1000, 990)).toBe(1000)
-    expect(artifactGridWidth(batch, 990, 1000)).toBe(990)
+    expect(artifactGrid(batch, 1315).columns).not.toBe(artifactGrid(batch, 1316).columns)
+    expect(artifactGridWidth(batch, 1316, 1315)).toBe(1316)
+    expect(artifactGridWidth(batch, 1315, 1316)).toBe(1315)
   })
 
   it('changes columns once the width really moved past the boundary', () => {
-    expect(artifactGridWidth(batch, 1000, 960)).toBe(960)
-  })
-})
-
-describe('the box an artifact card takes', () => {
-  it('reserves the requested size while the media is not loaded yet', () => {
-    expect(artifactFrameSize({ width: 1024, height: 768 }, undefined)).toEqual({
-      width: 1024,
-      height: 768,
-    })
-  })
-
-  it('never upscales a result smaller than what was asked for, and keeps its own aspect', () => {
-    expect(artifactFrameSize({ width: 1024, height: 1024 }, { width: 512, height: 256 })).toEqual({
-      width: 512,
-      height: 256,
-    })
-  })
-
-  it('caps at the requested width when the media is larger, in the media aspect', () => {
-    expect(artifactFrameSize({ width: 512, height: 512 }, { width: 1024, height: 768 })).toEqual({
-      width: 512,
-      height: 384,
-    })
-  })
-
-  it('takes the natural size when nothing was requested', () => {
-    expect(artifactFrameSize(undefined, { width: 300, height: 200 })).toEqual({
-      width: 300,
-      height: 200,
-    })
-    expect(artifactFrameSize(undefined, undefined)).toBeUndefined()
+    expect(artifactGridWidth(batch, 1316, 1290)).toBe(1290)
   })
 })

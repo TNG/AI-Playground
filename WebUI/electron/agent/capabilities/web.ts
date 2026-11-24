@@ -9,6 +9,8 @@ import {
 } from '../../adapters/webBrowserManager.ts'
 import { jsonSchemaParameters, textResult, type SkillSource } from '../piCustomTools.ts'
 import { loadPi } from '../piRuntime.ts'
+// The web-screenshot capability's capture tool; the fetch output names it for the model.
+import { WEB_SCREENSHOT_TOOL } from './webScreenshot.ts'
 import type { AgentCapability } from './types.ts'
 
 // ── web capability ───────────────────────────────────────────────────────────
@@ -113,6 +115,15 @@ export function formatPage(page: WebPageSnapshot): string {
   if (page.fields && page.fields.length > 0) {
     lines.push('', `Text fields (type into one with ${WEB_INTERACT_TOOL}):`)
     for (const field of page.fields) lines.push(`- ${field.selector} — ${field.label}`)
+  }
+  if (page.images && page.images.length > 0) {
+    lines.push(
+      '',
+      `Images (show one to the user with ${WEB_SCREENSHOT_TOOL}, or use its alt text to target a capture):`,
+    )
+    for (const image of page.images) {
+      lines.push(`- ${image.alt} — ${image.src} (${image.width}x${image.height})`)
+    }
   }
   return lines.join('\n')
 }

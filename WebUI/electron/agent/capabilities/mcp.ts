@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { asSchema, type ToolSet } from 'ai'
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent'
 import { appLoggerInstance } from '../../observability/logger.ts'
@@ -20,6 +21,20 @@ export { MCP_CAPABILITY_PREFIX, mcpCapabilityId, mcpServerIdOf } from '@/types/a
 const logger = appLoggerInstance
 const LOG_SOURCE = 'capabilities/mcp'
 
+const MAX_TOOL_NAME_LENGTH = 64
+
+/** The server id in the name keeps two servers' same-named tools from shadowing each other. */
+function createMcpToolName(
+  serverId: string,
+  toolName: string,
+  isTaken: (name: string) => boolean,
+): string {
+  const name = `mcp__${serverId}__${toolName}`.replace(/[^A-Za-z0-9_]/g, '_')
+  if (name.length <= MAX_TOOL_NAME_LENGTH && !isTaken(name)) return name
+  const hash = createHash('sha256').update(`${serverId}\0${toolName}`).digest('hex').slice(0, 8)
+  return `${name.slice(0, MAX_TOOL_NAME_LENGTH - hash.length - 1)}_${hash}`
+}
+
 async function buildMcpTools(serverId: string): Promise<ToolDefinition[]> {
   const pi = await loadPi()
   let tools: ToolSet
@@ -31,6 +46,7 @@ async function buildMcpTools(serverId: string): Promise<ToolDefinition[]> {
     return []
   }
   const definitions: ToolDefinition[] = []
+  const takenNames = new Set<string>()
   for (const [name, mcpTool] of Object.entries(tools)) {
     const execute = mcpTool.execute
     if (!execute) continue
@@ -41,9 +57,11 @@ async function buildMcpTools(serverId: string): Promise<ToolDefinition[]> {
       typeof mcpTool.description === 'string'
         ? mcpTool.description
         : `MCP tool ${name} from ${serverId}`
+    const toolName = createMcpToolName(serverId, name, (candidate) => takenNames.has(candidate))
+    takenNames.add(toolName)
     definitions.push(
       pi.defineTool({
-        name,
+        name: toolName,
         label: name,
         description,
         parameters: jsonSchemaParameters(inputSchema),

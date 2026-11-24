@@ -7,6 +7,7 @@ import { appWorkspaceName } from './appWorkspaceName'
 import { newFolderId, sessionFolderListOf, withSessionFolderList } from './sessionFolderList'
 import { mutateSession, readSession, sessionDocumentOf } from './sessions'
 import { onSessionTurnReleased, sessionTurnOf } from './sessionTurns'
+import { emitWorkspaceRenamed } from './workspaceRenames'
 import { assignSlug, workspaceEntryOf } from '@/lib/mountedFolders'
 import type { SessionFile, SessionFolderEntry } from '@/types/sessionIpc'
 
@@ -123,6 +124,7 @@ async function followed(entry: SessionFolderEntry, name: string): Promise<Sessio
  */
 export async function followSessionTitle(sessionId: string): Promise<void> {
   if (sessionTurnOf(sessionId)) return
+  const moved: { from: string; to: string }[] = []
   await changeEntries(sessionId, async (current) => {
     if (sessionTurnOf(sessionId)) return null
     const list = sessionFolderListOf(current)
@@ -130,8 +132,11 @@ export async function followSessionTitle(sessionId: string): Promise<void> {
     if (!workspace) return null
     const renamed = await followed(workspace, nameFor(current))
     if (renamed === workspace) return null
+    if (!workspace.planned) moved.push({ from: workspace.hostPath, to: renamed.hostPath })
     return list.folders.map((folder) => (folder === workspace ? renamed : folder))
   })
+  const [rename] = moved
+  if (rename) emitWorkspaceRenamed(rename.from, rename.to)
 }
 
 const pendingRenames = new Set<Promise<void>>()

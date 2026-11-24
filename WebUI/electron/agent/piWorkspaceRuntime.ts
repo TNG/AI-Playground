@@ -2,6 +2,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import http from 'node:http'
 import { appLoggerInstance } from '../observability/logger.ts'
+import { onWorkspaceRenamed } from '../session/workspaceRenames.ts'
 import { closeBrowserSession } from './agentBrowser.ts'
 import { injectProbe, PROBE_PATH, PROBE_SCRIPT } from './previewProbe.ts'
 import { isWritable, mountedFolderLocation, type ResolvedMountedFolder } from '@/lib/mountedFolders'
@@ -231,6 +232,42 @@ export function closeWorkspaceRuntime(): void {
   closeBrowserSession(workspaceRuntime.sessionId)
   workspaceRuntime.server?.close()
   workspaceRuntime = null
+}
+
+/** A real path, or the absolute path when it can no longer be read (a folder just renamed). */
+function settledPath(candidate: string): string {
+  try {
+    return fs.realpathSync(candidate)
+  } catch {
+    return path.resolve(candidate)
+  }
+}
+
+/** Whether two paths name the same folder, tolerating symlinks and a path that no longer exists. */
+function sameFolder(a: string, b: string): boolean {
+  if (path.resolve(a) === path.resolve(b)) return true
+  return (
+    settledPath(path.dirname(a)) === settledPath(path.dirname(b)) &&
+    path.basename(a) === path.basename(b)
+  )
+}
+
+/**
+ * A renamed Workspace keeps the preview address it was given: only the folder the
+ * server reads from moves, so a URL the model already reported stays valid.
+ */
+export function retargetWorkspaceRuntime(from: string, to: string): void {
+  const runtime = workspaceRuntime
+  if (!runtime?.server || !sameFolder(runtime.workspaceDir, from)) return
+  runtime.workspaceDir = settledPath(to)
+  logger.info(`workspace preview moved to ${runtime.workspaceDir}`, LOG_SOURCE)
+}
+
+onWorkspaceRenamed(retargetWorkspaceRuntime)
+
+/** The folder the live preview server is serving, when it is up. */
+export function workspacePreviewRoot(): string | null {
+  return workspaceRuntime?.workspaceDir ?? null
 }
 
 /** Origin of the live workspace preview server, when it is up. */

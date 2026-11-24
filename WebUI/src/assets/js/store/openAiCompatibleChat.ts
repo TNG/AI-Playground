@@ -18,6 +18,7 @@ import { serializeToolSet } from '@/lib/chatToolRegistry'
 import type { ChatTurnRequest } from '@/types/chatIpc'
 import { withResponseLanguageAtStart } from '@/lib/responseLanguage'
 import { useTextInference } from './textInference'
+import { useMcp } from './mcp'
 import { useConversations } from './conversations'
 import { usePresets } from './presets'
 import { sessionIdOfChatKey } from '@/lib/sessionChat'
@@ -108,6 +109,7 @@ export const useOpenAiCompatibleChat = defineStore(
   () => {
     const textInference = useTextInference()
     const conversations = useConversations()
+    const mcp = useMcp()
     const presets = usePresets()
     const errors = useErrors()
     const activities = useActivities()
@@ -299,6 +301,9 @@ export const useOpenAiCompatibleChat = defineStore(
 
     async function resolveMcpTools(): Promise<ToolSet> {
       if (!textInference.mcpToolsEnabled) return {}
+      // Ticked servers are started on demand, so an app restart never silently drops them.
+      const selectedIds = textInference.mcpServerIds
+      if (selectedIds.length === 0) return {}
 
       const resolvedTools: ToolSet = {}
       let servers: Awaited<ReturnType<typeof window.electronAPI.mcp.listServers>>
@@ -310,6 +315,8 @@ export const useOpenAiCompatibleChat = defineStore(
       }
 
       for (const server of servers) {
+        if (!selectedIds.includes(server.id)) continue
+
         let status: Awaited<ReturnType<typeof window.electronAPI.mcp.getServerStatus>>
         try {
           status = await window.electronAPI.mcp.getServerStatus(server.id)
@@ -318,7 +325,28 @@ export const useOpenAiCompatibleChat = defineStore(
           continue
         }
         if (status.state !== 'running') {
-          continue
+          try {
+            status = await window.electronAPI.mcp.startServer(server.id)
+          } catch (error) {
+            errors.report(error, {
+              category: 'backend',
+              code: 'backend/mcp-start-failed',
+              surface: 'silent',
+            })
+            continue
+          }
+          if (status.state !== 'running') {
+            errors.report(
+              new Error(status.lastError ?? `MCP server ${server.id} failed to start`),
+              {
+                category: 'backend',
+                code: 'backend/mcp-start-failed',
+                surface: 'silent',
+              },
+            )
+            continue
+          }
+          void mcp.refreshServerStatus(server.id)
         }
 
         let allMcpTools: Awaited<ReturnType<typeof window.electronAPI.mcp.listServerTools>>
@@ -476,6 +504,7 @@ export const useOpenAiCompatibleChat = defineStore(
           lastMainKey: conversations.lastMainKey,
         },
         includeMcpInstructions: textInference.mcpToolsEnabled,
+        mcpServerIds: textInference.mcpToolsEnabled ? [...textInference.mcpServerIds] : [],
         // `captureScreenshot` executes in main and takes no arguments, so the
         // window the user bound it to travels with the turn.
         ...(textInference.screenshotWindow

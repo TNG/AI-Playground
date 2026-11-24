@@ -10,12 +10,14 @@ import {
   AgentDraftSchema,
   AgentDraftsFileSchema,
   AGENT_LIBRARY_SCHEMA_VERSION,
+  AGENT_MAKER_MERGED_SCHEMA_VERSION,
   AGENT_TASKS_SCHEMA_VERSION,
   AgentTaskSchema,
   AgentTasksFileSchema,
   type AgentDraft,
   type AgentTask,
 } from '@/types/agentTaskIpc'
+import { WEB_SCREENSHOT_CAPABILITY_ID } from '@/types/agentCapabilities'
 import type { ShutdownCause } from '../kernel/shutdown'
 import { atomicWriteJson, makeWriteChains, readJson } from './fsJsonStore'
 
@@ -92,7 +94,7 @@ export async function markAgentLibraryMigrated(): Promise<void> {
 
 /** Whether the Agents file was written since Agent Maker merged into Assistant; absent is not. */
 export async function agentMakerMerged(): Promise<boolean> {
-  return (await tasksFileVersion()) === AGENT_TASKS_SCHEMA_VERSION
+  return ((await tasksFileVersion()) ?? 0) >= AGENT_MAKER_MERGED_SCHEMA_VERSION
 }
 
 type SettingsTemplate = AgentTask['settingsTemplate']
@@ -101,18 +103,38 @@ type SettingsTemplate = AgentTask['settingsTemplate']
 export async function markAgentMakerMerged(
   update: (template: SettingsTemplate) => SettingsTemplate,
 ): Promise<void> {
+  return serialize(FILE_CHAIN, () => rewriteTemplates(update, AGENT_MAKER_MERGED_SCHEMA_VERSION))
+}
+
+/** Once, after Agent Maker's merge: every Agent and Draft with its own tool list gains them. */
+export async function adoptWebScreenshotInAgents(): Promise<void> {
   return serialize(FILE_CHAIN, async () => {
-    const drafts = await readAgentDrafts()
-    if (drafts.length > 0) {
-      await writeDrafts(
-        drafts.map((draft) => ({ ...draft, settingsTemplate: update(draft.settingsTemplate) })),
-      )
-    }
-    const tasks = await readAgentTasks()
-    await writeTasks(
-      tasks.map((task) => ({ ...task, settingsTemplate: update(task.settingsTemplate) })),
-    )
+    if (((await tasksFileVersion()) ?? 0) >= AGENT_TASKS_SCHEMA_VERSION) return
+    await rewriteTemplates(withWebScreenshot, AGENT_TASKS_SCHEMA_VERSION)
   })
+}
+
+function withWebScreenshot(template: SettingsTemplate): SettingsTemplate {
+  const { capabilities } = template
+  if (!capabilities || capabilities.includes(WEB_SCREENSHOT_CAPABILITY_ID)) return template
+  return { ...template, capabilities: [...capabilities, WEB_SCREENSHOT_CAPABILITY_ID] }
+}
+
+async function rewriteTemplates(
+  update: (template: SettingsTemplate) => SettingsTemplate,
+  schemaVersion: number,
+): Promise<void> {
+  const drafts = await readAgentDrafts()
+  if (drafts.length > 0) {
+    await writeDrafts(
+      drafts.map((draft) => ({ ...draft, settingsTemplate: update(draft.settingsTemplate) })),
+    )
+  }
+  const tasks = await readAgentTasks()
+  await writeTasks(
+    tasks.map((task) => ({ ...task, settingsTemplate: update(task.settingsTemplate) })),
+    schemaVersion,
+  )
 }
 
 /** After a Quit, a saved Task keeps the run state on disk; everything else is the window's. */

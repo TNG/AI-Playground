@@ -31,6 +31,7 @@ const { artifactHostPath } = await import('../../session/historyArtifacts')
 const { claimSessionTurn, releaseSessionTurn, resetSessionTurnsForTest } =
   await import('../../session/sessionTurns')
 const { harnessSessionFor } = await import('../../session/sessionHarness')
+const { onWorkspaceRenamed } = await import('../../session/workspaceRenames')
 
 const readable = () => path.join(dirs.root, 'AI-Playground', 'Readable')
 const media = () => path.join(dirs.root, 'media')
@@ -173,30 +174,57 @@ describe('renaming the app-created Workspace with the Session', () => {
     expect(await fs.readFile(file!, 'utf8')).toBe('bytes of fox.png')
   })
 
+  it('tells the preview runtime where the folder moved', async () => {
+    const { id } = await createSession()
+    await ensureSessionWorkspace(id)
+    const before = (await workspaceOf(id)).hostPath
+    const moved: Array<[string, string]> = []
+    const stop = onWorkspaceRenamed((from, to) => moved.push([from, to]))
+    try {
+      await renameSession(id, 'Cat poster')
+    } finally {
+      stop()
+    }
+
+    expect(moved).toEqual([[before, path.join(readable(), '2026-11-19 Cat poster')]])
+  })
+
   it('waits while something is in flight in the Session, then renames once idle', async () => {
     const { id } = await createSession()
     await ensureSessionWorkspace(id)
+    const before = (await workspaceOf(id)).hostPath
     claimSessionTurn(id, { turnId: 'turn-1', kind: 'media' })
+    const moved: Array<[string, string]> = []
+    const stop = onWorkspaceRenamed((from, to) => moved.push([from, to]))
+    try {
+      await renameSession(id, 'Cat poster')
+      expect(await onDisk()).toEqual(['2026-11-19 New session'])
+      expect(moved).toEqual([])
 
-    await renameSession(id, 'Cat poster')
-    expect(await onDisk()).toEqual(['2026-11-19 New session'])
-
-    releaseSessionTurn(id, 'turn-1')
-    await settleWorkspaceRenames()
+      releaseSessionTurn(id, 'turn-1')
+      await settleWorkspaceRenames()
+    } finally {
+      stop()
+    }
     expect(await onDisk()).toEqual(['2026-11-19 Cat poster'])
-    expect((await workspaceOf(id)).hostPath).toBe(path.join(readable(), '2026-11-19 Cat poster'))
+    expect(moved).toEqual([[before, path.join(readable(), '2026-11-19 Cat poster')]])
   })
 
   it('takes a suffix when another folder already has the name', async () => {
     const { id } = await createSession()
     await ensureSessionWorkspace(id)
     await fs.mkdir(path.join(readable(), '2026-11-19 Cat poster'))
+    const moved: Array<[string, string]> = []
+    const stop = onWorkspaceRenamed((from, to) => moved.push([from, to]))
+    try {
+      await renameSession(id, 'Cat poster')
+    } finally {
+      stop()
+    }
 
-    await renameSession(id, 'Cat poster')
-
-    expect((await workspaceOf(id)).hostPath).toBe(
-      path.join(readable(), '2026-11-19 Cat poster (2)'),
-    )
+    const hostPath = path.join(readable(), '2026-11-19 Cat poster (2)')
+    expect((await workspaceOf(id)).hostPath).toBe(hostPath)
+    expect(moved[0]?.[1]).toBe(hostPath)
   })
 
   it('never renames a folder the user added', async () => {
@@ -237,9 +265,15 @@ describe('renaming the app-created Workspace with the Session', () => {
     const record = JSON.parse(await fs.readFile(recordFile, 'utf8'))
     record.folders[0].hostPath = legacy
     await fs.writeFile(recordFile, JSON.stringify(record))
-
-    await renameSession(id, 'Cat poster')
+    const moved: Array<[string, string]> = []
+    const stop = onWorkspaceRenamed((from, to) => moved.push([from, to]))
+    try {
+      await renameSession(id, 'Cat poster')
+    } finally {
+      stop()
+    }
 
     expect((await workspaceOf(id)).hostPath).toBe(legacy)
+    expect(moved).toEqual([])
   })
 })

@@ -34,7 +34,7 @@
       <MediaAgentTimeline :tool-call-id="toolPart.toolCallId" :fallback-steps="mediaToolSteps" />
     </template>
     <template v-if="section !== 'details'">
-      <ChatWorkflowResult :artifacts="mediaToolArtifacts" />
+      <ChatWorkflowResult v-if="!hideMediaGrid" :artifacts="gridArtifacts ?? mediaToolArtifacts" />
       <TurnFailureLine v-if="mediaToolFailure" :failure="mediaToolFailure" />
     </template>
   </div>
@@ -54,21 +54,25 @@
     </template>
   </div>
   <div v-else-if="isToolUIPart(part)" class="flex flex-col gap-1">
-    <ChatToolDisplay :part="toolPart" :state="toolPart.state" :input="toolPart.input" />
+    <ChatToolDisplay
+      v-if="section !== 'result'"
+      :part="toolPart"
+      :state="toolPart.state"
+      :input="toolPart.input"
+    />
     <!-- Live output while the tool is still running (Pi streams partial results,
          e.g. a long-running bash command). -->
     <pre
       v-if="toolProgressText"
       class="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground"
       >{{ toolProgressText }}</pre>
-    <!-- What the tool saw: a browser screenshot never reaches the model as
-         pixels, so this is the only place it is visible. -->
-    <figure v-for="image in toolImages" :key="image.dataUri" class="flex flex-col gap-1">
-      <img
-        :src="image.dataUri"
-        :alt="`Screenshot: ${image.label}`"
-        class="max-h-96 w-auto self-start rounded-md border border-border"
-      />
+    <!-- The screenshot never reaches the model as pixels, so this is where it is shown. -->
+    <ChatWorkflowResult
+      v-if="section !== 'details' && screenshotArtifacts.length > 0"
+      :artifacts="screenshotArtifacts"
+    />
+    <figure v-for="image in bareToolImages" :key="image.dataUri" class="flex flex-col gap-1">
+      <LetterboxImage :src="image.dataUri" :alt="`Screenshot: ${image.label}`" />
       <figcaption class="text-xs text-muted-foreground">{{ image.label }}</figcaption>
     </figure>
   </div>
@@ -88,21 +92,31 @@ import ChatToolDisplay from '@/components/ChatToolDisplay.vue'
 import ChatReasoningDisplay from '@/components/ChatReasoningDisplay.vue'
 import ChatWorkflowResult from '@/components/ChatWorkflowResult.vue'
 import AudioArtifactCard from '@/components/AudioArtifactCard.vue'
+import LetterboxImage from '@/components/LetterboxImage.vue'
 import TurnFailureLine from '@/components/TurnFailureLine.vue'
 import MediaAgentTimeline from '@/components/MediaAgentTimeline.vue'
 import { compactionOutputOf, generatedMediaOf, mediaToolNameOf } from '@/lib/agentTranscript'
 import { ttsToolArtifacts } from '@/lib/audioArtifacts'
-import { toolCallArtifacts, toolCallResultFailure } from '@/lib/turnArtifacts'
+import {
+  toolCallArtifacts,
+  screenshotToolArtifacts,
+  toolCallResultFailure,
+  type TurnArtifact,
+} from '@/lib/turnArtifacts'
 import { reasoningTimingOf } from '@/lib/reasoningTimings'
 import { ArchiveBoxArrowDownIcon } from '@heroicons/vue/24/outline'
 
 // One part of an assistant message in Agent Mode: text, a reasoning block, a
 // compaction notice, or a tool call — with whatever the call produced under it
-// (streamed output, browser screenshots, generated media).
+// (streamed output, web screenshots, generated media).
 
 const props = defineProps<{
   part: UIMessagePart<UIDataTypes, UITools>
   section?: 'details' | 'result'
+  /** Consecutive media parts share one grid: merged artifacts for the run's first part. */
+  gridArtifacts?: TurnArtifact[]
+  /** Consecutive media parts share one grid: non-first parts render no grid of their own. */
+  hideMediaGrid?: boolean
 }>()
 
 const agentMode = useAgentMode()
@@ -141,6 +155,14 @@ function streamedArgument(input: unknown): string | undefined {
 
 const toolImages = computed<AgentToolImage[]>(
   () => agentMode.toolImages[toolPart.value.toolCallId] ?? [],
+)
+
+const screenshotArtifacts = computed(() =>
+  screenshotToolArtifacts(props.part, sessions.openDeletedFiles),
+)
+
+const bareToolImages = computed(() =>
+  screenshotArtifacts.value.length > 0 ? [] : toolImages.value,
 )
 
 const compaction = computed(() => compactionOutputOf(props.part))

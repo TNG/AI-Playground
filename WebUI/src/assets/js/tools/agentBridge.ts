@@ -27,7 +27,8 @@ const GENERATED_FILES_NOTE =
   '\n\nFILES: Generated media is automatically saved into your workspace. The tool result' +
   ' lists the workspace-relative paths in "savedFiles". The ' +
   'generator names those files, so a path exists only once a call has reported it — never ' +
-  'guess one, and never create the image file yourself.'
+  'guess one, and never create the image file yourself. In your reply, name an image, video ' +
+  'or audio result by its path, never by a URL.'
 
 const SOURCE_IMAGE_NOTE =
   '\n\nAGENT MODE: There is no conversation image history here. You MUST pass the image to ' +
@@ -90,7 +91,8 @@ function mediaSpecInputSchema(): z.ZodTypeAny {
 const TTS_FILES_NOTE =
   '\n\nFILES: The clip is written into the "generated/" folder of your workspace; the result ' +
   'gives its workspace-relative path in "savedFilePath". Reference that path in files you write ' +
-  '(e.g. an <audio src="generated/....wav"> on an HTML page).'
+  '(e.g. an <audio src="generated/....wav"> on an HTML page). In your reply, name the clip by ' +
+  'that path, never by a URL.'
 
 const STT_SOURCE_NOTE =
   '\n\nAGENT MODE: There is no conversation audio history here. Name the file to transcribe with ' +

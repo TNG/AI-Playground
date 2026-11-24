@@ -1,7 +1,7 @@
 <template>
   <div
-    class="group/card relative flex max-w-full items-center justify-center rounded-lg bg-accent"
-    :style="frameStyle"
+    class="group/card relative flex aspect-square max-w-full items-center justify-center overflow-hidden rounded-lg bg-accent"
+    :style="{ width: `min(100%, ${ARTIFACT_CARD_PX}px)` }"
   >
     <div
       v-if="artifact.state === 'deleted'"
@@ -39,24 +39,20 @@
     <img
       v-else-if="artifact.item.type === 'image'"
       alt="Generated result"
-      class="block max-w-full object-contain rounded-lg"
-      :class="boxSize ? 'max-h-full' : 'max-h-[60vh]'"
+      class="block h-full w-full rounded-lg object-contain"
       :src="artifact.url"
       :draggable="artifact.state === 'done'"
       @dragstart="drag"
-      @load="imageLoaded"
     />
     <video
       v-else-if="isVideo(artifact.item)"
       :src="artifact.url"
       aria-label="Generated result"
-      class="block max-w-full object-contain rounded-lg"
-      :class="boxSize ? 'max-h-full' : 'max-h-[60vh]'"
+      class="block h-full w-full rounded-lg object-contain"
       controlsList="nodownload nofullscreen noremoteplayback"
       controls
       :draggable="artifact.state === 'done'"
       @dragstart="drag"
-      @loadedmetadata="videoLoaded"
     />
     <!-- model-viewer sizes to 100% of its parent, so it needs an explicit box. -->
     <div
@@ -83,18 +79,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, type StyleValue } from 'vue'
+import { computed } from 'vue'
 import { ExclamationTriangleIcon, NoSymbolIcon } from '@heroicons/vue/24/outline'
 import { useI18N } from '@/assets/js/store/i18n'
 import ArtifactProgress from '@/components/ArtifactProgress.vue'
 import ArtifactToolbar from '@/components/ArtifactToolbar.vue'
 import Model3DViewer from '@/components/Model3DViewer.vue'
-import {
-  artifactFrameSize,
-  type ArtifactAction,
-  type ArtifactSize,
-  type TurnArtifact,
-} from '@/lib/turnArtifacts'
+import { ARTIFACT_CARD_PX, type ArtifactAction, type TurnArtifact } from '@/lib/turnArtifacts'
 import { hasDisplayableMedia, is3D, isVideo } from '@/types/mediaItem'
 
 const props = defineProps<{ artifact: TurnArtifact }>()
@@ -106,44 +97,6 @@ const languages = useI18N().state
 const unfinished = computed(
   () => props.artifact.state === 'failed' || props.artifact.state === 'cancelled',
 )
-
-const naturalSize = ref<ArtifactSize>()
-watch(
-  () => props.artifact.url,
-  () => (naturalSize.value = undefined),
-)
-
-function noteNaturalSize(width: number, height: number) {
-  if (width > 0 && height > 0) naturalSize.value = { width, height }
-}
-
-function imageLoaded(event: Event) {
-  const image = event.target as HTMLImageElement
-  noteNaturalSize(image.naturalWidth, image.naturalHeight)
-}
-
-function videoLoaded(event: Event) {
-  const video = event.target as HTMLVideoElement
-  noteNaturalSize(video.videoWidth, video.videoHeight)
-}
-
-const MAX_HEIGHT = '60vh'
-const boxSize = computed(() => {
-  const artifact = props.artifact
-  const needsBox = is3D(artifact.item) || !hasDisplayableMedia(artifact.item) || unfinished.value
-  if (needsBox) return artifact.size ?? { width: 512, height: 512 }
-  // A live preview can be smaller than the result, so only a finished result caps its box.
-  return artifactFrameSize(artifact.size, artifact.state === 'done' ? naturalSize.value : undefined)
-})
-const frameStyle = computed<StyleValue>(() => {
-  const size = boxSize.value
-  if (!size) return { maxHeight: MAX_HEIGHT }
-  const ratio = size.width / size.height
-  return {
-    aspectRatio: `${size.width} / ${size.height}`,
-    width: `min(100%, ${size.width}px, calc(${MAX_HEIGHT} * ${ratio}))`,
-  }
-})
 
 function drag(event: Event) {
   event.preventDefault()

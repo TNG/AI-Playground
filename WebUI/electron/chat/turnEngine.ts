@@ -224,13 +224,14 @@ const LlamaCppRawValueSchema = z.object({
 
 // ── MCP instructions (ported from resolveMcpInstructions) ──────────────────────
 
-function buildMcpInstructions(include: boolean): string {
+function buildMcpInstructions(include: boolean, selectedServerIds?: readonly string[]): string {
   if (!include) return ''
   try {
     const blocks: string[] = []
     for (const server of listMcpServers()) {
       const trimmed = server.instructions?.trim()
       if (!trimmed) continue
+      if (selectedServerIds && !selectedServerIds.includes(server.id)) continue
       if (getMcpServerStatus(server.id).state !== 'running') continue
       blocks.push(`## MCP server: ${server.name}\n${trimmed}`)
     }
@@ -950,7 +951,7 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
       messages = filterNonVisionContent(messages)
     }
 
-    const mcp = buildMcpInstructions(request.includeMcpInstructions === true)
+    const mcp = buildMcpInstructions(request.includeMcpInstructions === true, request.mcpServerIds)
     let systemPromptToUse = `${request.systemPrompt ?? ''}${mcp}`
     const keepModelsLoaded = request.keepModelsLoaded ?? false
     const pendingToolExecutes = new Map<string, Promise<unknown>>()

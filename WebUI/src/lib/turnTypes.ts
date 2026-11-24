@@ -24,6 +24,9 @@ export type TurnHintIcon = 'chat' | 'agent' | 'image' | 'video' | 'tts' | 'stt'
 
 export type TurnHint = { kind: TurnHintKind; icon: TurnHintIcon; preset: string; detail?: string }
 
+/** A media workflow the turn's tools ran, named in the header beside the preset. */
+export type TurnWorkflowHint = { preset: string; icon: 'image' | 'video'; variant?: string }
+
 export type AnswerPartRef = { messageId: string; index: number }
 
 export type AnswerDetailKind = 'reasoning' | 'tool' | 'generation' | 'compaction' | 'prose'
@@ -80,6 +83,8 @@ export type TurnLiveStatus =
 export type TurnDetails = {
   parts: TurnDetailPart[]
   summary: TurnSummary
+  /** Media workflows the turn's tools ran, so the header can name them unexpanded. */
+  workflows?: TurnWorkflowHint[]
   live?: TurnLiveStatus
   error?: string
   /** One line under the header, for an error the Result does not already say. */

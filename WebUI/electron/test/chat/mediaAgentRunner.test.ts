@@ -128,7 +128,7 @@ beforeEach(() => {
         type: 'image',
         imageUrl: 'aipg-media://castle.png',
         mode: 'imageGen',
-        settings: { preset: 'W1', bulky: 'x'.repeat(40) },
+        settings: { preset: 'W1', width: 512, height: 512, bulky: 'x'.repeat(40) },
         dynamicSettings: [
           { type: 'number', label: 'Guidance Scale', nodeInput: 'guidance', current: 7.5 },
         ],
@@ -187,7 +187,9 @@ describe('runMediaAgentInMain', () => {
           id: 'i1',
           type: 'image',
           imageUrl: 'aipg-media://castle.png',
-          settings: { preset: 'W1', bulky: 'x'.repeat(40) },
+          // The workflow name and requested size survive the slim, so a settled
+          // turn can still name and frame its images.
+          settings: { preset: 'W1', width: 512, height: 512 },
           dynamicSettings: [
             { type: 'number', label: 'Guidance Scale', nodeInput: 'guidance', current: 7.5 },
           ],

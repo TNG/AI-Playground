@@ -134,8 +134,8 @@ describe('which Sessions appear', () => {
   })
 
   it('never reports the Session that asked', async () => {
-    const reporting = await seedSession([historyEntry({})])
-    const other = await seedSession([historyEntry({})])
+    const reporting = await seedSession([historyEntry({})], { summary: 'Asking.' })
+    const other = await seedSession([historyEntry({})], { summary: 'Other work.' })
 
     const selection = await query({ excludingSessionId: reporting })
 
@@ -156,14 +156,20 @@ describe('which Sessions appear', () => {
   it('selects by the newest History Entry, not by any entry in the window', async () => {
     const from = new Date(2026, 10, 23, 10).getTime()
     const to = new Date(2026, 10, 24, 10).getTime()
-    const quietSince = await seedSession([
-      historyEntry({ prompt: 'was in the window', timestamp: from + HOUR }),
-      historyEntry({ prompt: 'newest is after it', timestamp: to + HOUR }),
-    ])
-    const active = await seedSession([
-      historyEntry({ prompt: 'before the window', timestamp: from - HOUR }),
-      historyEntry({ prompt: 'newest is inside', timestamp: to - HOUR }),
-    ])
+    const quietSince = await seedSession(
+      [
+        historyEntry({ prompt: 'was in the window', timestamp: from + HOUR }),
+        historyEntry({ prompt: 'newest is after it', timestamp: to + HOUR }),
+      ],
+      { summary: 'Quiet since.' },
+    )
+    const active = await seedSession(
+      [
+        historyEntry({ prompt: 'before the window', timestamp: from - HOUR }),
+        historyEntry({ prompt: 'newest is inside', timestamp: to - HOUR }),
+      ],
+      { summary: 'Active work.' },
+    )
 
     const selection = await query({
       range: { from: '2026-11-23T10:00:00', to: '2026-11-24T10:00:00' },
@@ -177,10 +183,14 @@ describe('which Sessions appear', () => {
   it('is from-inclusive and to-exclusive on that newest entry', async () => {
     const from = new Date(2026, 10, 24, 10).getTime()
     const to = new Date(2026, 10, 24, 12).getTime()
-    const atFrom = await seedSession([historyEntry({ timestamp: from })])
-    const justBefore = await seedSession([historyEntry({ timestamp: from - 1 })])
-    const atTo = await seedSession([historyEntry({ timestamp: to })])
-    const justBeforeTo = await seedSession([historyEntry({ timestamp: to - 1 })])
+    const atFrom = await seedSession([historyEntry({ timestamp: from })], { summary: 'At from.' })
+    const justBefore = await seedSession([historyEntry({ timestamp: from - 1 })], {
+      summary: 'Just before.',
+    })
+    const atTo = await seedSession([historyEntry({ timestamp: to })], { summary: 'At to.' })
+    const justBeforeTo = await seedSession([historyEntry({ timestamp: to - 1 })], {
+      summary: 'Just before to.',
+    })
 
     const selection = await query({
       range: { from: '2026-11-24T10:00:00', to: '2026-11-24T12:00:00' },
@@ -194,9 +204,15 @@ describe('which Sessions appear', () => {
   })
 
   it('orders by the newest activity, most recent first, whatever the Session order', async () => {
-    const oldest = await seedSession([historyEntry({ timestamp: NOW - 8 * HOUR })])
-    const newest = await seedSession([historyEntry({ timestamp: NOW - HOUR })])
-    const middle = await seedSession([historyEntry({ timestamp: NOW - 4 * HOUR })])
+    const oldest = await seedSession([historyEntry({ timestamp: NOW - 8 * HOUR })], {
+      summary: 'Oldest.',
+    })
+    const newest = await seedSession([historyEntry({ timestamp: NOW - HOUR })], {
+      summary: 'Newest.',
+    })
+    const middle = await seedSession([historyEntry({ timestamp: NOW - 4 * HOUR })], {
+      summary: 'Middle.',
+    })
 
     const selection = await query()
 
@@ -219,7 +235,9 @@ describe('the cards', () => {
   })
 
   it('falls back to the Title from the newest turn for a Session never renamed', async () => {
-    await seedSession([historyEntry({ prompt: 'Tune the collision boxes' })])
+    await seedSession([historyEntry({ prompt: 'Tune the collision boxes' })], {
+      summary: 'A tuning session.',
+    })
 
     const [card] = (await query()).sessions
 
@@ -231,13 +249,17 @@ describe('the cards', () => {
       summary: 'A picture.',
       summaryPicture: { path: 'files/a.png', mediaType: 'image', source: 'artifact' },
     })
-    const video = await seedSession([
-      historyEntry({ kind: 'video', preset: 'Video', timestamp: NOW - 2 * HOUR }),
-    ])
-    const speech = await seedSession([
-      historyEntry({ kind: 'tts', preset: 'Text to Speech', timestamp: NOW - 3 * HOUR }),
-    ])
-    const chat = await seedSession([historyEntry({ timestamp: NOW - 4 * HOUR })])
+    const video = await seedSession(
+      [historyEntry({ kind: 'video', preset: 'Video', timestamp: NOW - 2 * HOUR })],
+      { summary: 'A video.' },
+    )
+    const speech = await seedSession(
+      [historyEntry({ kind: 'tts', preset: 'Text to Speech', timestamp: NOW - 3 * HOUR })],
+      { summary: 'Speech.' },
+    )
+    const chat = await seedSession([historyEntry({ timestamp: NOW - 4 * HOUR })], {
+      summary: 'A chat.',
+    })
 
     const icons = new Map((await query()).sessions.map((card) => [card.id, card.icon]))
 
@@ -257,6 +279,93 @@ describe('the cards', () => {
 
     expect(Object.keys(card).sort()).toEqual(['icon', 'id', 'summary', 'title'])
     expect(JSON.stringify(card)).not.toContain('a secret prompt')
+  })
+})
+
+describe('omitted and behind Sessions', () => {
+  it('omits an active included Session with no usable summary and names its Title', async () => {
+    const usable = await seedSession([historyEntry({ timestamp: NOW - HOUR })], {
+      summary: 'Current account.',
+    })
+    const missing = await seedSession([historyEntry({ timestamp: NOW - 2 * HOUR })])
+    await mutateSession(missing, (file) => ({
+      ...file,
+      title: 'No Summary Yet',
+      renamed: true,
+    }))
+
+    const selection = await query()
+
+    expect(selection.outcome).toBe('ok')
+    expect(selection.sessions.map((session) => session.id)).toEqual([usable])
+    expect(selection.omitted).toEqual(['No Summary Yet'])
+    expect(selection.behind).toEqual([])
+  })
+
+  it('treats a failed or pending summary as unusable even when an older text remains', async () => {
+    const failed = await seedSession([historyEntry({ timestamp: NOW - HOUR })], {
+      summary: 'Stale text kept from before the failure.',
+      summaryState: 'failed',
+    })
+    const pending = await seedSession([historyEntry({ timestamp: NOW - 2 * HOUR })], {
+      summary: 'Text from the last successful run.',
+      summaryState: 'pending',
+    })
+    for (const [id, title] of [
+      [failed, 'Failed Update'],
+      [pending, 'Pending Update'],
+    ] as const) {
+      await mutateSession(id, (file) => ({ ...file, title, renamed: true }))
+    }
+
+    const selection = await query()
+
+    expect(selection.outcome).toBe('none-usable')
+    expect(selection.sessions).toEqual([])
+    expect(selection.omitted).toEqual(['Failed Update', 'Pending Update'])
+  })
+
+  it('includes a Session whose summary is behind its newest entry, and names its Title', async () => {
+    const older = historyEntry({ timestamp: NOW - 3 * HOUR })
+    const newer = historyEntry({ timestamp: NOW - HOUR })
+    const id = await seedSession([older, newer], {
+      summary: 'Account through the older turn.',
+      summaryCovers: older.id,
+    })
+    await mutateSession(id, (file) => ({ ...file, title: 'Behind Session', renamed: true }))
+
+    const selection = await query()
+
+    expect(selection.outcome).toBe('ok')
+    expect(selection.sessions.map((session) => session.id)).toEqual([id])
+    expect(selection.sessions[0]?.summary).toBe('Account through the older turn.')
+    expect(selection.behind).toEqual(['Behind Session'])
+    expect(selection.omitted).toEqual([])
+  })
+
+  it('does not call a summary that covers the newest entry behind', async () => {
+    const id = await seedSession([historyEntry({ timestamp: NOW - HOUR })], {
+      summary: 'Current account.',
+    })
+
+    const selection = await query()
+
+    expect(selection.sessions.map((session) => session.id)).toEqual([id])
+    expect(selection.behind).toEqual([])
+  })
+
+  it('reports no usable summary as its own outcome, naming every omitted Session', async () => {
+    const one = await seedSession([historyEntry({ timestamp: NOW - HOUR })])
+    const two = await seedSession([historyEntry({ timestamp: NOW - 2 * HOUR })])
+    await mutateSession(one, (file) => ({ ...file, title: 'First Quiet', renamed: true }))
+    await mutateSession(two, (file) => ({ ...file, title: 'Second Quiet', renamed: true }))
+
+    const selection = await query()
+
+    expect(selection.outcome).toBe('none-usable')
+    expect(selection.sessions).toEqual([])
+    expect(selection.omitted).toEqual(['First Quiet', 'Second Quiet'])
+    expect(selection.message).toMatch(/usable Overview Summary/i)
   })
 })
 

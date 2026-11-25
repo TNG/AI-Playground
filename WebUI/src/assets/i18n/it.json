@@ -164,6 +164,8 @@
   "SESSIONS_IN_OVERVIEWS_FAILED": "Non è stato possibile scrivere il Riepilogo Overview. Fai clic per disattivarlo ed eliminarlo.",
   "OVERVIEW_PAGE_TITLE": "Sessioni attive da {from} a {to}",
   "OVERVIEW_SUBTITLE": "Ogni scheda è il resoconto della sessione sul proprio lavoro, non un rapporto su questo intervallo.",
+  "OVERVIEW_OMITTED_NOTE": "Omesse, non c'è ancora un riepilogo utilizzabile: {sessions}",
+  "OVERVIEW_BEHIND_NOTE": "Riepilogo precedente all'ultimo turno: {sessions}",
   "SESSIONS_SCHEDULE_PAUSED": "Un agente di questa sessione ha una pianificazione in pausa",
   "SESSIONS_COLLAPSE": "Comprimi il pannello Sessioni",
   "SESSIONS_EXPAND": "Espandi il pannello Sessioni",

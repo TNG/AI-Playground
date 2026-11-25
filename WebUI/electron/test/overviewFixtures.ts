@@ -40,6 +40,10 @@ export type SeedSessionOptions = {
   /** The stored Overview Summary text; absent leaves the Session without a usable summary. */
   summary?: string
   summaryPicture?: OverviewSummaryPicture
+  /** A stored state other than `ready`; `failed` and `pending` are not usable summaries. */
+  summaryState?: 'ready' | 'pending' | 'failed'
+  /** The entry the summary covers; default is the newest entry, which makes it current. */
+  summaryCovers?: string
 }
 
 export async function seedSession(
@@ -55,6 +59,11 @@ export async function seedSession(
     (max, entry) => Math.max(max, entry.timestamp),
     options.updatedAt ?? NOW,
   )
+  const newestEntry = entries.reduce<HistoryEntry | undefined>(
+    (latest, entry) => (!latest || entry.timestamp >= latest.timestamp ? entry : latest),
+    undefined,
+  )
+  const covers = options.summaryCovers ?? newestEntry?.id
   await mutateSession(id, (file) => ({
     ...file,
     updatedAt: newest,
@@ -63,9 +72,10 @@ export async function seedSession(
     ...(options.summary || options.summaryPicture
       ? {
           overviewSummary: {
-            state: 'ready' as const,
+            state: options.summaryState ?? ('ready' as const),
             contractVersion: 1,
             writtenAt: newest,
+            ...(covers ? { coveredEntryId: covers } : {}),
             ...(options.summary ? { text: options.summary } : {}),
             ...(options.summaryPicture ? { picture: options.summaryPicture } : {}),
           },

@@ -164,6 +164,8 @@
   "SESSIONS_IN_OVERVIEWS_FAILED": "No se pudo escribir el Resumen de Overview. Haz clic para desactivarlo y borrarlo.",
   "OVERVIEW_PAGE_TITLE": "Sesiones activas de {from} a {to}",
   "OVERVIEW_SUBTITLE": "Cada tarjeta es el relato propio de la sesión sobre su trabajo, no un informe de este periodo.",
+  "OVERVIEW_OMITTED_NOTE": "Omitidas, aún sin un resumen utilizable: {sessions}",
+  "OVERVIEW_BEHIND_NOTE": "Resumen anterior al último turno: {sessions}",
   "SESSIONS_SCHEDULE_PAUSED": "Un agente de esta sesión tiene una programación en pausa",
   "SESSIONS_COLLAPSE": "Contraer el panel de sesiones",
   "SESSIONS_EXPAND": "Expandir el panel de sesiones",

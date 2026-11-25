@@ -258,10 +258,13 @@ async function buildOverviewTools(host: CapabilityHost): Promise<ToolDefinition[
         'leaves out the Session asking, and builds the page from each Session’s stored Overview ' +
         'Summary. Call it exactly once per request. It returns the resolved `window`, its ' +
         'reader-language `windowLabel`, the file’s workspace-relative `path`, and the live `url` ' +
-        'when a preview server is serving the Workspace. When nothing is included or nothing is ' +
-        'active in the window it writes no file and returns `written: false` with the `outcome` ' +
-        'and a `message`. It never returns History Entries or summary text. Relay the window and ' +
-        'the link unchanged; never summarise a Session, write markup, or compute a timestamp.',
+        'when a preview server is serving the Workspace. When nothing is included, nothing is ' +
+        'active in the window, or none of the active Sessions has a usable summary, it writes no ' +
+        'file and returns `written: false` with the `outcome` and a `message`. It also reports the ' +
+        '`omitted` Titles (active Sessions with no usable summary) and `behind` Titles (a summary ' +
+        'that stops at an older entry) so you can relay what the page leaves out or marks. It ' +
+        'never returns History Entries or summary text. Relay the window and the link unchanged; ' +
+        'never summarise a Session, write markup, or compute a timestamp.',
       parameters: jsonSchemaParameters(OVERVIEW_SCHEMA),
       execute: async (_toolCallId, params) => {
         if (!host.sessionRef) return textResult(overviewMissingSession())
@@ -281,6 +284,7 @@ async function buildOverviewTools(host: CapabilityHost): Promise<ToolDefinition[
               outcome: selection.outcome,
               window: selection.window,
               windowLabel,
+              ...(selection.omitted.length ? { omitted: selection.omitted } : {}),
               message: selection.message,
             })
           }
@@ -294,6 +298,8 @@ async function buildOverviewTools(host: CapabilityHost): Promise<ToolDefinition[
                 window: selection.window,
                 locale: chrome.locale,
                 sessions: sections,
+                omitted: selection.omitted,
+                behind: selection.behind,
               },
               chrome,
             ),
@@ -306,6 +312,8 @@ async function buildOverviewTools(host: CapabilityHost): Promise<ToolDefinition[
             ...(url ? { url } : {}),
             window: selection.window,
             windowLabel,
+            ...(selection.omitted.length ? { omitted: selection.omitted } : {}),
+            ...(selection.behind.length ? { behind: selection.behind } : {}),
           })
         } catch (error) {
           return textResult(toolFailure(error))

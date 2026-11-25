@@ -164,6 +164,8 @@
   "SESSIONS_IN_OVERVIEWS_FAILED": "Overview Summary를 작성하지 못했습니다. 클릭하면 끄고 삭제합니다.",
   "OVERVIEW_PAGE_TITLE": "{from} ~ {to}에 활동한 세션",
   "OVERVIEW_SUBTITLE": "각 카드는 해당 세션의 작업에 대한 자체 설명이며, 이 기간의 보고서가 아닙니다.",
+  "OVERVIEW_OMITTED_NOTE": "사용 가능한 요약이 아직 없어 제외됨: {sessions}",
+  "OVERVIEW_BEHIND_NOTE": "요약이 최신 턴보다 뒤처짐: {sessions}",
   "SESSIONS_SCHEDULE_PAUSED": "이 세션의 에이전트 일정이 일시 중지되었습니다",
   "SESSIONS_COLLAPSE": "세션 패널 접기",
   "SESSIONS_EXPAND": "세션 패널 펼치기",

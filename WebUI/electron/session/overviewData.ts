@@ -34,9 +34,13 @@ export type OverviewSelection = {
   window: OverviewWindow
   /** Included, readable Sessions other than the reporting one, before the window filter. */
   includedSessions: number
-  outcome: 'ok' | 'none-included' | 'none-in-range'
+  outcome: 'ok' | 'none-included' | 'none-in-range' | 'none-usable'
   /** Newest activity first; the app's order, never the model's. */
   sessions: OverviewSessionCard[]
+  /** Titles of active included Sessions left off the page because they have no usable summary. */
+  omitted: string[]
+  /** Titles of cards whose summary stops before their newest History Entry. */
+  behind: string[]
   /** What to tell the user when the outcome is an empty case. */
   message?: string
 }
@@ -132,29 +136,41 @@ export async function selectOverviewSessions(query: OverviewQuery): Promise<Over
       ...base,
       outcome: 'none-included',
       sessions: [],
+      omitted: [],
+      behind: [],
       message:
         'No Session is included in Overviews. Turn on "Included in Overviews" in the Session ' +
         'the Overview should cover, then ask again.',
     }
   }
 
-  const found: (OverviewSessionCard & { newest: number })[] = []
+  type Active = OverviewSessionCard & {
+    newest: number
+    /** A `ready` summary with text is usable; anything else leaves the Session off the page. */
+    usable: boolean
+    /** A usable summary whose covered entry is not the newest one is behind it. */
+    behind: boolean
+  }
+  const found: Active[] = []
   for (const row of included) {
     const entries = await readHistoryEntries(row.id)
     const newest = newestEntry(entries)
     if (!newest || newest.timestamp < window.from || newest.timestamp >= window.to) continue
     const file = await readSession(row.id)
     const stored = file.overviewSummary
-    const picturePath = stored?.picture
-      ? await storedPicturePath(row.id, stored.picture)
-      : undefined
+    const summary = stored?.text?.trim() ?? ''
+    const usable = stored?.state === 'ready' && summary !== ''
+    const picturePath =
+      usable && stored?.picture ? await storedPicturePath(row.id, stored.picture) : undefined
     found.push({
       id: row.id,
       title: row.title.trim() || autoTitle(newest),
-      summary: stored?.text ?? '',
+      summary: usable ? summary : '',
       icon: iconOf(stored, newest),
       ...(picturePath ? { picturePath } : {}),
       newest: newest.timestamp,
+      usable,
+      behind: usable && stored?.coveredEntryId !== newest.id,
     })
   }
 
@@ -163,14 +179,35 @@ export async function selectOverviewSessions(query: OverviewQuery): Promise<Over
       ...base,
       outcome: 'none-in-range',
       sessions: [],
+      omitted: [],
+      behind: [],
       message: `None of the ${included.length} included Sessions was active in this range.`,
     }
   }
 
   found.sort((a, b) => b.newest - a.newest || a.id.localeCompare(b.id))
+  const usable = found.filter((session) => session.usable)
+  const omitted = found.filter((session) => !session.usable).map((session) => session.title)
+
+  if (usable.length === 0) {
+    return {
+      ...base,
+      outcome: 'none-usable',
+      sessions: [],
+      omitted,
+      behind: [],
+      message:
+        `None of the ${found.length} Sessions active in this range has a usable Overview Summary ` +
+        'yet, so there is nothing to write. A summary is written when a Session has its next ' +
+        'turn.',
+    }
+  }
+
   return {
     ...base,
     outcome: 'ok',
-    sessions: found.map(({ newest: _newest, ...card }) => card),
+    sessions: usable.map(({ newest: _newest, usable: _usable, behind: _behind, ...card }) => card),
+    omitted,
+    behind: usable.filter((session) => session.behind).map((session) => session.title),
   }
 }

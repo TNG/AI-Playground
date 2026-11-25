@@ -164,6 +164,8 @@
   "SESSIONS_IN_OVERVIEWS_FAILED": "The Overview Summary could not be written. Click to turn it off and delete it.",
   "OVERVIEW_PAGE_TITLE": "Sessions active {from} to {to}",
   "OVERVIEW_SUBTITLE": "Each card is the Session's own account of its work, not a report of this window.",
+  "OVERVIEW_OMITTED_NOTE": "Omitted, no usable Overview Summary yet: {sessions}",
+  "OVERVIEW_BEHIND_NOTE": "Summary behind the newest turn: {sessions}",
   "SESSIONS_SCHEDULE_PAUSED": "An Agent in this Session has a paused schedule",
   "SESSIONS_COLLAPSE": "Collapse Sessions panel",
   "SESSIONS_EXPAND": "Expand Sessions panel",

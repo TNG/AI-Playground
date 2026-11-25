@@ -164,6 +164,8 @@
   "SESSIONS_IN_OVERVIEWS_FAILED": "Overview Summary を書けませんでした。クリックすると無効にして削除します。",
   "OVERVIEW_PAGE_TITLE": "{from} から {to} にアクティブだったセッション",
   "OVERVIEW_SUBTITLE": "各カードはそのセッション自身による作業の記録であり、この期間の報告ではありません。",
+  "OVERVIEW_OMITTED_NOTE": "使用できる要約がまだないため省略: {sessions}",
+  "OVERVIEW_BEHIND_NOTE": "要約が最新のターンより前です: {sessions}",
   "SESSIONS_SCHEDULE_PAUSED": "このセッションのエージェントのスケジュールは一時停止中です",
   "SESSIONS_COLLAPSE": "セッションパネルを折りたたむ",
   "SESSIONS_EXPAND": "セッションパネルを展開",

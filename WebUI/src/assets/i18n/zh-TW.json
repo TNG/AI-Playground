@@ -164,6 +164,8 @@
   "SESSIONS_IN_OVERVIEWS_FAILED": "無法撰寫 Overview 摘要。按一下以關閉並刪除。",
   "OVERVIEW_PAGE_TITLE": "{from} 至 {to} 期間活躍的工作階段",
   "OVERVIEW_SUBTITLE": "每張卡片都是該工作階段對自身工作的敘述，而不是這段時間的報告。",
+  "OVERVIEW_OMITTED_NOTE": "已省略，尚無可用的概覽摘要：{sessions}",
+  "OVERVIEW_BEHIND_NOTE": "摘要落後於最新一輪：{sessions}",
   "SESSIONS_SCHEDULE_PAUSED": "此工作階段中的代理程式有一個已暫停的排程",
   "SESSIONS_COLLAPSE": "收合工作階段面板",
   "SESSIONS_EXPAND": "展開工作階段面板",

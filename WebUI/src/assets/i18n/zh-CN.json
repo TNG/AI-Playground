@@ -164,6 +164,8 @@
   "SESSIONS_IN_OVERVIEWS_FAILED": "无法撰写 Overview 摘要。点击以关闭并删除。",
   "OVERVIEW_PAGE_TITLE": "{from} 至 {to} 期间活跃的会话",
   "OVERVIEW_SUBTITLE": "每张卡片都是该会话对自身工作的叙述，而不是这段时间的报告。",
+  "OVERVIEW_OMITTED_NOTE": "已省略，尚无可用的概览摘要：{sessions}",
+  "OVERVIEW_BEHIND_NOTE": "摘要落后于最新一轮：{sessions}",
   "SESSIONS_SCHEDULE_PAUSED": "此会话中的智能体有一个已暂停的计划",
   "SESSIONS_COLLAPSE": "折叠会话面板",
   "SESSIONS_EXPAND": "展开会话面板",

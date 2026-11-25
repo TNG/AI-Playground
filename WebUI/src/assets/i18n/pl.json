@@ -164,6 +164,8 @@
   "SESSIONS_IN_OVERVIEWS_FAILED": "Nie udało się zapisać Podsumowania Overview. Kliknij, aby je wyłączyć i usunąć.",
   "OVERVIEW_PAGE_TITLE": "Aktywne sesje od {from} do {to}",
   "OVERVIEW_SUBTITLE": "Każda karta to własny opis pracy danej sesji, a nie raport z tego okresu.",
+  "OVERVIEW_OMITTED_NOTE": "Pominięto, brak jeszcze użytecznego podsumowania: {sessions}",
+  "OVERVIEW_BEHIND_NOTE": "Podsumowanie starsze niż najnowsza tura: {sessions}",
   "SESSIONS_SCHEDULE_PAUSED": "Agent w tej sesji ma wstrzymany harmonogram",
   "SESSIONS_COLLAPSE": "Zwiń panel sesji",
   "SESSIONS_EXPAND": "Rozwiń panel sesji",

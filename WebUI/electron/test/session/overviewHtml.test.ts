@@ -53,6 +53,10 @@ function documentOf(sessions: OverviewSection[], overrides: Partial<OverviewDocu
   } satisfies OverviewDocument
 }
 
+function notes(html: string): string {
+  return (html.match(/<p class="note[\s\S]*?<\/p>/g) ?? []).join('\n')
+}
+
 describe('overview HTML renderer', () => {
   it('renders one card per Session with its Title and summary, in the order given', () => {
     const html = renderOverviewHtml(
@@ -141,6 +145,35 @@ describe('overview HTML renderer', () => {
     expect(html).not.toMatch(/<img\b/)
   })
 
+  it('footnotes omitted Sessions by Title, with the strings escaped', () => {
+    const html = renderOverviewHtml(
+      documentOf([section({ title: 'Kept', summary: 'Kept work.' })], {
+        omitted: ['No <b>summary</b> & "quoted"'],
+      }),
+      english,
+    )
+
+    expect(html).toContain('<article class="card">')
+    expect(html).toContain('<p class="note omitted">')
+    expect(notes(html)).toContain('No &lt;b&gt;summary&lt;/b&gt; &amp; &quot;quoted&quot;')
+    expect(html).not.toContain('<b>summary</b>')
+    expect(html).not.toMatch(/\{sessions\}/)
+  })
+
+  it('footnotes behind Sessions by Title, with the strings escaped', () => {
+    const html = renderOverviewHtml(
+      documentOf([section({ title: 'Behind', summary: 'Older account.' })], {
+        behind: ['Behind <script>alert(1)</script>'],
+      }),
+      english,
+    )
+
+    expect(html).toContain('<p class="note behind">')
+    expect(notes(html)).toContain('Behind &lt;script&gt;alert(1)&lt;/script&gt;')
+    expect(html).not.toMatch(/<script/i)
+    expect(html).not.toMatch(/\{sessions\}/)
+  })
+
   it('names a day range by date and a rolling range by its exact time', () => {
     const day = {
       from: new Date(2026, 10, 23).getTime(),
@@ -170,7 +203,11 @@ describe('overview HTML renderer', () => {
       const locale = file.replace(/\.json$/, '')
       const chrome = chromeOf(locale, readLocale(file))
       const html = renderOverviewHtml(
-        documentOf([section({ title: 'A Session', summary: 'A summary.' })], { locale }),
+        documentOf([section({ title: 'A Session', summary: 'A summary.' })], {
+          locale,
+          omitted: ['An Omitted Session'],
+          behind: ['A Behind Session'],
+        }),
         chrome,
       )
 
@@ -191,9 +228,32 @@ describe('overview HTML renderer', () => {
     }
   })
 
-  it('has no truncation footnote any more', () => {
+  it('renders no footnotes when nothing is omitted or behind', () => {
     const html = renderOverviewHtml(documentOf([section({})]), english)
 
     expect(html).not.toContain('class="note"')
+  })
+
+  it('has the two footnote strings in every locale, with the same placeholders', () => {
+    const placeholderSet = (value: string): string[] =>
+      [...value.matchAll(/\{(\w+)\}/g)].map((match) => match[1]).sort()
+    const files = fs
+      .readdirSync(localeDir)
+      .filter((file) => file.endsWith('.json'))
+      .sort()
+    expect(files.length).toBe(13)
+    const englishLocale = readLocale('en-US.json')
+
+    for (const key of ['OVERVIEW_OMITTED_NOTE', 'OVERVIEW_BEHIND_NOTE'] as const) {
+      expect(typeof englishLocale[key]).toBe('string')
+      for (const file of files) {
+        const locale = readLocale(file)
+        expect(typeof locale[key], `${file} ${key}`).toBe('string')
+        expect(placeholderSet(locale[key]), `${file} ${key}`).toEqual(
+          placeholderSet(englishLocale[key]),
+        )
+        expect(placeholderSet(locale[key]), `${file} ${key}`).toEqual(['sessions'])
+      }
+    }
   })
 })

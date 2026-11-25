@@ -164,6 +164,8 @@
   "SESSIONS_IN_OVERVIEWS_FAILED": "Ringkasan Overview tidak dapat ditulis. Klik untuk mematikannya dan menghapusnya.",
   "OVERVIEW_PAGE_TITLE": "Sesi aktif {from} sampai {to}",
   "OVERVIEW_SUBTITLE": "Setiap kartu adalah catatan Sesi itu sendiri tentang pekerjaannya, bukan laporan tentang rentang ini.",
+  "OVERVIEW_OMITTED_NOTE": "Dihilangkan, belum ada Ringkasan Overview yang dapat digunakan: {sessions}",
+  "OVERVIEW_BEHIND_NOTE": "Ringkasan tertinggal dari giliran terbaru: {sessions}",
   "SESSIONS_SCHEDULE_PAUSED": "Sebuah agen di sesi ini memiliki jadwal yang dijeda",
   "SESSIONS_COLLAPSE": "Ciutkan panel Sesi",
   "SESSIONS_EXPAND": "Luaskan panel Sesi",

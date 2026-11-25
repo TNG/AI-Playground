@@ -164,6 +164,8 @@
   "SESSIONS_IN_OVERVIEWS_FAILED": "ไม่สามารถเขียน Overview Summary ได้ คลิกเพื่อปิดและลบ",
   "OVERVIEW_PAGE_TITLE": "เซสชันที่ใช้งานระหว่าง {from} ถึง {to}",
   "OVERVIEW_SUBTITLE": "การ์ดแต่ละใบคือบันทึกของเซสชันนั้นเกี่ยวกับงานของตน ไม่ใช่รายงานของช่วงเวลานี้",
+  "OVERVIEW_OMITTED_NOTE": "ละไว้ ยังไม่มีสรุปที่ใช้ได้: {sessions}",
+  "OVERVIEW_BEHIND_NOTE": "สรุปอยู่ก่อนรอบล่าสุด: {sessions}",
   "SESSIONS_SCHEDULE_PAUSED": "เอเจนต์ในเซสชันนี้มีกำหนดเวลาที่หยุดชั่วคราว",
   "SESSIONS_COLLAPSE": "ยุบแผงเซสชัน",
   "SESSIONS_EXPAND": "ขยายแผงเซสชัน",

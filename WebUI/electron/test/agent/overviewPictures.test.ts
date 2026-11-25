@@ -87,6 +87,8 @@ const CHROME: OverviewChrome = {
   strings: {
     OVERVIEW_PAGE_TITLE: 'Sessions active {from} to {to}',
     OVERVIEW_SUBTITLE: 'Each card is the Session’s own account.',
+    OVERVIEW_OMITTED_NOTE: 'Omitted: {sessions}',
+    OVERVIEW_BEHIND_NOTE: 'Behind: {sessions}',
   },
 }
 
@@ -141,6 +143,9 @@ async function setPicture(id: string, picture: OverviewSummaryPicture): Promise<
       contractVersion: 1,
       text: file.overviewSummary?.text ?? 'A summary.',
       writtenAt: NOW,
+      ...(file.overviewSummary?.coveredEntryId
+        ? { coveredEntryId: file.overviewSummary.coveredEntryId }
+        : {}),
       picture,
     },
   }))

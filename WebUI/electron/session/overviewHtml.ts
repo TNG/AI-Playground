@@ -19,6 +19,10 @@ export type OverviewDocument = {
   locale: string
   /** The query's order: the Session active most recently first. */
   sessions: OverviewSection[]
+  /** Titles of active included Sessions with no usable summary to show. */
+  omitted?: string[]
+  /** Titles of cards whose summary stops before their newest History Entry. */
+  behind?: string[]
 }
 
 const ESCAPES: Record<string, string> = {
@@ -79,6 +83,21 @@ function chromeHtml(
   return fillTemplate(chrome.strings[key], escaped)
 }
 
+/** A footnote naming Sessions by Title; the Titles are escaped by `chromeHtml`. */
+function footnote(
+  chrome: OverviewChrome,
+  key: OverviewChromeKey,
+  titles: readonly string[] | undefined,
+  kind: 'omitted' | 'behind',
+  locale: string,
+): string {
+  if (!titles || titles.length === 0) return ''
+  const sessions = new Intl.ListFormat(locale, { style: 'long', type: 'conjunction' }).format(
+    titles,
+  )
+  return `<p class="note ${kind}">${chromeHtml(chrome, key, { sessions })}</p>\n`
+}
+
 function sessionCard(session: OverviewSection): string {
   // Only an inlined picture may reach the page: a URL scheme would not resolve
   // once the file is copied, and the CSP allows nothing but `data:`.
@@ -116,6 +135,7 @@ h1 { margin: 0; font-size: 1.75rem; line-height: 1.25; font-weight: 650; letter-
 .text { flex: 1; min-width: 0; }
 .picture { flex: none; width: 7.5rem; height: 7.5rem; object-fit: cover; border-radius: .65rem; background: rgba(127, 127, 127, .12); }
 .summary { margin: 0; opacity: .92; white-space: pre-wrap; }
+.note { margin: 1.5rem 0 0; padding: .65rem .9rem; font-size: .9rem; border-left: .2rem solid rgba(127, 127, 127, .5); background: rgba(127, 127, 127, .08); }
 @media (max-width: 48rem) { .cards { grid-template-columns: minmax(0, 1fr); } }
 @media print { .cards { display: block; } .card { break-inside: avoid; margin-bottom: 1rem; } }
 `
@@ -125,6 +145,9 @@ export function renderOverviewHtml(overview: OverviewDocument, chrome: OverviewC
   const to = overviewDateTime(overview.window.to)
   const title = chromeHtml(chrome, 'OVERVIEW_PAGE_TITLE', { from, to })
   const subtitle = chromeHtml(chrome, 'OVERVIEW_SUBTITLE')
+  const footnotes =
+    footnote(chrome, 'OVERVIEW_OMITTED_NOTE', overview.omitted, 'omitted', overview.locale) +
+    footnote(chrome, 'OVERVIEW_BEHIND_NOTE', overview.behind, 'behind', overview.locale)
 
   return `<!doctype html>
 <html lang="${escapeHtml(overview.locale)}">
@@ -141,7 +164,7 @@ export function renderOverviewHtml(overview: OverviewDocument, chrome: OverviewC
 <div class="cards">
 ${overview.sessions.map((session) => sessionCard(session)).join('\n')}
 </div>
-</main>
+${footnotes}</main>
 </body>
 </html>
 `

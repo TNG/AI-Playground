@@ -71,6 +71,8 @@ const CHROME: OverviewChrome = {
     OVERVIEW_PAGE_TITLE: 'Sessions active {from} to {to}',
     OVERVIEW_SUBTITLE:
       "Each card is the Session's own account of its work, not a report of this window.",
+    OVERVIEW_OMITTED_NOTE: 'Omitted: {sessions}',
+    OVERVIEW_BEHIND_NOTE: 'Behind: {sessions}',
   },
 }
 
@@ -393,6 +395,8 @@ describe('the page', () => {
       strings: {
         OVERVIEW_PAGE_TITLE: 'Aktive Sitzungen {from} bis {to}',
         OVERVIEW_SUBTITLE: 'Jede Karte ist die eigene Beschreibung.',
+        OVERVIEW_OMITTED_NOTE: 'Ausgelassen: {sessions}',
+        OVERVIEW_BEHIND_NOTE: 'Zurück: {sessions}',
       },
     }
 
@@ -402,6 +406,53 @@ describe('the page', () => {
     expect(html).toContain('<html lang="de">')
     expect(html).toContain('<h1>Aktive Sitzungen 2026-11-23 15:30 bis 2026-11-24 15:30</h1>')
     expect(String(result.windowLabel)).not.toMatch(/\d{2}:\d{2} (AM|PM)/)
+  })
+})
+
+describe('omitted and behind Sessions', () => {
+  it('names omitted and behind Sessions in the result and on the page', async () => {
+    const usable = await seedSession([historyEntry({ timestamp: NOW - HOUR })], {
+      summary: 'Current account.',
+    })
+    await mutateSession(usable, (file) => ({ ...file, title: 'Current Session', renamed: true }))
+
+    const missing = await seedSession([
+      historyEntry({ prompt: 'private prompt text', timestamp: NOW - 2 * HOUR }),
+    ])
+    await mutateSession(missing, (file) => ({ ...file, title: 'No Summary', renamed: true }))
+
+    const older = historyEntry({ timestamp: NOW - 4 * HOUR })
+    const newer = historyEntry({ timestamp: NOW - 3 * HOUR })
+    const behind = await seedSession([older, newer], {
+      summary: 'Older account.',
+      summaryCovers: older.id,
+    })
+    await mutateSession(behind, (file) => ({ ...file, title: 'Behind Session', renamed: true }))
+
+    const result = await call(hostFor(), { range: 'last-24h' })
+
+    expect(result).toMatchObject({ written: true })
+    expect(result.omitted).toEqual(['No Summary'])
+    expect(result.behind).toEqual(['Behind Session'])
+
+    const html = await htmlAt(result.path)
+    expect(html.match(/<article class="card">/g)).toHaveLength(2)
+    expect(html).toContain('Omitted: No Summary')
+    expect(html).toContain('Behind: Behind Session')
+    expect(html).not.toContain('private prompt text')
+  })
+
+  it('writes no file and explains when no active Session has a usable summary', async () => {
+    const id = await seedSession([historyEntry({ prompt: 'draft prompt', timestamp: NOW - HOUR })])
+    await mutateSession(id, (file) => ({ ...file, title: 'Draft Only', renamed: true }))
+
+    const result = await call(hostFor(), { range: 'last-24h' })
+
+    expect(result).toMatchObject({ written: false, outcome: 'none-usable' })
+    expect(result.omitted).toEqual(['Draft Only'])
+    expect(String(result.message)).toMatch(/usable Overview Summary/i)
+    expect(result.path).toBeUndefined()
+    expect(await htmlFiles()).toEqual([])
   })
 })
 

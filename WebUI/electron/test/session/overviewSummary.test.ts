@@ -365,7 +365,7 @@ describe('local-only', () => {
 })
 
 describe('opt-out and re-enable', () => {
-  it('deletes the text, picture and state, and cancels a running update', async () => {
+  it('keeps the summary, clears its cover and cancels a running update', async () => {
     const session = await createSession()
     await addEntry(session.id)
 
@@ -383,19 +383,25 @@ describe('opt-out and re-enable', () => {
     await new Promise((resolve) => setTimeout(resolve, 10))
     const document = await openSession(session.id)
     expect(document.includedInOverviews).toBe(false)
-    expect(document).not.toHaveProperty('overviewSummary')
-    expect(document.overviewSummaryState).toBeUndefined()
+    expect(document.overviewSummary).toMatchObject({ state: 'pending' })
+    expect(document.overviewSummary?.text).toBeUndefined()
+    expect(document.overviewSummary?.coveredEntryId).toBeUndefined()
   })
 
-  it('rebuilds from the whole history when re-enabled', async () => {
+  it('keeps the text and rebuilds everything when re-enabled', async () => {
     const session = await createSession()
     await addEntry(session.id, { prompt: 'first turn' })
+    reply = async () => ({ text: 'Old account.', pictureMatches: false })
     await summary.applyOverviewInclusion(session.id, true, REQUEST)
     await vi.waitFor(async () => {
       expect((await openSession(session.id)).overviewSummary?.state).toBe('ready')
     })
+
     await summary.applyOverviewInclusion(session.id, false, { language: 'de' })
-    expect((await openSession(session.id)).overviewSummaryState).toBeUndefined()
+    const kept = await openSession(session.id)
+    expect(kept.includedInOverviews).toBe(false)
+    expect(kept.overviewSummary).toMatchObject({ text: 'Old account.', state: 'ready' })
+    expect(kept.overviewSummary?.coveredEntryId).toBeUndefined()
 
     calls = []
     reply = async () => ({ text: 'Rebuilt account.', pictureMatches: false })
@@ -406,6 +412,7 @@ describe('opt-out and re-enable', () => {
 
     expect(calls).toHaveLength(1)
     expect(calls[0].prompt).toContain('first turn')
+    expect(calls[0].prompt).not.toContain('Old account.')
   })
 })
 

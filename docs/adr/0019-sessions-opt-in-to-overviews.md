@@ -17,9 +17,9 @@ the user shares. Enabling therefore does work. It starts the first Overview Summ
 by the chip, which summarises the existing history (in chunks when it does not fit one prompt); a
 Session with no History Entries writes nothing until its first turn. Every later turn updates the
 summary before it finishes, locally, in its own context. Nothing is summarised for a Session that
-is not included. Turning the switch off cancels a running update and deletes the summary;
-re-enabling computes it again from the Session's history. An Overview already written keeps its
-copy, because that file is the user's.
+is not included. Turning the switch off cancels a running update but keeps the summary, which no
+Overview reads while the switch is off; re-enabling rebuilds it from the whole history. An Overview
+already written keeps its copy, because that file is the user's.
 
 ## Considered Options
 
@@ -29,9 +29,10 @@ copy, because that file is the user's.
   until a model decides otherwise, and it puts the consent boundary somewhere the user cannot see.
 - **Opting in per Overview rather than per Session** — rejected. It re-asks a question whose answer
   does not change, and it would leave no place in a Session's own settings to see the answer.
-- **Keeping the summary after opt-out** — rejected. That would leave a hidden copy of the Session's
-  prompts behind after the consent that allowed it ended; the Overview files the user chose to keep
-  are the only copies that outlive the switch.
+- **Deleting the summary on opt-out** — rejected. It looks like the safest option, but it throws away
+  the Session's account for a switch the user may reverse, and re-enabling had to rebuild it anyway.
+  The kept copy is never read while inclusion is off and is rebuilt on re-enable; the price is a
+  hidden copy of prompt-derived text after consent ends, which the user accepted.
 
 ## Consequences
 
@@ -41,7 +42,8 @@ not included. Summaries are local-only: in Cloud Mode, or after a turn that ran 
 the summary stays behind until a local turn updates it, and the Overview footnotes it. A panel media
 or audio turn pays a model load to update its summary. The summary is sensitive derived text: it
 lives on the Session record, is read-only, is never a History Entry or an Artifact, and never enters
-a conversation. Reading only included Sessions also bounds the query, so an Overview stays fast on
+a conversation. It is kept when the Session is opted out but is not read by any Overview while the
+switch is off. Reading only included Sessions also bounds the query, so an Overview stays fast on
 an install with hundreds of Sessions. "No Sessions are included" and "none of your included Sessions
 were active in that range" remain distinct, ordinary states rather than errors. Turning the switch
 off later does not retract an Overview already written: it is a snapshot, and its copy is the user's

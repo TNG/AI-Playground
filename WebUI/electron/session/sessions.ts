@@ -146,12 +146,11 @@ async function createSessionFile(
   options: SessionCreateOptions,
 ): Promise<SessionSummary> {
   const { settingsFrom } = options
-  const settings =
+  const source =
     settingsFrom === undefined
-      ? {}
-      : parseSessionSettings(
-          (await serializeSession(settingsFrom, () => readSession(settingsFrom))).settings,
-        )
+      ? null
+      : await serializeSession(settingsFrom, () => readSession(settingsFrom))
+  const settings = source === null ? {} : parseSessionSettings(source.settings)
   const now = Date.now()
   const id = `session-${randomUUID()}`
   const workspace = plannedWorkspaceEntry({ createdAt: now, title: '' }, [])
@@ -173,7 +172,7 @@ async function createSessionFile(
     taskRunHarnessSessions: [],
     updateCursors: {},
     reachable: true,
-    includedInOverviews: false,
+    includedInOverviews: source?.includedInOverviews ?? false,
     hiddenMessageIds: [],
     folders: [workspace],
     workspaceFolderId: workspace.id,

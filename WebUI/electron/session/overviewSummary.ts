@@ -477,7 +477,7 @@ async function markPending(
   return sessionDocumentOf(file)
 }
 
-/** Enabling starts the first update; opting out cancels and deletes the summary. */
+/** Enabling starts the first update; opting out keeps the summary but clears its cover. */
 export async function applyOverviewInclusion(
   sessionId: string,
   included: boolean,
@@ -486,8 +486,13 @@ export async function applyOverviewInclusion(
   if (!included) {
     cancelRun(sessionId)
     const file = await mutateSession(sessionId, (current) => {
-      const { overviewSummary: _removed, ...rest } = current
-      return { ...rest, includedInOverviews: false }
+      if (!current.overviewSummary) return { ...current, includedInOverviews: false }
+      const { coveredEntryId: _covered, ...kept } = current.overviewSummary
+      return {
+        ...current,
+        includedInOverviews: false,
+        overviewSummary: { ...kept, updatesSinceRebuild: 0 },
+      }
     })
     emitSessionChanged(sessionDocumentOf(file))
     return sessionDocumentOf(file)

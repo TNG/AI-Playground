@@ -64,5 +64,6 @@ reader, so a mixed-language page is expected. Summaries are local-model work: a 
 audio turn pays a model load to update one, and a cloud turn leaves the summary behind rather than
 sending the Session's History Entries to a provider. Follow-ups that reshape prose — "make it
 terser", "only the games", "add the failures" — are gone; the agent's only decision is the range.
-The summary lives on the Session and is deleted when the Session is opted out (ADR-0019); an
+The summary lives on the Session and is kept when the Session is opted out (ADR-0019); it is unused
+while the switch is off and rebuilt from the whole history when the Session is included again. An
 Overview file already written keeps the copy the user chose to keep.

@@ -34,6 +34,7 @@ const {
   renameSession,
   resetSessionsForTest,
   setSessionDeps,
+  setSessionIncludedInOverviews,
 } = await import('../../session/sessions')
 const { presetSettingsFor, readSessionSettings, writePresetSettings } =
   await import('../../session/sessionSettings')
@@ -127,6 +128,18 @@ describe("New Session with another Session's settings", () => {
         },
       },
     })
+  })
+
+  it('carries the inclusion flag but not a summary', async () => {
+    const source = await createSession()
+    await setSessionIncludedInOverviews(source.id, true)
+
+    const fresh = await createSession(undefined, { settingsFrom: source.id })
+
+    expect(fresh.includedInOverviews).toBe(true)
+    const document = await openSession(fresh.id)
+    expect(document.includedInOverviews).toBe(true)
+    expect(document).not.toHaveProperty('overviewSummary')
   })
 
   it('takes nothing else of the source, and puts the new Session in the group asked for', async () => {

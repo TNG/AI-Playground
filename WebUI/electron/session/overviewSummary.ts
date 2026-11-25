@@ -26,6 +26,8 @@ export const OVERVIEW_SUMMARY_CONTRACT_VERSION = 1
 export const OVERVIEW_SUMMARY_MAX_CHARS = 600
 /** An entry block is kept short; the whole read is what has to fit a prompt. */
 export const OVERVIEW_SUMMARY_CHUNK_CHARS = 6000
+/** Incremental updates before a full rebuild bounds drift (an implementation constant). */
+export const OVERVIEW_SUMMARY_REBUILD_EVERY = 10
 const ENTRY_RESPONSE_CHARS = 1200
 const CANDIDATE_PROMPT_CHARS = 800
 
@@ -46,6 +48,17 @@ const COMBINE_INSTRUCTION =
   'its whole work from the summaries of its history.\n' +
   `${SUMMARY_RULES}\n`
 
+const INCREMENTAL_INSTRUCTION =
+  'You update the Overview Summary of one Session of a desktop AI app: rewrite the current ' +
+  'account so it also covers the History Entries listed after it, and still describes the ' +
+  'whole Session.\n' +
+  `${SUMMARY_RULES}\n`
+
+const COMBINE_INCREMENTAL_INSTRUCTION =
+  'You update the Overview Summary of one Session of a desktop AI app from the summaries of ' +
+  'the History Entries the current account did not cover.\n' +
+  `${SUMMARY_RULES}\n`
+
 const SINGLE_INSTRUCTION =
   'You write the Overview Summary of one Session of a desktop AI app.\n' + `${SUMMARY_RULES}\n`
 
@@ -58,6 +71,8 @@ export type OverviewSummaryCompletion = {
   text: string
   /** The update's judgement of the newest visual Artifact; false means no picture. */
   pictureMatches: boolean
+  /** Total tokens the model reported for this pass, when it reported any. */
+  tokens?: number
 }
 
 const MATCH_LINE = /^MATCH:\s*(yes|no)\b/im
@@ -224,6 +239,49 @@ export function overviewSummaryPrompts(
   return passes
 }
 
+/** The incremental form: the previous account plus only the entries it does not cover. */
+export function incrementalOverviewSummaryPrompts(
+  title: string,
+  previousText: string,
+  entries: HistoryEntry[],
+  language: string,
+  candidate?: OverviewCover,
+): PromptPass[] {
+  const blocks = entries.map(entryText)
+  const total = blocks.reduce((sum, block) => sum + block.length + 1, 0)
+  const header =
+    `Session title: ${title}\nReply language: ${language}\n\n` +
+    `Current account:\n${previousText}\n`
+  if (total <= OVERVIEW_SUMMARY_CHUNK_CHARS) {
+    return [
+      {
+        prompt:
+          `${INCREMENTAL_INSTRUCTION}${header}\nHistory Entries the account does not cover ` +
+          `(oldest first):\n${blocks.join('\n')}` +
+          (candidate ? candidateText(candidate) : '') +
+          FORMAT_INSTRUCTION,
+        final: true,
+      },
+    ]
+  }
+  const chunks = chunkInto(blocks, OVERVIEW_SUMMARY_CHUNK_CHARS)
+  const passes: PromptPass[] = chunks.map((chunk, index) => ({
+    prompt:
+      `${CHUNK_INSTRUCTION}${header}Part ${index + 1} of ${chunks.length}.\n\n` + chunk.join('\n'),
+    final: false,
+  }))
+  passes.push({
+    prompt:
+      `${COMBINE_INCREMENTAL_INSTRUCTION}${header}\n` +
+      chunks.map((_chunk, index) => `Part ${index + 1} summary:`).join('\n') +
+      '\n{CHUNK_SUMMARIES}' +
+      (candidate ? candidateText(candidate) : '') +
+      FORMAT_INSTRUCTION,
+    final: true,
+  })
+  return passes
+}
+
 function capSummary(text: string): string {
   const trimmed = text.replace(/\r\n/g, '\n').trim()
   return trimmed.length > OVERVIEW_SUMMARY_MAX_CHARS
@@ -285,32 +343,64 @@ async function writeSummary(
   return sessionDocumentOf(file)
 }
 
+type UpdateRunResult = { summary: OverviewSummary; tokens?: number }
+
 async function performUpdate(
   sessionId: string,
   request: OverviewSummaryRequest,
   run: ActiveRun,
-): Promise<void> {
+): Promise<UpdateRunResult | null> {
   const model = localModelOf(request)
-  if (!model) return
+  if (!model) return null
   const file = await readSession(sessionId)
-  if (!file.includedInOverviews) return
+  if (!file.includedInOverviews) return null
   const entries = await readHistoryEntries(sessionId)
-  if (entries.length === 0) return
+  if (entries.length === 0) return null
   if (!completeImpl) {
     appLoggerInstance.warn(
       `Overview Summary update has no model runner wired (${sessionId})`,
       'sessions',
     )
-    return
+    return null
   }
+
+  const previous = file.overviewSummary
+  const newest = entries.at(-1)
+  if (!newest) return null
+  const coveredIndex = previous?.coveredEntryId
+    ? entries.findIndex((entry) => entry.id === previous.coveredEntryId)
+    : -1
+  const sinceRebuild = (previous?.updatesSinceRebuild ?? 0) + 1
+  const missingCover = previous?.coveredEntryId !== undefined && coveredIndex < 0
+  const contractChanged =
+    previous !== undefined && previous.contractVersion !== OVERVIEW_SUMMARY_CONTRACT_VERSION
+  const periodic = previous !== undefined && sinceRebuild >= OVERVIEW_SUMMARY_REBUILD_EVERY
+  const newEntries = coveredIndex >= 0 ? entries.slice(coveredIndex + 1) : []
+  const incremental =
+    previous?.text !== undefined &&
+    previous.text !== '' &&
+    coveredIndex >= 0 &&
+    newEntries.length > 0 &&
+    !missingCover &&
+    !contractChanged &&
+    !periodic
 
   const list = await readSessionFolders(sessionId)
   const cover = await newestVisualCover(sessionId, file, list, entries, createRecordsLookup())
   const title = sessionTitle(file, entries)
-  const passes = overviewSummaryPrompts(title, entries, request.language, cover ?? undefined)
+  const passes = incremental
+    ? incrementalOverviewSummaryPrompts(
+        title,
+        previous.text ?? '',
+        newEntries,
+        request.language,
+        cover ?? undefined,
+      )
+    : overviewSummaryPrompts(title, entries, request.language, cover ?? undefined)
   const chunkSummaries: string[] = []
   let finalText = ''
   let pictureMatches = false
+  let tokens: number | undefined
 
   for (const pass of passes) {
     const prompt = pass.final
@@ -323,7 +413,8 @@ async function performUpdate(
       final: pass.final,
       sessionId,
     })
-    if (!isCurrentRun(sessionId, run.token) || run.controller.signal.aborted) return
+    if (!isCurrentRun(sessionId, run.token) || run.controller.signal.aborted) return null
+    if (completion.tokens !== undefined) tokens = (tokens ?? 0) + completion.tokens
     if (pass.final) {
       finalText = completion.text
       pictureMatches = completion.pictureMatches
@@ -332,8 +423,6 @@ async function performUpdate(
     }
   }
 
-  const newest = entries.at(-1)
-  if (!newest) return
   const summary: OverviewSummary = {
     state: 'ready',
     text: capSummary(finalText),
@@ -342,9 +431,11 @@ async function performUpdate(
     language: request.language,
     contractVersion: OVERVIEW_SUMMARY_CONTRACT_VERSION,
     writtenAt: Date.now(),
+    updatesSinceRebuild: incremental ? sinceRebuild : 0,
     ...(pictureMatches && cover ? { picture: pictureOf(sessionId, cover, list) } : {}),
   }
-  await writeSummary(sessionId, run.token, summary)
+  const written = await writeSummary(sessionId, run.token, summary)
+  return written ? { summary, ...(tokens !== undefined ? { tokens } : {}) } : null
 }
 
 async function failUpdate(
@@ -352,19 +443,21 @@ async function failUpdate(
   token: number,
   error: unknown,
   language: string,
-): Promise<void> {
-  if (!isCurrentRun(sessionId, token)) return
+): Promise<OverviewSummary | null> {
+  if (!isCurrentRun(sessionId, token)) return null
   const reason = error instanceof Error ? error.message : String(error)
   const file = await readSession(sessionId).catch(() => null)
-  if (!file || !file.includedInOverviews) return
+  if (!file || !file.includedInOverviews) return null
   const previous = file.overviewSummary
-  await writeSummary(sessionId, token, {
+  const failed: OverviewSummary = {
     ...(previous ?? { contractVersion: OVERVIEW_SUMMARY_CONTRACT_VERSION }),
     state: 'failed',
     failureReason: reason,
-    language,
+    language: previous?.language ?? language,
     contractVersion: previous?.contractVersion ?? OVERVIEW_SUMMARY_CONTRACT_VERSION,
-  })
+  }
+  const written = await writeSummary(sessionId, token, failed)
+  if (!written) return null
   emitFailure({
     code: 'overviews/summary-update-failed',
     category: 'inference',
@@ -375,6 +468,7 @@ async function failUpdate(
     context: { sessionId },
     recoverable: true,
   })
+  return failed
 }
 
 function startUpdate(sessionId: string, request: OverviewSummaryRequest): void {
@@ -382,12 +476,70 @@ function startUpdate(sessionId: string, request: OverviewSummaryRequest): void {
   const run = beginRun(sessionId)
   void performUpdate(sessionId, request, run)
     .catch((error: unknown) => {
-      if (run.controller.signal.aborted) return
+      if (run.controller.signal.aborted) return null
       return failUpdate(sessionId, run.token, error, request.language)
     })
     .finally(() => {
       if (activeRuns.get(sessionId)?.token === run.token) activeRuns.delete(sessionId)
     })
+}
+
+/** What one settled turn's Overview Summary update did, for its History Entry. */
+export type OverviewSummaryUpdateOutcome = {
+  state: 'ready' | 'failed'
+  summary: OverviewSummary
+  durationMs: number
+  tokens?: number
+  failureReason?: string
+}
+
+/**
+ * The turn-settlement entry point: run the update and report what happened, or
+ * null when there is nothing to update (not included, no entries, no local model).
+ * A failure is recorded on the Session and reported here, never thrown to the turn.
+ */
+export async function updateOverviewSummaryForTurn(
+  sessionId: string,
+  request: OverviewSummaryRequest,
+  external?: AbortSignal,
+): Promise<OverviewSummaryUpdateOutcome | null> {
+  const startedAt = Date.now()
+  const file = await readSession(sessionId).catch(() => null)
+  if (!file?.includedInOverviews) return null
+  if (!localModelOf(request)) {
+    await markPending(sessionId)
+    return null
+  }
+  const entries = await readHistoryEntries(sessionId)
+  if (entries.length === 0) return null
+
+  const run = beginRun(sessionId)
+  const onAbort = () => run.controller.abort()
+  external?.addEventListener('abort', onAbort, { once: true })
+  if (external?.aborted) run.controller.abort()
+  try {
+    const result = await performUpdate(sessionId, request, run)
+    if (!result) return null
+    return {
+      state: 'ready',
+      summary: result.summary,
+      durationMs: Date.now() - startedAt,
+      ...(result.tokens !== undefined ? { tokens: result.tokens } : {}),
+    }
+  } catch (error) {
+    if (run.controller.signal.aborted) return null
+    const summary = await failUpdate(sessionId, run.token, error, request.language)
+    if (!summary) return null
+    return {
+      state: 'failed',
+      summary,
+      durationMs: Date.now() - startedAt,
+      failureReason: error instanceof Error ? error.message : String(error),
+    }
+  } finally {
+    external?.removeEventListener('abort', onAbort)
+    if (activeRuns.get(sessionId)?.token === run.token) activeRuns.delete(sessionId)
+  }
 }
 
 async function markPending(

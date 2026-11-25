@@ -1317,6 +1317,15 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
       response: assistantMessage
         ? textOfMessage(assistantMessage as unknown as ChatTranscriptMessage)
         : undefined,
+      ...(request.model.backend !== 'cloud' && request.model.readiness
+        ? {
+            summariser: {
+              readiness: request.model.readiness,
+              replyLanguage: request.responseLocale ?? 'en-US',
+            },
+          }
+        : {}),
+      abortSignal: turn.controller.signal,
     })
     activeTurns.delete(conversationKey)
     if (request.sessionRef) releaseSessionTurn(request.sessionRef, turnId)

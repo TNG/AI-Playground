@@ -32,7 +32,7 @@ vi.mock('@/assets/js/toast', () => ({
 const sessionModule = await import('../../session/sessions')
 const kernelBus = await import('../../kernel/kernelBus')
 const { recordMediaTurn } = await import('../../session/sessionMediaTurn')
-const { appendHistoryEntry } = await import('../../session/sessionHistory')
+const { appendHistoryEntry, historyOverviewUpdates } = await import('../../session/sessionHistory')
 const {
   addHiddenMessages,
   clearAllHiddenMessages,
@@ -59,6 +59,7 @@ const registry = buildSessionsRegistry({
   addHiddenMessages,
   clearHiddenMessages,
   clearAllHiddenMessages,
+  historyOverviewUpdates,
 } as unknown as SessionsDeps)
 /** The folder the next "Locate folder…" picker returns; undefined cancels it. */
 let pickedFolder: string | undefined
@@ -103,6 +104,7 @@ beforeEach(async () => {
           included: boolean,
           request?: import('@/types/sessionIpc').OverviewSummaryRequest,
         ) => registry['sessions:setIncludedInOverviews'](noEvent, id, included, request),
+        overviewUpdates: (id: string) => registry['sessions:overviewUpdates'](noEvent, id),
         createGroup: (id: string, name: string) =>
           registry['sessions:createGroup'](noEvent, id, name),
         renameGroup: (groupId: string, name: string) =>

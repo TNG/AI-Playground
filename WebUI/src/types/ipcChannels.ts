@@ -63,6 +63,7 @@ import type {
   ShowMore,
   ShowMoreSection,
   OverviewSummaryRequest,
+  OverviewTurnUpdate,
 } from './sessionIpc'
 import type { PresetSessionSettings, SessionSettingsMap } from './sessionSettings'
 import type { SpeechSynthesisRequest } from './speechIpc'
@@ -341,6 +342,16 @@ export const CHANNELS = {
     owner: 'main',
     args: [] as unknown as readonly [string, OverviewSummaryRequest],
     result: null as unknown as IpcOkWith<{ session: SessionSummary }>,
+  },
+  /**
+   * The per-turn Overview Summary update outcomes of a Session's History Entries, which a
+   * settled chat or agent turn's details row shows. `pending` is a durable marker.
+   */
+  'sessions:overviewUpdates': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as IpcDataResult<{ updates: OverviewTurnUpdate[] }>,
   },
   /**
    * Add a host folder to a Session's folder list, read-only; `refusal` says why it was not added

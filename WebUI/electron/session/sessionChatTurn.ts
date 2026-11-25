@@ -1,7 +1,7 @@
 import { appLoggerInstance } from '../observability/logger'
 import { emitSessionChanged } from '../kernel/kernelBus'
 import { readHistoryEntries, removeHistoryEntry } from './sessionHistory'
-import { settleTurn } from './sessionSettlement'
+import { settleTurn, type SummariserDescriptor } from './sessionSettlement'
 import path from 'node:path'
 import { adoptMediaFile } from './sessionMediaTurn'
 import { copyIntoWorkspace } from './sessionWorkspace'
@@ -216,18 +216,24 @@ export function trackChatTurnInSession(
     prompt: string
     status: HistoryEntry['status']
     response?: string
+    summariser?: SummariserDescriptor
+    abortSignal?: AbortSignal
   }): Promise<void> {
     try {
       if (trigger === 'regenerate-message') await forgetReplacedAttempt(turn.prompt)
-      await settleTurn(sessionId, {
-        preset: turn.preset,
-        variant: turn.variant,
-        kind: 'chat',
-        prompt: turn.prompt,
-        status: turn.status,
-        artifacts,
-        ...(turn.response ? { response: turn.response } : {}),
-      })
+      await settleTurn(
+        sessionId,
+        {
+          preset: turn.preset,
+          variant: turn.variant,
+          kind: 'chat',
+          prompt: turn.prompt,
+          status: turn.status,
+          artifacts,
+          ...(turn.response ? { response: turn.response } : {}),
+        },
+        { summariser: turn.summariser, abortSignal: turn.abortSignal },
+      )
     } catch (error) {
       appLoggerInstance.warn(`chat turn not recorded in its Session: ${error}`, LOG_SCOPE)
     }

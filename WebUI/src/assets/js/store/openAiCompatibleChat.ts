@@ -549,7 +549,12 @@ export const useOpenAiCompatibleChat = defineStore(
       const presetName = presets.activePresetName
       if (!sessionRef || !presetName) return {}
       const variant = presets.activeVariantName[presetName]
-      return { sessionRef, presetName, ...(variant ? { variant } : {}) }
+      return {
+        sessionRef,
+        presetName,
+        responseLocale: i18n.langName,
+        ...(variant ? { variant } : {}),
+      }
     }
 
     /** Replaces a chat's messages with its stored transcript unless a turn is running in it. */

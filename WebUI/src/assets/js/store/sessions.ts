@@ -7,6 +7,7 @@ import type {
   MissingWorkspace,
   OverviewSummary,
   OverviewSummaryRequest,
+  OverviewTurnUpdate,
   SessionDeletePreview,
   SessionDocument,
   SessionFolderList,
@@ -64,6 +65,8 @@ export const useSessions = defineStore('sessions', () => {
   const openTimeline = ref<unknown[]>([])
   /** The open Session's Overview Summary text and picture; the panel rows carry only its state. */
   const openOverviewSummary = ref<OverviewSummary | undefined>()
+  /** The open Session's per-turn Overview Summary update outcomes, for the turn details rows. */
+  const openOverviewUpdates = ref<OverviewTurnUpdate[]>([])
   // Ids a regenerate dropped from the view before main's file did; a stale `session-changed` must not restore them.
   const forgottenTimelineIds = new Set<string>()
   /** Artifact URLs of the open Session whose file was deleted; their cards say so. */
@@ -112,6 +115,25 @@ export const useSessions = defineStore('sessions', () => {
       ? timelineWithout(timeline, forgottenTimelineIds)
       : timeline
     refreshDeletedFiles(document.id)
+    void loadOverviewUpdates(document.id)
+  }
+
+  let overviewUpdatesSeq = 0
+
+  /** Reads the per-turn update outcomes after a session change; a stale reply is dropped. */
+  async function loadOverviewUpdates(id: string): Promise<void> {
+    const seq = ++overviewUpdatesSeq
+    try {
+      const result = await window.electronAPI.sessions.overviewUpdates(id)
+      if (seq !== overviewUpdatesSeq || openSessionId.value !== id) return
+      if (result.success) openOverviewUpdates.value = result.data.updates
+    } catch (error) {
+      errors.report(error, {
+        code: 'sessions/overview-updates-failed',
+        category: 'backend',
+        surface: 'silent',
+      })
+    }
   }
 
   function applyGroups(state: SessionGroupsState): void {
@@ -372,6 +394,8 @@ export const useSessions = defineStore('sessions', () => {
     openOverviewSummary.value = overviewSummary
     openHiddenIds.value = summary.hiddenMessageIds
     openDeletedFiles.value = result.missingFiles
+    openOverviewUpdates.value = []
+    void loadOverviewUpdates(id)
     if (reveal) revealInGroup(summary)
     return result.lastPreset
   }
@@ -752,6 +776,7 @@ export const useSessions = defineStore('sessions', () => {
     forgottenTimelineIds.clear()
     openTimeline.value = []
     openOverviewSummary.value = undefined
+    openOverviewUpdates.value = []
     openHiddenIds.value = []
     openDeletedFiles.value = []
     await openNewestOrCreate()
@@ -764,6 +789,7 @@ export const useSessions = defineStore('sessions', () => {
     openSessionId,
     openTimeline,
     openOverviewSummary,
+    openOverviewUpdates,
     openHiddenIds,
     openVisibleTimeline,
     sessionsWithHiddenMessages,

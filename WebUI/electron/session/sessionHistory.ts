@@ -13,6 +13,7 @@ import {
   HistoryEntrySchema,
   type HistoryArtifact,
   type HistoryEntry,
+  type OverviewTurnUpdate,
   type SessionLastPreset,
 } from '@/types/sessionIpc'
 
@@ -52,6 +53,50 @@ export async function readHistoryEntries(sessionId: string): Promise<HistoryEntr
     }
   }
   return entries
+}
+
+/** Rewrites one History Entry in place on the Session's write chain; undefined when none matched. */
+export async function updateHistoryEntry(
+  sessionId: string,
+  entryId: string,
+  patch: Partial<HistoryEntry>,
+): Promise<HistoryEntry | undefined> {
+  assertSessionId(sessionId)
+  return serializeSession(sessionId, async () => {
+    const lines = (await readHistoryFile(sessionId))
+      .split('\n')
+      .filter((line) => line.trim() !== '')
+    let updated: HistoryEntry | undefined
+    const next = lines.map((line) => {
+      try {
+        const parsed = HistoryEntrySchema.safeParse(JSON.parse(line))
+        if (!parsed.success || parsed.data.id !== entryId) return line
+        updated = HistoryEntrySchema.parse({ ...parsed.data, ...patch })
+        return JSON.stringify(updated)
+      } catch {
+        return line
+      }
+    })
+    if (updated) await writeHistoryLines(sessionId, next)
+    return updated
+  })
+}
+
+/** The entries whose turns recorded an Overview Summary update outcome. */
+export async function historyOverviewUpdates(sessionId: string): Promise<OverviewTurnUpdate[]> {
+  return (await readHistoryEntries(sessionId)).flatMap((entry) =>
+    entry.overviewUpdate
+      ? [
+          {
+            entryId: entry.id,
+            kind: entry.kind,
+            prompt: entry.prompt,
+            ...(entry.harnessSessionId ? { harnessSessionId: entry.harnessSessionId } : {}),
+            update: entry.overviewUpdate,
+          },
+        ]
+      : [],
+  )
 }
 
 /**

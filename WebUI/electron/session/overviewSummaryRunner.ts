@@ -46,7 +46,12 @@ export async function runOverviewSummaryCompletion(
       abortSignal: signal,
       temperature: 0.2,
     })
-    return parseOverviewSummaryReply(result.text, final)
+    const usage = result.usage
+    const tokens = usage ? (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0) : undefined
+    return {
+      ...parseOverviewSummaryReply(result.text, final),
+      ...(tokens !== undefined ? { tokens } : {}),
+    }
   } finally {
     finishTextRequest(runId)
   }

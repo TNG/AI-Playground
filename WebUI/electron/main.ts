@@ -327,7 +327,7 @@ import {
 import { saveChatTranscript } from './session/sessionChatTurn'
 import { setAppMediaPathResolver } from './agent/piCustomTools'
 import { readSessionSettings, writePresetSettings } from './session/sessionSettings'
-import { lastTurnPreset } from './session/sessionHistory'
+import { historyOverviewUpdates, lastTurnPreset } from './session/sessionHistory'
 import { setOverviewSummaryComplete } from './session/overviewSummary'
 import { runOverviewSummaryCompletion } from './session/overviewSummaryRunner'
 import { claimSessionTurn, inSessionTurn, releaseSessionTurn } from './session/sessionTurns'
@@ -1979,6 +1979,7 @@ function initEventHandle() {
       readSessionSettings,
       writePresetSettings,
       lastTurnPreset,
+      historyOverviewUpdates,
       claimSessionTurn,
       releaseSessionTurn,
       newestArtifact,

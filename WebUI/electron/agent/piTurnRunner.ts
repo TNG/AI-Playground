@@ -493,6 +493,14 @@ export async function startAgentTurn(
           ? { taskRun: { taskName: config.taskRun.taskName, input: config.taskRun.input } }
           : {}),
         ...(config.followUp ? { followUp: config.followUp } : {}),
+        ...(config.modelConfig.source === 'local' && config.readiness
+          ? {
+              summariser: {
+                readiness: config.readiness,
+                replyLanguage: config.responseLocale ?? 'en-US',
+              },
+            }
+          : {}),
       })
     : null
   const translator = createStreamTranslator({

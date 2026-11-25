@@ -90,8 +90,42 @@ export const OverviewSummarySchema = z.object({
   picture: OverviewSummaryPictureSchema.optional(),
   failureReason: z.string().optional(),
   writtenAt: z.number().int().nonnegative().optional(),
+  /** Incremental updates since the last full rebuild; the periodic rebuild resets it. */
+  updatesSinceRebuild: z.number().int().nonnegative().optional(),
 })
 export type OverviewSummary = z.infer<typeof OverviewSummarySchema>
+
+/**
+ * What one turn's Overview Summary update did, kept on its History Entry so the
+ * turn's details row can show it. `pending` is written before the update runs
+ * (durability); a cloud turn's entry stays pending because no local model ran.
+ */
+export const OverviewSummaryUpdateStateSchema = z.enum(['pending', 'ready', 'failed', 'skipped'])
+export type OverviewSummaryUpdateState = z.infer<typeof OverviewSummaryUpdateStateSchema>
+
+export const OverviewSummaryUpdateSchema = z.object({
+  state: OverviewSummaryUpdateStateSchema,
+  /** The model that wrote the text, or the model the failed attempt used. */
+  model: z.string().optional(),
+  /** When the update settled, and how long it took. */
+  writtenAt: z.number().int().nonnegative().optional(),
+  durationMs: z.number().int().nonnegative().optional(),
+  tokens: z.number().int().nonnegative().optional(),
+  /** The newest History Entry the text covered when this turn settled. */
+  coveredEntryId: z.string().optional(),
+  failureReason: z.string().optional(),
+  text: z.string().optional(),
+})
+export type OverviewSummaryUpdate = z.infer<typeof OverviewSummaryUpdateSchema>
+
+/** The per-turn outcome a details row reads, with the entry it belongs to and its prompt. */
+export type OverviewTurnUpdate = {
+  entryId: string
+  kind: HistoryEntryKind
+  prompt: string
+  harnessSessionId?: string
+  update: OverviewSummaryUpdate
+}
 
 /** What the renderer resolves for an activation or refresh: local model and reply language. */
 export const OverviewSummaryRequestSchema = z.object({
@@ -245,6 +279,8 @@ export const HistoryEntrySchema = z.object({
   harnessSessionId: z.string().optional(),
   /** The harness turn that wrote this entry; delete/regenerate removes it with the turn. */
   turnId: z.string().optional(),
+  /** What this turn's Overview Summary update did, when its Session is Included in Overviews. */
+  overviewUpdate: OverviewSummaryUpdateSchema.optional(),
 })
 
 export type HistoryEntry = z.infer<typeof HistoryEntrySchema>

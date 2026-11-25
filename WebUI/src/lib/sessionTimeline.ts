@@ -77,7 +77,7 @@ import type {
   TurnSummary,
 } from '@/lib/turnTypes'
 import type { GenerationSettings } from '@/types/mediaItem'
-import type { SessionTurnKind } from '@/types/sessionIpc'
+import type { SessionTurnKind, OverviewTurnUpdate } from '@/types/sessionIpc'
 import type {
   AgentTurnTag,
   AudioTurnData,
@@ -206,6 +206,44 @@ function withLiveChatTurn(
   return [...merged, ...tagged.values()]
 }
 
+const OVERVIEW_UPDATE_TURN_KIND: Partial<Record<OverviewTurnUpdate['kind'], 'chat' | 'agent'>> = {
+  chat: 'chat',
+  agent: 'agent',
+}
+
+function normalizedPrompt(text: string): string {
+  return text.replace(/\s+/g, ' ').trim()
+}
+
+/**
+ * Gives each settled chat or agent Turn its own Overview Summary update outcome, so
+ * the Turn's details row can show it. Entries are matched by kind, prompt and (for
+ * an Agent turn) Harness Session; an Agent Run's first prompt differs from the
+ * recorded run line, so it falls back to the next unclaimed entry there.
+ */
+function attachOverviewUpdates(turns: TimelineTurn[], rows: readonly OverviewTurnUpdate[]): void {
+  if (rows.length === 0) return
+  const remaining = rows.map((row) => ({ row, used: false }))
+  for (const turn of turns) {
+    if (turn.kind !== 'chat' && turn.kind !== 'agent') continue
+    const kind = turn.kind
+    const prompt = normalizedPrompt(turn.prompt?.text ?? '')
+    const harness = turn.kind === 'agent' ? turn.harnessSessionId : undefined
+    const fits = (row: OverviewTurnUpdate) =>
+      OVERVIEW_UPDATE_TURN_KIND[row.kind] === kind &&
+      (!harness || !row.harnessSessionId || row.harnessSessionId === harness)
+    let index = remaining.findIndex(
+      (entry) => !entry.used && fits(entry.row) && normalizedPrompt(entry.row.prompt) === prompt,
+    )
+    if (index < 0 && kind === 'agent') {
+      index = remaining.findIndex((entry) => !entry.used && fits(entry.row))
+    }
+    if (index < 0) continue
+    remaining[index].used = true
+    turn.details.parts.push({ kind: 'overview-update', update: remaining[index].row.update })
+  }
+}
+
 export function sessionTimelineItems<M extends PendingMedia, A extends PendingAudio>(
   timeline: readonly unknown[],
   live: LiveTurns<M, A>,
@@ -216,6 +254,7 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
    * the hidden turns (chat regenerate), so they must not offer the actions.
    */
   atTrueEnd = true,
+  overviewUpdates: readonly OverviewTurnUpdate[] = [],
 ): SessionTimelineItem<M, A>[] {
   let merged = withLiveChatTurn(timeline, live.chat ?? [])
   for (const agent of live.agents ?? []) {
@@ -229,6 +268,7 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
   markRunsInFlight(turns, live.agentRunsInFlight ?? [])
   for (const turn of turns) if (turn.kind === 'agent' && turn.streaming) turn.footer = noFooter()
   markLiveChatTurn(turns, live.chatStatus, mediaSteps, live.chatStoppingAt, now)
+  attachOverviewUpdates(turns, overviewUpdates)
   const items: SessionTimelineItem<M, A>[] = [...turns]
   const media = live.media
   if (media && !turns.some((turn) => turn.kind === 'media' && turn.media.runId === media.runId)) {

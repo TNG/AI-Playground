@@ -1,7 +1,7 @@
 import type { InvokeHandlerMap, SessionsInvokeName } from '../ipcRegistries'
 import { ipcFail } from '../typedIpc'
 import type { recordAudioTurn } from '../../session/sessionAudioTurn'
-import type { lastTurnPreset } from '../../session/sessionHistory'
+import type { historyOverviewUpdates, lastTurnPreset } from '../../session/sessionHistory'
 import {
   SESSION_BUSY_MESSAGE,
   type claimSessionTurn,
@@ -120,6 +120,7 @@ export type SessionsDeps = {
   clearHiddenMessages: typeof clearHiddenMessages
   clearAllHiddenMessages: typeof clearAllHiddenMessages
   lastTurnPreset: typeof lastTurnPreset
+  historyOverviewUpdates: typeof historyOverviewUpdates
   claimSessionTurn: typeof claimSessionTurn
   releaseSessionTurn: typeof releaseSessionTurn
   saveChatTranscript: typeof saveChatTranscript
@@ -376,6 +377,14 @@ export function buildSessionsRegistry(deps: SessionsDeps) {
           OverviewSummaryRequestSchema.parse(request),
         )
         return { success: true as const, session }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
+    'sessions:overviewUpdates': async (_event, id) => {
+      try {
+        const updates = await deps.historyOverviewUpdates(requireString(id, 'session id'))
+        return { success: true as const, data: { updates } }
       } catch (e) {
         return ipcFail(e)
       }

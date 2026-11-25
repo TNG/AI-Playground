@@ -286,6 +286,7 @@ describe('mediaDirect (in-process generateImage / editImage)', () => {
               settings: { seed: 0 },
             },
           ],
+          size: '512x512',
         }),
       },
     ])

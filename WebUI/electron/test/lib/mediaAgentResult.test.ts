@@ -46,6 +46,48 @@ describe('condenseMediaAgentRun', () => {
     ])
   })
 
+  it('records the size actually used in the step line', () => {
+    const result = condenseMediaAgentRun({
+      text: '',
+      steps: [
+        {
+          toolName: 'comfyUI',
+          input: { workflow: 'Draft Image', resolution: '600x600' },
+          output: {
+            size: '512x512',
+            sizeNotice: 'Requested 600x600, but the "Draft Image" workflow used 512x512.',
+            images: [{ id: '1', type: 'image', imageUrl: 'aipg-media://a.png', mode: 'imageGen' }],
+          },
+        },
+      ],
+    })
+    expect(result.steps[0]).toContain('(512x512)')
+  })
+
+  it('falls back to the produced entry settings when the output carries no size', () => {
+    const result = condenseMediaAgentRun({
+      text: '',
+      steps: [
+        {
+          toolName: 'comfyUI',
+          input: { workflow: 'Draft Image', resolution: '2048x2048' },
+          output: {
+            images: [
+              {
+                id: '1',
+                type: 'image',
+                imageUrl: 'aipg-media://a.png',
+                mode: 'imageGen',
+                settings: { resolution: '1024x1024' },
+              },
+            ],
+          },
+        },
+      ],
+    })
+    expect(result.steps[0]).toContain('(1024x1024)')
+  })
+
   it('keeps the workflow each image came from, so the UI can name it after the run', () => {
     const result = condenseMediaAgentRun({
       text: '',
@@ -149,5 +191,58 @@ describe('condenseMediaAgentRun', () => {
       ],
     })
     expect(result.images).toHaveLength(1)
+  })
+
+  it('keeps dynamicSettings and full settings in the condensed record, strips them in the slim copy', () => {
+    const dynamicSettings = [
+      {
+        type: 'number',
+        label: 'Guidance Scale',
+        nodeTitle: 'Node',
+        nodeInput: 'guidance',
+        displayed: true,
+        modifiable: true,
+        defaultValue: 7,
+        current: 7.5,
+      },
+    ]
+    const result = condenseMediaAgentRun({
+      text: '',
+      steps: [
+        {
+          toolName: 'comfyUI',
+          input: { workflow: 'Draft Image', prompt: 'a castle' },
+          output: {
+            images: [
+              {
+                id: '1',
+                type: 'image',
+                imageUrl: 'aipg-media://a.png',
+                mode: 'imageGen',
+                settings: { preset: 'Draft Image', prompt: 'a castle', seed: 42 },
+                dynamicSettings,
+              },
+            ],
+          },
+        },
+      ],
+    })
+
+    // The condensed record is the UI's source of truth: settings and dynamic inputs survive.
+    expect(result.images[0].settings).toEqual({
+      preset: 'Draft Image',
+      prompt: 'a castle',
+      seed: 42,
+    })
+    expect(result.images[0].dynamicSettings).toEqual(dynamicSettings)
+    // The slim copy is the parent model's context: only the prompt and workflow name may remain.
+    expect(slimCondensedMedia(result).images).toEqual([
+      {
+        id: '1',
+        type: 'image',
+        imageUrl: 'aipg-media://a.png',
+        settings: { preset: 'Draft Image', prompt: 'a castle' },
+      },
+    ])
   })
 })

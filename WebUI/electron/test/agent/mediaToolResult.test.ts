@@ -53,4 +53,57 @@ describe("an Agent Preset media tool's details", () => {
   it('records no failure for a run that completed', () => {
     expect(mediaToolResult({ images: [done] }).details?.failure).toBeUndefined()
   })
+
+  it('takes the transcript items from the richer record when one is given', () => {
+    const full = {
+      images: [
+        {
+          id: 'd1',
+          type: 'image',
+          imageUrl: 'aipg-media://sessions/s1/files/d1.png',
+          settings: { preset: 'Draft Image', prompt: 'a castle', seed: 42 },
+          dynamicSettings: [
+            {
+              type: 'number',
+              label: 'Guidance Scale',
+              nodeTitle: 'Node',
+              nodeInput: 'guidance',
+              displayed: true,
+              modifiable: true,
+              defaultValue: 7,
+              current: 7.5,
+            },
+          ],
+        },
+      ],
+    }
+    const slim = {
+      images: [
+        {
+          id: 'd1',
+          type: 'image',
+          imageUrl: 'aipg-media://sessions/s1/files/d1.png',
+          settings: { prompt: 'a castle' },
+        },
+      ],
+    }
+
+    const { content, details } = mediaToolResult(slim, undefined, full)
+    const textContent = content[0] as { text: string }
+
+    // The model-facing JSON stays slim...
+    expect(JSON.parse(textContent.text)).toEqual(slim)
+    // ...while the transcript items carry the full settings and dynamic inputs.
+    expect(details?.items).toEqual([
+      {
+        id: 'd1',
+        type: 'image',
+        imageUrl: 'aipg-media://sessions/s1/files/d1.png',
+        mode: 'imageGen',
+        settings: { preset: 'Draft Image', prompt: 'a castle', seed: 42 },
+        state: 'done',
+        dynamicSettings: full.images[0].dynamicSettings,
+      },
+    ])
+  })
 })

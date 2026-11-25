@@ -1350,6 +1350,7 @@ describe('turn streaming', () => {
         needsGpu: true,
         joinsTurnQueue: true,
         work: 'agent',
+        component: 'llamacpp-backend',
         pause: expect.any(Object),
       },
       expect.any(AbortSignal),

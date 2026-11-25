@@ -993,8 +993,9 @@ machine-level `settings.json` — that store has no Pinia persistence left.
 **Settings → Developer** is the UI. Always visible: keep models loaded and dev console on
 startup. Behind `showDebugSettingsInUI`: verbose agent logging, dummy media workflows, pretend Phison
 SSD, OEM vendor override, remote repository, OpenVINO image-gen devices — and the same flag
-shows the title-bar setup-wizard shortcut and unlocks the dev-only test LLM + dummy workflows,
-so a packaged build can use them.
+unlocks the dev-only test LLM + dummy workflows, so a packaged build can use them. The title-bar
+server button is the Component Manager shortcut and is not gated by that setting; the Setup
+Wizard is reached from Developer's Setup Wizard button.
 
 **Developer mode** is `npm run dev` or `showDebugSettingsInUI`: `isDeveloperMode()`
 (`electron/kernel/developerMode.ts`) in main, `developerMode()` (`store/debugSettings.ts`) in the
@@ -1024,7 +1025,7 @@ env var, which stays only as a one-shot override for a launch with no UI yet.
 
 **Presets**: `components/PresetSelector.vue`, `components/VariantSelector.vue` → stores: `presets`, `presetSwitching`
 
-**Service Management**: `components/InstallationManagement.vue` → store: `backendServices` → electron: `apiServiceRegistry.ts`, `electron/adapters/backends/*.ts`
+**Service Management**: `components/ComponentPanel.vue` (the Setup Wizard's shared panel) → store: `setupWizard` / `backendServices` → electron: `apiServiceRegistry.ts`, `electron/adapters/backends/*.ts`
 
 ### Electron Main Process Files
 

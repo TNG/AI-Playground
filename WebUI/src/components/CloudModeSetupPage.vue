@@ -1,19 +1,38 @@
 <template>
-  <div class="px-12 py-5 max-w-5xl w-5xl">
-    <h1 class="text-center py-1 px-4 rounded-sm text-3xl font-bold">
-      {{ HYBRID_CLOUD_NAME }} Setup
-    </h1>
-    <p class="text-center text-xs text-muted-foreground pt-2">
-      Add an OpenAI-compatible endpoint to run inference on beside this device — a hosted service, a
-      cloud provider, or another machine on your LAN. Its models are fetched from the provider and
-      become selectable in chat under the
-      <span class="font-semibold">{{ HYBRID_CLOUD_NAME }}</span> backend.
-    </p>
+  <div :class="embedded ? 'flex w-full min-w-0 flex-col gap-4' : 'px-12 py-5 max-w-5xl w-5xl'">
+    <template v-if="embedded">
+      <SettingsSubViewHeader title="Hybrid Cloud Setup" @back="emit('back')" @done="saveAndDone">
+        <template #actions>
+          <span v-if="justSaved" class="text-xs text-success">✓ Saved</span>
+          <Button variant="secondary" size="sm" :disabled="saving" @click="saveOnly">Save</Button>
+        </template>
+      </SettingsSubViewHeader>
+      <p class="text-xs text-muted-foreground">
+        Add an OpenAI-compatible endpoint to run inference on beside this device — a hosted service,
+        a cloud provider, or another machine on your LAN. Its models become selectable in chat under
+        the <span class="font-semibold">{{ HYBRID_CLOUD_NAME }}</span> backend.
+      </p>
+    </template>
+    <template v-else>
+      <h1 class="text-center py-1 px-4 rounded-sm text-3xl font-bold">
+        {{ HYBRID_CLOUD_NAME }} Setup
+      </h1>
+      <p class="text-center text-xs text-muted-foreground pt-2">
+        Add an OpenAI-compatible endpoint to run inference on beside this device — a hosted service,
+        a cloud provider, or another machine on your LAN. Its models are fetched from the provider
+        and become selectable in chat under the
+        <span class="font-semibold">{{ HYBRID_CLOUD_NAME }}</span> backend.
+      </p>
+    </template>
 
-    <div class="flex gap-6 pt-6">
+    <div :class="embedded ? 'flex flex-col gap-4 md:flex-row' : 'flex gap-6 pt-6'">
       <!-- Left: provider list -->
-      <div class="w-56 shrink-0">
-        <h2 class="text-sm font-semibold uppercase tracking-wider text-muted-foreground pb-3">
+      <div :class="embedded ? 'w-full md:w-48 md:shrink-0' : 'w-56 shrink-0'">
+        <SettingsHeading v-if="embedded" class="pb-2">Providers</SettingsHeading>
+        <h2
+          v-else
+          class="text-sm font-semibold uppercase tracking-wider text-muted-foreground pb-3"
+        >
           Providers
         </h2>
         <div class="flex flex-col gap-2">
@@ -39,8 +58,15 @@
 
       <!-- Right: selected provider settings -->
       <div class="flex-1 min-w-0">
-        <div class="flex items-center justify-between pb-3">
-          <h2 class="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+        <div
+          :class="
+            embedded
+              ? 'flex items-center justify-between pb-2'
+              : 'flex items-center justify-between pb-3'
+          "
+        >
+          <SettingsHeading v-if="embedded">Provider Settings</SettingsHeading>
+          <h2 v-else class="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
             Provider Settings
           </h2>
           <button
@@ -118,7 +144,12 @@
     </div>
 
     <!-- Footer actions -->
-    <SetupWizardFooter :primary-disabled="saving" @back="emit('back')" @primary="saveAndDone">
+    <SetupWizardFooter
+      v-if="!embedded"
+      :primary-disabled="saving"
+      @back="emit('back')"
+      @primary="saveAndDone"
+    >
       <template #actions>
         <span v-if="justSaved" class="text-xs text-success">✓ Saved</span>
         <Button variant="secondary" @click="saveOnly" :disabled="saving">Save</Button>
@@ -134,6 +165,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import SetupSidebarTile from '@/components/SetupSidebarTile.vue'
 import SetupWizardFooter from '@/components/SetupWizardFooter.vue'
+import SettingsHeading from '@/components/SettingsHeading.vue'
+import SettingsSubViewHeader from '@/components/SettingsSubViewHeader.vue'
 import DropDownNew from '@/components/DropDownNew.vue'
 import {
   useCloudMode,
@@ -145,6 +178,11 @@ import * as toast from '@/assets/js/toast'
 import { HYBRID_CLOUD_NAME } from '@/lib/cloudModeName'
 
 const emit = defineEmits<{ (e: 'back'): void; (e: 'done'): void }>()
+
+defineProps<{
+  /** Rendered inside the Component Manager tab rather than the Setup Wizard. */
+  embedded?: boolean
+}>()
 
 const cloudMode = useCloudMode()
 const errors = useErrors()

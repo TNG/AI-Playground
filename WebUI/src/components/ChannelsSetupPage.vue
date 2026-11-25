@@ -1,21 +1,31 @@
 <template>
-  <div class="px-12 py-5 max-w-5xl w-5xl">
-    <h1 class="text-center py-1 px-4 rounded-sm text-3xl font-bold">Channel Setup</h1>
-    <p class="text-center text-sm text-muted-foreground">
-      {{ i18n.CHANNELS_ONLY_WHILE_OPEN }}
-    </p>
+  <div :class="embedded ? 'flex w-full min-w-0 flex-col gap-4' : 'px-12 py-5 max-w-5xl w-5xl'">
+    <template v-if="embedded">
+      <SettingsSubViewHeader title="Channel Setup" @back="emit('back')" @done="emit('done')" />
+      <p class="text-xs text-muted-foreground">{{ i18n.CHANNELS_ONLY_WHILE_OPEN }}</p>
+    </template>
+    <template v-else>
+      <h1 class="text-center py-1 px-4 rounded-sm text-3xl font-bold">Channel Setup</h1>
+      <p class="text-center text-sm text-muted-foreground">
+        {{ i18n.CHANNELS_ONLY_WHILE_OPEN }}
+      </p>
+    </template>
 
     <p
       v-if="!channelStore.masterEnabled && anyEnabled"
-      class="text-center text-xs text-warning pt-2"
+      :class="embedded ? 'text-xs text-warning' : 'text-center text-xs text-warning pt-2'"
     >
       The Channels master switch is off — enabled channels won't run until you turn it on from the
       title bar.
     </p>
 
-    <div class="flex gap-6 pt-6">
-      <div class="w-56 shrink-0">
-        <h2 class="text-sm font-semibold uppercase tracking-wider text-muted-foreground pb-3">
+    <div :class="embedded ? 'flex flex-col gap-4 md:flex-row' : 'flex gap-6 pt-6'">
+      <div :class="embedded ? 'w-full md:w-48 md:shrink-0' : 'w-56 shrink-0'">
+        <SettingsHeading v-if="embedded" class="pb-2">Chat Software</SettingsHeading>
+        <h2
+          v-else
+          class="text-sm font-semibold uppercase tracking-wider text-muted-foreground pb-3"
+        >
           Chat Software
         </h2>
         <div class="flex flex-col gap-2">
@@ -102,7 +112,11 @@
       </div>
 
       <div class="flex-1 min-w-0">
-        <h2 class="text-sm font-semibold uppercase tracking-wider text-muted-foreground pb-3">
+        <SettingsHeading v-if="embedded" class="pb-2">Setup Steps</SettingsHeading>
+        <h2
+          v-else
+          class="text-sm font-semibold uppercase tracking-wider text-muted-foreground pb-3"
+        >
           Setup Steps
         </h2>
 
@@ -178,12 +192,13 @@
     <p
       v-for="notice in answerableNotices"
       :key="notice.kind"
-      class="pt-2 text-sm text-muted-foreground"
+      :class="embedded ? 'text-xs text-muted-foreground' : 'pt-2 text-sm text-muted-foreground'"
     >
       {{ channelName(notice.kind) }}: {{ notice.text }}
     </p>
 
     <SetupWizardFooter
+      v-if="!embedded"
       :show-back="!isEditMode"
       :primary-label="isEditMode ? 'Done' : 'Continue'"
       @back="emit('back')"
@@ -201,6 +216,8 @@ import { CHANNELS, getDescriptor } from '@/assets/js/store/channels/channelRegis
 import type { ChannelKind } from '@/assets/js/store/channels/types'
 import SetupSidebarTile from '@/components/SetupSidebarTile.vue'
 import SetupWizardFooter from '@/components/SetupWizardFooter.vue'
+import SettingsHeading from '@/components/SettingsHeading.vue'
+import SettingsSubViewHeader from '@/components/SettingsSubViewHeader.vue'
 import { answerableNotice } from '@/lib/answerRouterWording'
 
 const emit = defineEmits<{
@@ -208,10 +225,15 @@ const emit = defineEmits<{
   done: []
 }>()
 
+const props = defineProps<{
+  /** Rendered inside the Component Manager tab rather than the Setup Wizard. */
+  embedded?: boolean
+}>()
+
 const wizard = useSetupWizard()
 const channelStore = useChannels()
 const i18n = useI18N().state
-const isEditMode = computed(() => wizard.channelsSetupOrigin === 'edit')
+const isEditMode = computed(() => props.embedded === true || wizard.channelsSetupOrigin === 'edit')
 
 const answerableNotices = computed(() =>
   channelStore.notificationChannels.flatMap((kind) => {

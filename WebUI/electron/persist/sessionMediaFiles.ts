@@ -1,14 +1,21 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { dashNumbered, firstFree, freeName, moveEntry, sameContent } from './fileOps'
+import {
+  dashNumbered,
+  firstFree,
+  freeName,
+  moveEntry,
+  nextNumberedName,
+  sameContent,
+} from './fileOps'
 import { discardPath } from './sessionFiles'
 
 const READER_COPIES_DIR = 'generated'
 
-/** Moves a regular file into `dir` under a free name; that name, or null for a non-file. */
-export async function moveIntoFolder(dir: string, source: string): Promise<string | null> {
+/** Moves generated media into `dir` at the next number in its series; that name, or null. */
+export async function moveGeneratedIntoFolder(dir: string, source: string): Promise<string | null> {
   if (!(await fs.stat(source)).isFile()) return null
-  const name = await freeName(dir, path.basename(source))
+  const name = await nextNumberedName(dir, path.basename(source))
   await moveEntry(source, path.join(dir, name))
   return name
 }

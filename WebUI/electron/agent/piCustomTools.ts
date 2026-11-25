@@ -7,7 +7,7 @@ import type { AgentMediaDetails, AgentMediaItem } from '@/types/agentMediaDetail
 import { appLoggerInstance } from '../observability/logger.ts'
 import { emitAgentToolImage } from '../kernel/kernelBus.ts'
 import { typedSend } from '../kernel/typedIpc.ts'
-import { freeName, moveEntry } from '../persist/fileOps.ts'
+import { moveEntry, nextNumberedName } from '../persist/fileOps.ts'
 import { noteGeneratedMedia } from './generatedMedia.ts'
 import { recordJournalMedia, recordWorkspaceWrite } from './workspaceJournal.ts'
 import { sessionFolderMediaUrl } from '@/lib/comfyWorkflow'
@@ -45,8 +45,12 @@ export function jsonResult(value: unknown): AgentToolResult<undefined> {
 export function mediaToolResult(
   value: unknown,
   steps?: string[],
+  itemsValue?: unknown,
 ): AgentToolResult<AgentMediaDetails | undefined> {
-  const items = generatedItemsOf(value)
+  // `value` becomes the model-facing JSON; `itemsValue`, when a richer record
+  // exists beside the slim one, is where the transcript's UI-facing items come
+  // from (full generation settings and dynamic inputs without polluting context).
+  const items = generatedItemsOf(itemsValue ?? value)
   const failure = failureOf(value)
   const details =
     items.length > 0 || steps || failure
@@ -366,12 +370,12 @@ async function saveOne(
     const saved = await freeName(workspaceDir, name)
     record(path.join(workspaceDir, saved))
     await moveIntoSession(url, path.join(workspaceDir, saved))
-    const served = await freeName(filesDir, name)
+    const served = await nextNumberedName(filesDir, name)
     fs.copyFileSync(path.join(workspaceDir, saved), path.join(filesDir, served))
     const servedUrl = trialMediaUrl(sessionMedia.agentId, `files/${served}`)
     return { saved, entry: { ...entry, [key]: servedUrl } }
   }
-  const filesName = await freeName(filesDir, name)
+  const filesName = await nextNumberedName(filesDir, name)
   const sessionCopy = path.join(filesDir, filesName)
   // Without an apart folder this IS the workspace copy (a game's own folder),
   // so its pre-state is journaled like any other workspace write; an apart copy

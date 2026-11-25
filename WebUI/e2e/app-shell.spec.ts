@@ -71,7 +71,8 @@ test.describe('App shell', () => {
       ).toBeVisible()
 
       await shell.settingsTab('Component Manager').click()
-      await expect(shell.settingsPanel('Component Manager')).toHaveText('Work in progress')
+      await expect(app.components.healthLine).toBeVisible()
+      await expect(shell.settingsPanel('Component Manager')).not.toHaveText('Work in progress')
       await shell.settingsTab('Model Library').click()
       await expect(
         shell.settingsPanel('Model Library').getByRole('searchbox', { name: 'Search models' }),

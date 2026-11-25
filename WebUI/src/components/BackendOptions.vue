@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { BackendVersionSchema, useBackendServices } from '@/assets/js/store/backendServices'
 import { useSetupWizard } from '@/assets/js/store/setupWizard'
+import { useGlobalSetup } from '@/assets/js/store/globalSetup'
+import { useUIStore } from '@/assets/js/store/ui'
 import { useI18N } from '@/assets/js/store/i18n'
-import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
+import { DropdownMenuSeparator, DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -34,16 +36,26 @@ import { Input } from '@/components/ui/input'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Button } from '@/components/ui/button'
 import { mapServiceNameToDisplayName, compareVersions } from '@/lib/utils'
-import { isOnDemandBackend } from '@/lib/onDemandBackends'
+import { fillTemplate } from '@/lib/fillTemplate'
 import { z } from 'zod'
 import SettingsMenu from '@/components/SettingsMenu.vue'
 
 const props = defineProps<{
   backend: BackendServiceName
+  /** Component Manager only: offer Uninstall for an optional installed Component. */
+  allowUninstall?: boolean
+  /** Work holds the Component, so Uninstall is refused. */
+  uninstallDisabled?: boolean
+}>()
+
+const emit = defineEmits<{
+  uninstall: []
 }>()
 
 const backendServices = useBackendServices()
 const setupWizard = useSetupWizard()
+const globalSetup = useGlobalSetup()
+const ui = useUIStore()
 const i18nState = useI18N().state
 const backendStatus = computed(
   () => backendServices.info.find((s) => s.serviceName === props.backend)?.status ?? 'notInstalled',
@@ -112,10 +124,22 @@ const showSettings = computed(() => {
 const showChannelsSetup = computed(() => {
   return props.backend === 'home-agent-backend' && isSetUp.value
 })
+const showUninstall = computed(() => props.allowUninstall === true)
+const uninstallAriaLabel = computed(() =>
+  fillTemplate(i18nState.COMPONENT_MANAGER_UNINSTALL_ACTION, {
+    name: mapServiceNameToDisplayName(props.backend),
+  }),
+)
 
-const handleChannelsSetup = () => {
+function handleUninstall() {
   menuOpen.value = false
-  void setupWizard.openChannelsSetup()
+  emit('uninstall')
+}
+
+function handleChannelsSetup() {
+  menuOpen.value = false
+  if (globalSetup.loadingState === 'setupWizard') void setupWizard.openChannelsSetup()
+  else ui.openComponentManagerChannels()
 }
 
 // Get backend-specific placeholders and descriptions
@@ -179,43 +203,9 @@ const getInitialFormValues = () => {
   }
   return values
 }
-// Handler for reinstalling a service with enhanced error handling
-const handleReinstall = async (versionToInstall?: { version?: string; releaseTag?: string }) => {
-  try {
-    await backendServices.uninstallService(props.backend)
-    const setupResult = await backendServices.setUpService(
-      props.backend,
-      versionToInstall?.version
-        ? { version: versionToInstall.version, releaseTag: versionToInstall.releaseTag }
-        : undefined,
-    )
-
-    if (setupResult.success) {
-      if (isOnDemandBackend(props.backend)) {
-        return
-      }
-      try {
-        const startStatus = await backendServices.startService(props.backend)
-        if (startStatus !== 'running') {
-          // Service failed to start after reinstall
-          const errorDetails = backendServices.getServiceErrorDetails(props.backend)
-          if (errorDetails) {
-            console.error(
-              `Service ${props.backend} failed to start after reinstall. Error details available.`,
-            )
-          } else {
-            console.error(`Service ${props.backend} failed to start after reinstall.`)
-          }
-        }
-      } catch (startError) {
-        console.error(`Service ${props.backend} startup failed after reinstall:`, startError)
-      }
-    } else {
-      console.error(`Service ${props.backend} reinstallation failed.`)
-    }
-  } catch (error) {
-    console.error(`Service ${props.backend} reinstall process failed:`, error)
-  }
+const handleReinstall = async () => {
+  reinstallDialogOpen.value = false
+  await setupWizard.reinstallBackend(props.backend)
 }
 
 // Get the effective target version (what will be installed)
@@ -340,11 +330,10 @@ const versionActionClass = computed(() => {
   return 'text-blue-500'
 })
 
-// Handler for version action - clears override and reinstalls
+// Handler for version action - installs the version the button advertises (uiOverride ?? target)
 const handleVersionAction = async () => {
   menuOpen.value = false
-  // Install the version the button advertises (uiOverride ?? target), not the one already installed.
-  await handleReinstall(getEffectiveTarget(props.backend))
+  await setupWizard.updateBackend(props.backend)
 }
 
 // Check if user has set a custom override
@@ -370,7 +359,11 @@ const clearOverride = () => {
 
 const showMenuButton = computed(
   () =>
-    showReinstall.value || showSettings.value || showVersionAction.value || showChannelsSetup.value,
+    showReinstall.value ||
+    showSettings.value ||
+    showVersionAction.value ||
+    showChannelsSetup.value ||
+    showUninstall.value,
 )
 </script>
 
@@ -401,6 +394,18 @@ const showMenuButton = computed(
     <DropdownMenuItem v-if="showSettings" @select="settingsDialogOpen = true">{{
       i18nState.COM_SETTINGS
     }}</DropdownMenuItem>
+
+    <template v-if="showUninstall">
+      <DropdownMenuSeparator />
+      <DropdownMenuItem
+        @select="handleUninstall"
+        :disabled="uninstallDisabled"
+        :aria-label="uninstallAriaLabel"
+        class="text-destructive focus:text-destructive"
+      >
+        {{ i18nState.COMPONENT_MANAGER_UNINSTALL }}
+      </DropdownMenuItem>
+    </template>
   </SettingsMenu>
 
   <AlertDialog v-if="showReinstall" v-model:open="reinstallDialogOpen">

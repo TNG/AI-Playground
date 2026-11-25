@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { readSessionFileSync, sessionFolderPaths } from '../persist/sessionFiles'
-import { copyIntoFolder, moveIntoFolder, writeNewFile } from '../persist/sessionMediaFiles'
+import { copyIntoFolder, moveGeneratedIntoFolder, writeNewFile } from '../persist/sessionMediaFiles'
 import { getGamesDir } from '../persist/userDataPaths'
 import { sessionFolderListOf } from './sessionFolderList'
 import { ensureWorkspaceEntry } from './appWorkspace'
@@ -175,12 +175,12 @@ async function intoWorkspace(
   }
 }
 
-/** Moves a regular file into the Workspace under a free name. */
-export function moveIntoWorkspace(
+/** Moves generated media into the Workspace at the next number in its series. */
+export function moveGeneratedIntoWorkspace(
   sessionId: string,
   source: string,
 ): Promise<WorkspaceFile | null> {
-  return intoWorkspace(sessionId, (dir) => moveIntoFolder(dir, source))
+  return intoWorkspace(sessionId, (dir) => moveGeneratedIntoFolder(dir, source))
 }
 
 export function copyIntoWorkspace(

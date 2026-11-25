@@ -66,16 +66,14 @@
 import { computed } from 'vue'
 import { Cog6ToothIcon } from '@heroicons/vue/24/solid'
 import { useChannels } from '@/assets/js/store/channels'
-import { useSetupWizard } from '@/assets/js/store/setupWizard'
+import { useUIStore } from '@/assets/js/store/ui'
 import { useBackendServices } from '@/assets/js/store/backendServices'
 import { CHANNELS } from '@/assets/js/store/channels/channelRegistry'
-import { useErrors } from '@/assets/js/store/errors'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 
 const channelStore = useChannels()
-const setupWizard = useSetupWizard()
+const ui = useUIStore()
 const backendServices = useBackendServices()
-const errors = useErrors()
 
 const isAvailable = computed(() => channelStore.isAvailable)
 const isInstalled = computed(
@@ -104,6 +102,6 @@ const masterTitle = computed(() => {
 })
 
 function openSetup() {
-  setupWizard.openChannelsSetup().catch((e: unknown) => errors.report(e, { surface: 'silent' }))
+  ui.openComponentManagerChannels()
 }
 </script>

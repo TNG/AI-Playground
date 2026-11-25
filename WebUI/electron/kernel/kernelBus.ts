@@ -22,6 +22,7 @@ import type {
   KernelStoredEvent,
 } from '@/types/kernelEvents'
 import type { SessionDocument, SessionGroupsState, SessionTurns } from '@/types/sessionIpc'
+import type { HeldComponent } from '@/types/componentChange'
 import type { MediaItem } from '@/types/mediaItem'
 import type { UIMessageChunk } from 'ai'
 import {
@@ -434,6 +435,23 @@ export function emitSessionTurns(turns: SessionTurns): void {
   emit({ type: 'session-turns', turns: { ...turns } }, { kind: 'global' })
 }
 
+let componentHolds: HeldComponent[] = []
+let anyInFlightWork = false
+let componentHoldsSignature = ''
+
+/** Emits only when the held set or work presence changed. */
+export function setComponentHolds(holds: HeldComponent[], inFlight: boolean): void {
+  const signature = JSON.stringify([holds, inFlight])
+  componentHolds = [...holds]
+  anyInFlightWork = inFlight
+  if (signature === componentHoldsSignature) return
+  componentHoldsSignature = signature
+  emit(
+    { type: 'component-holds', holds: [...holds], anyInFlightWork: inFlight },
+    { kind: 'global' },
+  )
+}
+
 export function setInferenceProfileSnapshot(profile: KernelInferenceProfile | null): void {
   inferenceProfile = profile
   emitStored('inference-profile', undefined, profile)
@@ -614,6 +632,8 @@ export function getKernelSnapshot(): KernelSnapshot {
       activities: [...activeActivities.values()],
       inferenceProfile,
       sessionTurns: { ...sessionTurns },
+      componentHolds: [...componentHolds],
+      anyInFlightWork,
     },
   }
 }
@@ -637,4 +657,7 @@ export function resetKernelBusForTest(): void {
   activeActivities.clear()
   inferenceProfile = null
   sessionTurns = {}
+  componentHolds = []
+  anyInFlightWork = false
+  componentHoldsSignature = ''
 }

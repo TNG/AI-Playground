@@ -1,7 +1,13 @@
 import { z } from 'zod'
 import { repairWorkflowToolInput } from '@/lib/comfyToolRepair'
+import {
+  describeWorkflowInputs,
+  dynamicInputsSchema,
+  promptSelectableInputs,
+  type PromptInputSummary,
+} from '@/lib/comfyPromptInputs'
 import { tool } from 'ai'
-import { usePresets, type Preset } from '../store/presets'
+import { usePresets, type Preset, type ComfyUiPreset } from '../store/presets'
 import { useTextInference } from '../store/textInference'
 import { DEV_PRESET_NAMES, dummyWorkflowsOnly } from '../store/devPresets'
 import type { WorkflowSettings } from './comfyUi'
@@ -56,6 +62,7 @@ export function getAvailableEditWorkflows(isEnabled?: (presetName: string) => bo
   mediaType?: 'image' | 'video' | 'model3d'
   description?: string
   toolInstructions?: string
+  promptInputs?: PromptInputSummary[]
 }> {
   const presets = usePresets()
   const textInference = useTextInference()
@@ -74,6 +81,7 @@ export function getAvailableEditWorkflows(isEnabled?: (presetName: string) => bo
       mediaType: p.mediaType,
       description: p.description,
       toolInstructions: p.toolInstructions,
+      promptInputs: promptSelectableInputs(p as ComfyUiPreset),
     }))
 }
 
@@ -91,11 +99,14 @@ function resolveDefaultEditWorkflow(imageNames: string[], settings?: WorkflowSet
 
 /**
  * Repair a malformed comfyUiImageEdit tool call before execution: if the model
- * omitted `workflow` or sent a value that isn't a known edit workflow, coerce it
- * to the default edit workflow. Returns the repaired args as a JSON string, or
- * null when `workflow` is already valid (nothing to fix) or none exist. Wired
- * into streamText's experimental_repairToolCall so a bad workflow can't surface
- * as an "unknown" tool card / failed edit.
+ * omitted `workflow` or sent a blank value, coerce it to the default edit
+ * workflow. A named-but-unknown workflow is repaired only on a near-match
+ * (case/whitespace) to that same name; anything else is left alone so the
+ * validation error reaches the model and it retries with a valid name.
+ * Returns the repaired args as a JSON string, or null when `workflow` is
+ * already valid (nothing to fix) or none exist. Wired into streamText's
+ * experimental_repairToolCall so a bad workflow can't surface as an
+ * "unknown" tool card / failed edit.
  */
 export function repairEditToolInput(rawInput: string): string | null {
   const data = createEditToolRepairData()
@@ -184,7 +195,8 @@ function getToolDefinition(settings?: WorkflowSettings) {
   }
 
   // Per-output-type defaults: what to reach for unless the user asks otherwise.
-  description += `DEFAULTS: For editing an image, default to "${defaultEditWorkflow}".`
+  description += `DEFAULTS: If the user names a specific workflow, use exactly that workflow — never substitute a default.`
+  description += ` For editing an image, default to "${defaultEditWorkflow}".`
   if (defaultAnimateWorkflow) {
     description += ` To animate an image into a video, default to "${defaultAnimateWorkflow}".`
   }
@@ -193,11 +205,25 @@ function getToolDefinition(settings?: WorkflowSettings) {
   }
   description += '\n\n'
 
+  description += 'SETTINGS: When the user specifies concrete settings (steps, resolution, seed, '
+  description += 'negative prompt), pass them in the corresponding parameters — never bake them '
+  description += 'into the prompt text. A named workflow input (see WORKFLOW INPUTS) goes in '
+  description += 'dynamicInputs, keyed by its label. '
+  description += 'Only some edit workflows are size- or step-driven; '
+  description +=
+    'workflows without those settings ignore the parameters. If the user asks for an exact '
+  description +=
+    'size (e.g., "600x600"), pass it in the resolution parameter unchanged — never translate it '
+  description +=
+    'to other parameters. Every completed result reports the size actually used in "size"; when '
+  description += 'it differs from what the user asked for, tell them which size was used.\n\n'
+  description += describeWorkflowInputs(workflows)
+
   description += `Available edit workflows: ${workflowOptions}`
 
   const workflowNames = workflows.map((w) => w.name) as [string, ...string[]]
 
-  let workflowDescription = `Edit workflow to use. Available: ${workflowOptions}. Use "${defaultEditWorkflow}" for image edits unless the user explicitly requests a different workflow.`
+  let workflowDescription = `Edit workflow to use. Available: ${workflowOptions}. If the user names a specific workflow, use exactly that one. Use "${defaultEditWorkflow}" for image edits unless the user requests a different workflow.`
   if (defaultAnimateWorkflow) {
     workflowDescription += ` Use "${defaultAnimateWorkflow}" when animating an image into a video.`
   }
@@ -217,12 +243,37 @@ function getToolDefinition(settings?: WorkflowSettings) {
         ),
       prompt: z.string().describe('Description of the edit to apply to the image.'),
       negativePrompt: z.string().optional().describe('Things to avoid in the edit'),
+      aspectRatio: z
+        .string()
+        .optional()
+        .describe(
+          'Aspect ratio for the output, when the workflow supports resizing. Options: "1/1" (square), "16/9" (widescreen/landscape), "9/16" (portrait/vertical), "3/2", "2/3", "4/3", "3/4", "21/9" (ultra-wide), "9/21". Use with megapixels parameter.',
+        ),
+      megapixels: z
+        .string()
+        .optional()
+        .describe(
+          'Megapixel tier for output quality/size (e.g. "0.25", "0.5", "1.0", "1.5"). Use with aspectRatio parameter.',
+        ),
+      resolution: z
+        .string()
+        .optional()
+        .describe(
+          'Direct resolution in WxH format (alternative to aspectRatio+megapixels). The closest valid resolution will be selected when the workflow constrains sizes; when it differs from the request, the tool result notes the size actually used in "sizeNotice".',
+        ),
+      inferenceSteps: z
+        .number()
+        .optional()
+        .describe(
+          'Number of inference steps. Only specify when the user explicitly asks for a specific number of steps.',
+        ),
       seed: z
         .number()
         .optional()
         .describe(
           'Random seed for reproducible generation. Use -1 for random seed. Only specify if user wants to reproduce a specific result.',
         ),
+      dynamicInputs: dynamicInputsSchema,
     }),
   }
 }

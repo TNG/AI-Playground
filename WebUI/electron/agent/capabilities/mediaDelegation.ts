@@ -7,7 +7,11 @@ import {
 } from '../piCustomTools.ts'
 import { loadPi } from '../piRuntime.ts'
 import type { AgentToolSpec, CapabilityHost } from './types.ts'
-import { condenseMediaAgentRun, slimCondensedMedia } from '@/lib/mediaAgentResult'
+import {
+  condenseMediaAgentRun,
+  slimCondensedMedia,
+  type CondensedMediaAgentResult,
+} from '@/lib/mediaAgentResult'
 import type { ChatModelConfig } from '@/types/chatIpc'
 
 // ── media delegation tool ────────────────────────────────────────────────────
@@ -98,12 +102,21 @@ export async function buildDelegatedMediaTool(
         signal ?? undefined,
       )
       const condensed = condenseMediaAgentRun(raw)
-      const saved = await saveGeneratedMediaToWorkspace(
-        slimCondensedMedia(condensed),
+      // The workspace save runs on the FULL record, so the savedFiles and
+      // workspace-path annotations land on entries that still carry every
+      // generation setting. The slim copy below is for the parent model's
+      // context only; the transcript's items come from the full one.
+      const saved = (await saveGeneratedMediaToWorkspace(
+        condensed,
         workspaceDir,
         host.sessionMedia,
-      )
-      return mediaToolResult(saved, condensed.steps)
+      )) as CondensedMediaAgentResult & { savedFiles?: string[]; savedFilesNote?: string }
+      const slim = slimCondensedMedia(saved) as Record<string, unknown>
+      if (Array.isArray(saved.savedFiles)) {
+        slim.savedFiles = saved.savedFiles
+        slim.savedFilesNote = saved.savedFilesNote
+      }
+      return mediaToolResult(slim, condensed.steps, saved)
     },
   }) as ToolDefinition
 }

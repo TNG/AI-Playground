@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { appLoggerInstance } from '../observability/logger'
 import { emitSessionChanged } from '../kernel/kernelBus'
 import { followSessionTitle } from './appWorkspace'
-import { moveIntoWorkspace, type WorkspaceFile } from './sessionWorkspace'
+import { moveGeneratedIntoWorkspace, type WorkspaceFile } from './sessionWorkspace'
 import { appendHistoryEntry } from './sessionHistory'
 import { mutateSession, sessionDocumentOf } from './sessions'
 import { afterTurn, type TitleSource } from './sessionTitle'
@@ -46,7 +46,7 @@ export async function adoptMediaFile(
   const source = localPathOf(url)
   if (!source) return null
   try {
-    return await moveIntoWorkspace(sessionId, source)
+    return await moveGeneratedIntoWorkspace(sessionId, source)
   } catch (error) {
     appLoggerInstance.warn(`could not move ${source} into its Session: ${error}`, LOG_SCOPE)
     return null

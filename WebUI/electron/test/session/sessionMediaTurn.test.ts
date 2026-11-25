@@ -97,6 +97,23 @@ describe('a media turn in a Session', () => {
     )
   })
 
+  it('numbers a Session series ascending across runs, whatever ComfyUI reused', async () => {
+    const { id } = await createSession()
+
+    await recordMediaTurn(turn(id, [doneImage(await comfyOutput('AIPG_Image_00001_.png'))]))
+    const [item] = await recordMediaTurn(
+      turn(id, [doneImage(await comfyOutput('AIPG_Image_00001_.png'))], { runId: 'run-2' }),
+    )
+
+    expect(await fs.readdir(sessionWorkspaceDir(id))).toEqual([
+      'AIPG_Image_00001_.png',
+      'AIPG_Image_00002_.png',
+    ])
+    expect(item.type === 'image' && item.imageUrl).toBe(
+      `aipg-media://folders/${id}/${await workspaceId(id)}/AIPG_Image_00002_.png`,
+    )
+  })
+
   it('moves a video and only a real thumbnail file with it', async () => {
     const { id } = await createSession()
     const video = {

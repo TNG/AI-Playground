@@ -7,7 +7,7 @@ import type { AgentMediaDetails, AgentMediaItem } from '@/types/agentMediaDetail
 import { appLoggerInstance } from '../observability/logger.ts'
 import { emitAgentToolImage } from '../kernel/kernelBus.ts'
 import { typedSend } from '../kernel/typedIpc.ts'
-import { freeName, moveEntry } from '../persist/fileOps.ts'
+import { moveEntry, nextNumberedName } from '../persist/fileOps.ts'
 import { noteGeneratedMedia } from './generatedMedia.ts'
 import { sessionFolderMediaUrl } from '@/lib/comfyWorkflow'
 import { agentTurns } from './piAgentState.ts'
@@ -44,8 +44,12 @@ export function jsonResult(value: unknown): AgentToolResult<undefined> {
 export function mediaToolResult(
   value: unknown,
   steps?: string[],
+  itemsValue?: unknown,
 ): AgentToolResult<AgentMediaDetails | undefined> {
-  const items = generatedItemsOf(value)
+  // `value` becomes the model-facing JSON; `itemsValue`, when a richer record
+  // exists beside the slim one, is where the transcript's UI-facing items come
+  // from (full generation settings and dynamic inputs without polluting context).
+  const items = generatedItemsOf(itemsValue ?? value)
   const failure = failureOf(value)
   const details =
     items.length > 0 || steps || failure
@@ -348,7 +352,7 @@ async function saveOne(
   if (!sessionMedia) {
     const bytes = await mediaBytes(url)
     fs.mkdirSync(generatedDir, { recursive: true })
-    const saved = path.posix.join('generated', await freeName(generatedDir, name))
+    const saved = path.posix.join('generated', await nextNumberedName(generatedDir, name))
     fs.writeFileSync(path.join(workspaceDir, saved), bytes)
     return { saved, entry }
   }
@@ -357,20 +361,20 @@ async function saveOne(
   fs.mkdirSync(filesDir, { recursive: true })
   const key = MEDIA_URL_KEYS.find((candidate) => entry[candidate] === url) ?? 'imageUrl'
   if (apart && sessionMedia.workspace === 'trial') {
-    const saved = await freeName(workspaceDir, name)
+    const saved = await nextNumberedName(workspaceDir, name)
     await moveIntoSession(url, path.join(workspaceDir, saved))
-    const served = await freeName(filesDir, name)
+    const served = await nextNumberedName(filesDir, name)
     fs.copyFileSync(path.join(workspaceDir, saved), path.join(filesDir, served))
     const servedUrl = trialMediaUrl(sessionMedia.agentId, `files/${served}`)
     return { saved, entry: { ...entry, [key]: servedUrl } }
   }
-  const filesName = await freeName(filesDir, name)
+  const filesName = await nextNumberedName(filesDir, name)
   const sessionCopy = path.join(filesDir, filesName)
   await moveIntoSession(url, sessionCopy)
   let saved = filesName
   if (apart) {
     fs.mkdirSync(generatedDir, { recursive: true })
-    saved = path.posix.join('generated', await freeName(generatedDir, name))
+    saved = path.posix.join('generated', await nextNumberedName(generatedDir, name))
     fs.copyFileSync(sessionCopy, path.join(workspaceDir, saved))
   }
   return {

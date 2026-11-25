@@ -53,8 +53,13 @@ const MEDIA_SPEC_DESCRIPTION =
   'Create or transform media (images, videos, 3D models) via a media specialist. Describe the ' +
   'desired result in natural language; the specialist picks the workflow and parameters and ' +
   'can chain steps in one call (e.g. "generate an image of a castle and turn it into a 3D ' +
-  'model"). To transform an existing image, pass its workspace-relative path in ' +
-  '"sourceImagePath".' +
+  'model"). If the user names a specific workflow or preset, include its exact name in the ' +
+  'request — it must be used as asked. Forward every concrete setting the user names verbatim: ' +
+  'quality variant, exact resolution or aspect ratio + megapixels, inference steps, seed, ' +
+  'negative prompt, number of images, and any named workflow input (e.g. guidance scale, ' +
+  'sampler, model choice) — the specialist maps them to generation parameters. The inference ' +
+  'device cannot be requested. To transform an existing image, pass its ' +
+  'workspace-relative path in "sourceImagePath".' +
   GENERATED_FILES_NOTE
 
 function mediaSpecInputSchema(): z.ZodTypeAny {
@@ -64,7 +69,13 @@ function mediaSpecInputSchema(): z.ZodTypeAny {
       .describe(
         'The media request in natural language. Include everything relevant: subject, style, ' +
           'aspect ratio or size wishes, quality level, and any follow-up transformation ' +
-          '(edit / animate / convert to 3D).',
+          '(edit / animate / convert to 3D). If the user names a specific workflow or preset, ' +
+          'include its exact name — the specialist must use it as asked. Forward every concrete ' +
+          'setting the user names verbatim — quality variant, exact resolution or aspect ratio + ' +
+          'megapixels, inference steps, seed, negative prompt, number of images, and any named ' +
+          'workflow input (e.g. guidance scale, sampler, model choice) — never drop or normalize ' +
+          'them; the specialist maps them to generation parameters. The inference device cannot ' +
+          'be requested.',
       ),
     sourceImagePath: z
       .string()

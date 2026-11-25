@@ -300,7 +300,11 @@ export function getResolutionForConfig(
 }
 
 /**
- * Find the best matching resolution from a config given target dimensions
+ * Find the best matching resolution from a config given target dimensions.
+ * Resolutions with the same aspect ratio as the request win over closer-by-
+ * Manhattan-distance ones with a different ratio — a 2048x2048 request must
+ * snap to the biggest supported square, not to an ultra-wide size whose
+ * width happens to be near.
  * @param config - The resolution configuration
  * @param targetWidth - Target width
  * @param targetHeight - Target height
@@ -318,6 +322,25 @@ export function findClosestResolutionInConfig(
 } | null {
   const allResolutions = getResolutionsFromConfig(config)
   if (allResolutions.length === 0) return null
+
+  const targetRatio = targetWidth / targetHeight
+  const targetPixels = targetWidth * targetHeight
+  const sameRatio = allResolutions.filter(
+    (res) => Math.abs(res.width / res.height - targetRatio) <= 0.01 * targetRatio,
+  )
+  if (sameRatio.length > 0) {
+    const best = sameRatio.reduce((prev, curr) =>
+      Math.abs(curr.totalPixels - targetPixels) < Math.abs(prev.totalPixels - targetPixels)
+        ? curr
+        : prev,
+    )
+    return {
+      megapixelLabel: best.megapixels,
+      aspectRatio: best.aspectRatio,
+      width: best.width,
+      height: best.height,
+    }
+  }
 
   let bestMatch = allResolutions[0]
   let minDiff =

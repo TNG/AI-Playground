@@ -7,7 +7,7 @@ vi.mock('../../observability/logger', () => ({
   appLoggerInstance: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }))
 
-const { createFreeFolder, freeName, mergeInto, renameToFree } =
+const { createFreeFolder, freeName, mergeInto, nextNumberedName, renameToFree } =
   await import('../../persist/fileOps')
 
 let root = ''
@@ -47,6 +47,37 @@ describe('a free name', () => {
     await fs.mkdir(path.join(root, 'taken'))
 
     expect(await renameToFree(path.join(root, 'old'), 'taken')).toBe(path.join(root, 'taken (2)'))
+  })
+})
+
+describe('the next number in a series', () => {
+  it('starts at 1 in an empty folder, keeping the incoming prefix', async () => {
+    expect(await nextNumberedName(root, 'AIPG_Image_00042_.png')).toBe('AIPG_Image_00001_.png')
+  })
+
+  it('continues the series already in the folder', async () => {
+    await write(path.join(root, 'AIPG_Image_00003_.png'), 'a')
+
+    expect(await nextNumberedName(root, 'AIPG_Image_00001_.png')).toBe('AIPG_Image_00004_.png')
+  })
+
+  it('ignores dash-suffixed siblings from before the series when finding the maximum', async () => {
+    await write(path.join(root, 'AIPG_Image_00001_.png'), 'a')
+    await write(path.join(root, 'AIPG_Image_00001_-1.png'), 'b')
+
+    expect(await nextNumberedName(root, 'AIPG_Image_00001_.png')).toBe('AIPG_Image_00002_.png')
+  })
+
+  it('numbers each prefix on its own', async () => {
+    await write(path.join(root, 'AIPG_Image_00002_.png'), 'a')
+
+    expect(await nextNumberedName(root, 'AIPG_Video_00001_.mp4')).toBe('AIPG_Video_00001_.mp4')
+  })
+
+  it('falls back to a free dash-numbered name for anything not a series', async () => {
+    await write(path.join(root, 'fox.png'), 'a')
+
+    expect(await nextNumberedName(root, 'fox.png')).toBe('fox-1.png')
   })
 })
 

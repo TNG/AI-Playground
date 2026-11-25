@@ -718,9 +718,9 @@ describe('turn engine', () => {
     expect(readMediaAsDataUri).not.toHaveBeenCalled()
   })
 
-  it('repairs an invalid comfyUI workflow before executing in-process', async () => {
+  it('repairs a blank comfyUI workflow to the default before executing in-process', async () => {
     queueFetchMock(
-      sse(toolCallChunks('comfyUI', '{"prompt":"a castle","workflow":"nope"}')),
+      sse(toolCallChunks('comfyUI', '{"prompt":"a castle","workflow":""}')),
       sse(textChunks('made it')),
     )
     submitChatTurn(
@@ -752,6 +752,41 @@ describe('turn engine', () => {
       input: { prompt: 'a castle', workflow: 'Draft Image' },
       defaultWorkflow: 'Draft Image',
     })
+  })
+
+  it('fails an unknown comfyUI workflow visibly instead of coercing it to the default', async () => {
+    queueFetchMock(
+      sse(toolCallChunks('comfyUI', '{"prompt":"a castle","workflow":"nope"}')),
+      sse(textChunks('made it')),
+    )
+    submitChatTurn(
+      turnRequest({
+        tools: [
+          {
+            name: 'comfyUI',
+            description: 'Generate an image',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                prompt: { type: 'string' },
+                workflow: { type: 'string', enum: ['Draft Image'] },
+              },
+              required: ['prompt', 'workflow'],
+            },
+          },
+        ],
+        repairData: { comfyUI: { names: ['Draft Image'], defaultWorkflow: 'Draft Image' } },
+      }),
+    )
+    await vi.waitFor(() => {
+      expect(doneTurnIds().length).toBeGreaterThan(0)
+    })
+    expect(sent.some((p) => p.channel === 'chat:executeTool')).toBe(false)
+    expect(executeChatComfyToolMock).not.toHaveBeenCalled()
+    const followUp = JSON.stringify(requests[1].body.messages)
+    expect(followUp).toContain('Invalid workflow')
+    expect(followUp).toContain('nope')
+    expect(followUp).toContain('Valid workflows: Draft Image')
   })
 
   it('invokes an MCP tool in main and flattens no name parsing to the renderer', async () => {

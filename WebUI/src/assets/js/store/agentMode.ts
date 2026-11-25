@@ -2448,19 +2448,41 @@ export const useAgentMode = defineStore(
       return !!turns.runtimeOf(id)?.processing.value
     }
 
+    /**
+     * The Follow-up tag a prompt message carries: the marker that its turn is a Follow-up to a
+     * run, not the run's own turn. The timeline groups turns by the same marker. Cloned: the
+     * message lives in reactive state, and the tag crosses IPC in the turn config.
+     */
+    function followUpOfPrompt(ref: HarnessTurnRef): AgentFollowUpTag | undefined {
+      const prompt = turns
+        .runtimeFor(ref.harnessSessionId)
+        .chat.messages.find((m) => m.id === ref.promptId && m.role === 'user')
+      const followUp = (prompt?.metadata as AgentMessageMetadata | undefined)?.followUp
+      return followUp ? cloneForIpc(followUp) : undefined
+    }
+
     /** Regenerate the latest Assistant Turn from its Harness Session as it was before it. */
     async function regenerateTurn(ref: HarnessTurnRef, edited = false): Promise<void> {
       if (!ref.promptId || ref.turnIds.length === 0) return
       const record = sessions.value[ref.harnessSessionId]
+      const followUp = followUpOfPrompt(ref)
       // An Agent Run re-runs on its Agent's saved Settings Template, as a Follow-up would; its
       // own run tag already carries the workspace and folders, so only the settings are taken.
       const agentSettings = record?.taskRun ? taskSettingsOf(ref.harnessSessionId) : undefined
+      // A Follow-up that started with no recorded settings (a Trial Run, a deleted Agent)
+      // keeps the Settings snapshot its record carries. Cloned: the record is reactive, and
+      // the settings cross IPC in the turn config.
+      const fallbackSettings = record?.settings ? cloneForIpc(record.settings) : undefined
+      const settings = followUp ? (agentSettings ?? fallbackSettings) : agentSettings
       const result = await sendToSession(ref.harnessSessionId, '', {
         regenerate: ref,
         ...(edited ? { editedPrompt: true } : {}),
-        // A Task Run re-runs in the Agent's own workspace, under its own run tag.
-        ...(record?.taskRun ? { taskRun: record.taskRun } : {}),
-        ...(agentSettings ? { settings: agentSettings } : {}),
+        // The run's own turn re-runs in the Agent's own workspace, under its own run tag; a
+        // Follow-up turn re-runs as the Follow-up it is, without the run's tag. The run tag
+        // is cloned: its record is reactive, and it too crosses IPC.
+        ...(record?.taskRun && !followUp ? { taskRun: cloneForIpc(record.taskRun) } : {}),
+        ...(followUp ? { followUp } : {}),
+        ...(settings ? { settings } : {}),
       })
       if (result.ok) return
       errors.report(new Error(result.message), {
@@ -2477,19 +2499,23 @@ export const useAgentMode = defineStore(
       const prompt = chat.messages.find((m) => m.id === ref.promptId && m.role === 'user')
       if (!prompt) return
       const record = sessions.value[ref.harnessSessionId]
-      // An Agent Run's prompt is its Start Prompt over its Steps: the edit is the new Start
-      // Prompt, which its run tag carries from here on.
-      const steps =
-        record?.taskRun?.taskId !== undefined ? taskStepsOf(record.taskRun.taskId) : undefined
-      if (record?.taskRun) {
+      // A Follow-up's edit re-sends it as the plain text it is. An Agent Run's prompt is its
+      // Start Prompt over its Steps: that edit is the new Start Prompt, which its run tag
+      // carries from here on.
+      const followUp = (prompt.metadata as AgentMessageMetadata | undefined)?.followUp
+      if (record?.taskRun && !followUp) {
+        const steps =
+          record.taskRun.taskId !== undefined ? taskStepsOf(record.taskRun.taskId) : undefined
         const { input: _replaced, ...withoutInput } = record.taskRun
         const input = edited.trim()
         rewriteSession(ref.harnessSessionId, {
           ...record,
           taskRun: input ? { ...record.taskRun, input } : withoutInput,
         })
+        applyEditedPrompt(prompt, steps ? runPrompt(edited, stepPrompts(steps)) : edited)
+      } else {
+        applyEditedPrompt(prompt, edited)
       }
-      applyEditedPrompt(prompt, steps ? runPrompt(edited, stepPrompts(steps)) : edited)
       await regenerateTurn(ref, true)
     }
 

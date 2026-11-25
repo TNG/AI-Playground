@@ -47,6 +47,8 @@ type SessionsDeps = import('../../kernel/registries/sessions').SessionsDeps
 
 const sessionFolders = await import('../../session/sessionFolders')
 const sessionWorkspace = await import('../../session/sessionWorkspace')
+const { missingArtifactUrls } = await import('../../session/sessionArtifacts')
+const { sessionFolderMediaFile } = await import('../../session/sessionFolderMedia')
 const { useDialogStore } = await import('@/assets/js/store/dialogs')
 
 const registry = buildSessionsRegistry({
@@ -86,7 +88,12 @@ beforeEach(async () => {
         create: (groupId?: string, options?: { defaultCapabilities?: string[] }) =>
           ok(async () => ({ session: await sessionModule.createSession(groupId, options) }))(),
         open: (id: string) =>
-          ok(async () => ({ session: await sessionModule.openSession(id), missingFiles: [] }))(),
+          ok(async () => ({
+            session: await sessionModule.openSession(id),
+            missingFiles: await missingArtifactUrls(id),
+          }))(),
+        missingArtifacts: (id: string) =>
+          ok(async () => ({ missingFiles: await missingArtifactUrls(id) }))(),
         rename: (id: string, title: string) =>
           ok(async () => ({ session: await sessionModule.renameSession(id, title) }))(),
         delete: (id: string) => ok(async () => sessionModule.deleteSession(id).then(() => ({})))(),
@@ -283,6 +290,56 @@ describe('Sessions store', () => {
       title: 'a red fox',
       presetsUsed: ['Dummy Image (test)'],
     })
+  })
+
+  it('clears a card’s deleted notice when a later change re-creates its file', async () => {
+    const store = useSessions()
+    await store.init()
+    const id = store.openSessionId!
+    const media = path.join(path.dirname(dirs.real), 'media')
+    await fs.mkdir(media)
+    await fs.writeFile(path.join(media, 'apple.png'), 'first apple')
+
+    const [item] = await recordMediaTurn({
+      sessionId: id,
+      runId: 'run-1',
+      mode: 'imageGen',
+      preset: 'Dummy Image (test)',
+      prompt: 'an apple',
+      status: 'completed',
+      items: [
+        {
+          id: 'i1',
+          mode: 'imageGen',
+          state: 'done',
+          type: 'image',
+          imageUrl: 'aipg-media://media/apple.png',
+          settings: { preset: 'Dummy Image (test)', prompt: 'an apple' },
+          dynamicSettings: [],
+          createdAt: 1,
+        } as never,
+      ],
+      localPathOf: (url) =>
+        url === 'aipg-media://media/apple.png' ? path.join(media, 'apple.png') : null,
+    })
+    const url = (item as { imageUrl: string }).imageUrl
+    expect(sessionFolderMediaFile(url)).not.toBeNull()
+
+    // The file was deleted: opening the Session again shows its card as deleted.
+    await fs.rm(sessionFolderMediaFile(url)!)
+    await store.open(id)
+    expect(store.isFileDeleted(url)).toBe(true)
+
+    // A later generation re-created the file: the Session change re-reads the list, so
+    // the new card stops claiming its file was deleted.
+    await fs.writeFile(sessionFolderMediaFile(url)!, 'second apple')
+    await sessionModule.renameSession(id, 're-created')
+    await vi.waitFor(() => expect(store.isFileDeleted(url)).toBe(false))
+
+    // A file that is really gone stays flagged after a change.
+    await fs.rm(sessionFolderMediaFile(url)!)
+    await sessionModule.renameSession(id, 'deleted again')
+    await vi.waitFor(() => expect(store.isFileDeleted(url)).toBe(true))
   })
 
   it('keeps a prematurely forgotten message out while the file still holds it, and dissolves the forget once the file drops it', async () => {

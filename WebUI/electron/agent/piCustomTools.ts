@@ -8,6 +8,7 @@ import { appLoggerInstance } from '../observability/logger.ts'
 import { emitAgentToolImage } from '../kernel/kernelBus.ts'
 import { typedSend } from '../kernel/typedIpc.ts'
 import { freeName, moveEntry, nextNumberedName } from '../persist/fileOps.ts'
+import { recordedArtifactNamesIn } from '../session/historyArtifacts.ts'
 import { noteGeneratedMedia } from './generatedMedia.ts'
 import { recordJournalMedia, recordWorkspaceWrite } from './workspaceJournal.ts'
 import { sessionFolderMediaUrl } from '@/lib/comfyWorkflow'
@@ -375,7 +376,13 @@ async function saveOne(
     const servedUrl = trialMediaUrl(sessionMedia.agentId, `files/${served}`)
     return { saved, entry: { ...entry, [key]: servedUrl } }
   }
-  const filesName = await nextNumberedName(filesDir, name)
+  // The Session's History still records artifacts whose files were moved away or deleted;
+  // a new save must not take their names and show up as those records' files.
+  const reserved =
+    sessionMedia.workspace !== 'trial' && sessionMedia.sessionRef
+      ? await recordedArtifactNamesIn(sessionMedia.sessionRef, filesDir)
+      : undefined
+  const filesName = await nextNumberedName(filesDir, name, reserved)
   const sessionCopy = path.join(filesDir, filesName)
   // Without an apart folder this IS the workspace copy (a game's own folder),
   // so its pre-state is journaled like any other workspace write; an apart copy
@@ -386,7 +393,11 @@ async function saveOne(
   let saved = filesName
   if (apart) {
     fs.mkdirSync(generatedDir, { recursive: true })
-    saved = path.posix.join('generated', await freeName(generatedDir, name))
+    const generatedReserved =
+      sessionMedia.workspace !== 'trial' && sessionMedia.sessionRef
+        ? await recordedArtifactNamesIn(sessionMedia.sessionRef, generatedDir)
+        : undefined
+    saved = path.posix.join('generated', await freeName(generatedDir, name, generatedReserved))
     record(path.join(workspaceDir, saved))
     fs.copyFileSync(sessionCopy, path.join(workspaceDir, saved))
   }

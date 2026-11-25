@@ -1,8 +1,10 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import { appLoggerInstance } from '../observability/logger'
 import { ensureReaderCopy } from '../persist/sessionMediaFiles'
 import { artifactFoldersOf } from './sessionFolderList'
 import { readSessionFolders } from './sessionFolders'
+import { readHistoryEntries } from './sessionHistory'
 import { sessionPaths } from './sessions'
 import type {
   ArtifactMediaType,
@@ -59,6 +61,50 @@ export function artifactSessionPath(
 ): string | null {
   const file = artifactHostPath(sessionId, artifact, list)
   return file ? relativeInside(sessionPaths(sessionId).artifactRoot, file) : null
+}
+
+/** How `dir` sits inside `root`, '' when they are the same; null when it does not. */
+function dirInside(root: string, dir: string): string | null {
+  const relative = path.relative(path.resolve(root), path.resolve(dir))
+  if (relative.startsWith('..') || path.isAbsolute(relative)) return null
+  return relative.split(path.sep).join('/')
+}
+
+/**
+ * The names in `dir` the Session's History still records as Artifacts, whether or not a file
+ * sits at them: a recorded artifact holds its name even after the file behind it was moved away
+ * or deleted, so a new generation must not take it and show up as the old record's file.
+ */
+export async function recordedArtifactNamesIn(
+  sessionId: string,
+  dir: string,
+): Promise<Set<string>> {
+  const reserved = new Set<string>()
+  let entries: HistoryEntry[]
+  try {
+    entries = await readHistoryEntries(sessionId)
+  } catch (error) {
+    appLoggerInstance.warn(
+      `could not read the History of ${sessionId} for name reservations: ${String(error)}`,
+      'sessions',
+    )
+    return reserved
+  }
+  if (entries.every((entry) => entry.artifacts.length === 0)) return reserved
+  const list = await readSessionFolders(sessionId)
+  for (const entry of entries) {
+    for (const artifact of entry.artifacts) {
+      const base = artifact.folderId
+        ? artifactFoldersOf(list).find((folder) => folder.id === artifact.folderId)?.hostPath
+        : null
+      if (!base) continue
+      const inside = dirInside(base, dir)
+      if (inside === null) continue
+      const prefix = inside === '' ? '' : `${inside}/`
+      if (artifact.path.startsWith(prefix)) reserved.add(artifact.path.slice(prefix.length))
+    }
+  }
+  return reserved
 }
 
 /** The folder entry holding `file`, and its path there: a new History reference. */

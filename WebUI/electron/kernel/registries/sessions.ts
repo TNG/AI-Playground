@@ -195,6 +195,16 @@ export function buildSessionsRegistry(deps: SessionsDeps) {
         return ipcFail(e)
       }
     },
+    'sessions:missingArtifacts': async (_event, id) => {
+      try {
+        return {
+          success: true as const,
+          missingFiles: await deps.missingArtifactUrls(requireString(id, 'session id')),
+        }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
     'sessions:rename': async (_event, id, title) => {
       try {
         const session = await deps.renameSession(

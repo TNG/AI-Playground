@@ -29,6 +29,7 @@ describe('per-owner handler registries', () => {
       | 'sessions:list'
       | 'sessions:create'
       | 'sessions:open'
+      | 'sessions:missingArtifacts'
       | 'sessions:rename'
       | 'sessions:setReachable'
       | 'sessions:migrateHomeAgentThreads'

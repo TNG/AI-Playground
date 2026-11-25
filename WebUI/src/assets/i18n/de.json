@@ -471,6 +471,8 @@
   "ANSWER_CREATED_FILES": "Erstellte Dateien",
   "ANSWER_FILE_PREVIEW_TOOLTIP": "Vorschau dieser Datei",
   "ANSWER_FILE_PREVIEW_TRUNCATED": "Vorschau gekürzt — öffne die Datei, um den Rest zu sehen.",
+  "ANSWER_FILE_PREVIEW_SHOW_MORE": "Mehr anzeigen",
+  "ANSWER_FILE_PREVIEW_SHOW_LESS": "Weniger anzeigen",
   "REQUEST_LLM_MODEL_NAME": "Fügen Sie ein Modell Ihrer Wahl von huggingface.co hinzu",
   "REQUEST_LLM_MODEL_DESCRIPTION": "Sie können ein Modell-Repository mit folgender Syntax herunterladen",
   "REQUEST_LLM_MODEL_EXAMPLE": "<namespace>/<repo_name>, z. B. 'facebook/opt-1.3b'",

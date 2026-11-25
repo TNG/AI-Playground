@@ -3,7 +3,9 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import {
+  SESSION_FILE_FULL_PREVIEW_CAP,
   SESSION_FILE_PREVIEW_CAP,
+  SESSION_FILE_PREVIEW_LINES,
   sessionFileActions,
   sessionFileReader,
 } from '../../agent/sessionFileAction'
@@ -143,11 +145,47 @@ describe('session file reader', () => {
     expect(result).toEqual({ success: true, data: { content: 'notes', truncated: false } })
   })
 
-  it('truncates a file past the cap and says so', async () => {
+  it('shows a short file whole', async () => {
+    const lines = Array.from({ length: 10 }, (_, index) => `line ${index + 1}`)
+    fs.writeFileSync(path.join(workspaceDir, 'ten.txt'), lines.join('\n'))
+    const result = await read('session-1', 'ten.txt')
+    expect(result).toEqual({ success: true, data: { content: lines.join('\n'), truncated: false } })
+  })
+
+  it('keeps only the first lines of a long file and says so', async () => {
+    const lines = Array.from({ length: 15 }, (_, index) => `line ${index + 1}`)
+    fs.writeFileSync(path.join(workspaceDir, 'long.txt'), lines.join('\n'))
+    const result = await read('session-1', 'long.txt')
+    expect(result).toEqual({
+      success: true,
+      data: { content: lines.slice(0, SESSION_FILE_PREVIEW_LINES).join('\n'), truncated: true },
+    })
+  })
+
+  it('truncates a file past the byte ceiling and says so', async () => {
     const result = await read('session-1', 'big.js')
     expect(result.success).toBe(true)
     if (!result.success) return
     expect(result.data.content).toBe('b'.repeat(SESSION_FILE_PREVIEW_CAP))
+    expect(result.data.truncated).toBe(true)
+  })
+
+  it('shows a long file whole when asked for the full view', async () => {
+    const lines = Array.from({ length: 15 }, (_, index) => `line ${index + 1}`)
+    fs.writeFileSync(path.join(workspaceDir, 'long.txt'), lines.join('\n'))
+    const result = await read('session-1', 'long.txt', true)
+    expect(result).toEqual({ success: true, data: { content: lines.join('\n'), truncated: false } })
+  })
+
+  it('still truncates the full view of a file past the full ceiling', async () => {
+    fs.writeFileSync(
+      path.join(workspaceDir, 'huge.js'),
+      'h'.repeat(SESSION_FILE_FULL_PREVIEW_CAP + 1),
+    )
+    const result = await read('session-1', 'huge.js', true)
+    expect(result.success).toBe(true)
+    if (!result.success) return
+    expect(result.data.content).toBe('h'.repeat(SESSION_FILE_FULL_PREVIEW_CAP))
     expect(result.data.truncated).toBe(true)
   })
 

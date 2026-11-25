@@ -486,8 +486,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     openWorkspaceFolder: (dir: string) => invoke('agentMode:openWorkspaceFolder', dir),
     sessionFileAction: (sessionId: string, filePath: string, action: SessionFileAction) =>
       invoke('agentMode:sessionFileAction', sessionId, filePath, action),
-    readSessionFile: (sessionId: string, filePath: string) =>
-      invoke('agentMode:readSessionFile', sessionId, filePath),
+    readSessionFile: (sessionId: string, filePath: string, full?: boolean) =>
+      invoke('agentMode:readSessionFile', sessionId, filePath, full),
     onExecuteTool: (callback: (data: AgentToolExecuteRequest) => void) =>
       onPush('agentMode:executeTool', callback),
     submitToolResult: (requestId: string, result: unknown, error?: string) =>

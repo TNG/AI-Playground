@@ -471,6 +471,8 @@
   "ANSWER_CREATED_FILES": "Oluşturulan dosyalar",
   "ANSWER_FILE_PREVIEW_TOOLTIP": "Bu dosyayı önizle",
   "ANSWER_FILE_PREVIEW_TRUNCATED": "Önizleme kesildi — gerisini görmek için dosyayı açın.",
+  "ANSWER_FILE_PREVIEW_SHOW_MORE": "Daha fazla göster",
+  "ANSWER_FILE_PREVIEW_SHOW_LESS": "Daha az göster",
   "REQUEST_LLM_MODEL_NAME": "huggingface.co'dan seçtiğiniz bir modeli ekleyin",
   "REQUEST_LLM_MODEL_DESCRIPTION": "Şu sözdizimiyle bir model deposu indirebilirsiniz",
   "REQUEST_LLM_MODEL_EXAMPLE": "<namespace>/<repo_name>, örn. 'facebook/opt-1.3b'",

@@ -344,10 +344,14 @@ export function buildAgentModeRegistry(deps: AgentModeDeps) {
     },
     // Read a written file as text for the transcript's inline preview
     // (see agent/sessionFileAction.ts).
-    'agentMode:readSessionFile': (_event, sessionId, filePath) => {
-      const valid = typeof sessionId === 'string' && typeof filePath === 'string' && filePath
+    'agentMode:readSessionFile': (_event, sessionId, filePath, full) => {
+      const valid =
+        typeof sessionId === 'string' &&
+        typeof filePath === 'string' &&
+        !!filePath &&
+        (full === undefined || typeof full === 'boolean')
       if (!valid) return { success: false, error: 'invalid file request' }
-      return deps.readSessionFile(sessionId, filePath)
+      return deps.readSessionFile(sessionId, filePath, full)
     },
     // What the agent can be equipped with, for the Capabilities checkboxes in
     // Agent Settings (availability depends on the turn's tool specs / MCP config).

@@ -96,13 +96,18 @@ export function sessionFileActions(deps: SessionFileDeps) {
 
 // ── Read a written file for the transcript's inline preview ────────────────
 
-/** Previews stay light: a file past this size is cut off, with the flag set. */
-export const SESSION_FILE_PREVIEW_CAP = 256 * 1024
+/** A preview is a peek: it shows the file's first lines, not its whole body. */
+export const SESSION_FILE_PREVIEW_LINES = 10
+/** Ceiling for the one case a line count cannot catch: a huge minified line. */
+export const SESSION_FILE_PREVIEW_CAP = 16 * 1024
+/** A "Show more" expansion drops the line cap but still refuses to choke on a huge file. */
+export const SESSION_FILE_FULL_PREVIEW_CAP = 1024 * 1024
 
 export function sessionFileReader(deps: Pick<SessionFileDeps, 'mountsOf'>) {
   return async (
     sessionId: string,
     rawPath: string,
+    full?: boolean,
   ): Promise<IpcDataResult<{ content: string; truncated: boolean }>> => {
     try {
       if (!sessionId || !rawPath) return { success: false, error: 'invalid file request' }
@@ -111,11 +116,16 @@ export function sessionFileReader(deps: Pick<SessionFileDeps, 'mountsOf'>) {
       const filePath = resolveSessionFilePath(mounts, rawPath)
       if (!filePath) return { success: false, error: 'The file no longer exists.' }
       const bytes = await fs.promises.readFile(filePath)
-      const truncated = bytes.byteLength > SESSION_FILE_PREVIEW_CAP
-      const content = truncated
-        ? bytes.subarray(0, SESSION_FILE_PREVIEW_CAP).toString('utf8')
+      const byteCap = full ? SESSION_FILE_FULL_PREVIEW_CAP : SESSION_FILE_PREVIEW_CAP
+      const byteTruncated = bytes.byteLength > byteCap
+      const text = byteTruncated
+        ? bytes.subarray(0, byteCap).toString('utf8')
         : bytes.toString('utf8')
-      return { success: true, data: { content, truncated } }
+      // `split` keeps each line's own \r, so CRLF files survive the rejoin.
+      const lines = text.split('\n')
+      const lineTruncated = !full && lines.length > SESSION_FILE_PREVIEW_LINES
+      const content = lineTruncated ? lines.slice(0, SESSION_FILE_PREVIEW_LINES).join('\n') : text
+      return { success: true, data: { content, truncated: byteTruncated || lineTruncated } }
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : String(error) }
     }

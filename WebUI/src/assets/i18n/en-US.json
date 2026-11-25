@@ -471,6 +471,8 @@
   "ANSWER_CREATED_FILES": "Created files",
   "ANSWER_FILE_PREVIEW_TOOLTIP": "Preview this file",
   "ANSWER_FILE_PREVIEW_TRUNCATED": "Preview truncated — open the file to see the rest.",
+  "ANSWER_FILE_PREVIEW_SHOW_MORE": "Show more",
+  "ANSWER_FILE_PREVIEW_SHOW_LESS": "Show less",
   "REQUEST_LLM_MODEL_NAME": "Add a model of your choice from huggingface.co",
   "REQUEST_LLM_MODEL_DESCRIPTION": "You can download a model repository with the syntax",
   "REQUEST_LLM_MODEL_EXAMPLE": "<namespace>/<repo_name>, e.g. 'facebook/opt-1.3b'",

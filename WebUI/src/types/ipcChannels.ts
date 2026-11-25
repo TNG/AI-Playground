@@ -818,12 +818,14 @@ export const CHANNELS = {
   /**
    * Read a file an agent turn wrote as UTF-8 text, for the transcript's inline
    * preview. Same path validation as sessionFileAction (agent/sessionFileAction.ts);
-   * content is capped at 256 KB and `truncated` says when the cap bit.
+   * the content is the file's first 10 lines under a 16 KB ceiling — `full`
+   * drops the line cap and raises the ceiling to 1 MB — and `truncated` says
+   * when either limit bit.
    */
   'agentMode:readSessionFile': {
     kind: 'invoke',
     owner: 'main',
-    args: [] as unknown as readonly [string, string],
+    args: [] as unknown as readonly [string, string, boolean | undefined],
     result: null as unknown as IpcDataResult<{ content: string; truncated: boolean }>,
   },
   /** What the agent could be equipped with, for the Capabilities checkboxes. */

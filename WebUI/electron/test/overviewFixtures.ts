@@ -3,7 +3,7 @@ import path from 'node:path'
 import type { CapabilityHost } from '../agent/capabilities/types'
 import { createSession, mutateSession, setSessionIncludedInOverviews } from '../session/sessions'
 import { writeHistoryLines } from '../persist/sessionFiles'
-import type { HistoryEntry } from '@/types/sessionIpc'
+import type { HistoryEntry, OverviewSummaryPicture } from '@/types/sessionIpc'
 import type { OverviewChrome } from '@/types/overviewChrome'
 
 export const HOUR = 60 * 60 * 1000
@@ -37,6 +37,9 @@ export type SeedSessionOptions = {
   updatedAt?: number
   timeline?: unknown[]
   harnessWorkspaces?: Record<string, string>
+  /** The stored Overview Summary text; absent leaves the Session without a usable summary. */
+  summary?: string
+  summaryPicture?: OverviewSummaryPicture
 }
 
 export async function seedSession(
@@ -57,6 +60,17 @@ export async function seedSession(
     updatedAt: newest,
     ...(options.timeline ? { timeline: options.timeline } : {}),
     ...(options.harnessWorkspaces ? { harnessWorkspaces: options.harnessWorkspaces } : {}),
+    ...(options.summary || options.summaryPicture
+      ? {
+          overviewSummary: {
+            state: 'ready' as const,
+            contractVersion: 1,
+            writtenAt: newest,
+            ...(options.summary ? { text: options.summary } : {}),
+            ...(options.summaryPicture ? { picture: options.summaryPicture } : {}),
+          },
+        }
+      : {}),
   }))
   await setSessionIncludedInOverviews(id, options.included ?? true)
   return id

@@ -21,9 +21,6 @@ export const OVERVIEW_NAMED_RANGES = [
   'last-30-days',
 ] as const satisfies readonly OverviewRangeInput[]
 
-/** A span wider than this is reported, not refused. */
-export const OVERVIEW_WIDE_RANGE_MS = 30 * DAY_MS
-
 /** The longest `{ lastHours }` window accepted: a year of hours. */
 export const OVERVIEW_MAX_LAST_HOURS = 8760
 

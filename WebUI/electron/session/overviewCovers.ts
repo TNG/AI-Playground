@@ -27,8 +27,6 @@ export type OverviewCover = {
   source: 'artifact' | 'video-thumbnail' | 'game-icon'
 }
 
-export const OVERVIEW_COVER_CAP = 8
-
 async function isFile(candidate: string): Promise<boolean> {
   return (await fs.stat(candidate).catch(() => null))?.isFile() ?? false
 }
@@ -142,8 +140,8 @@ type CoverSeed = {
 
 /**
  * The newest visual Artifact only, for the stored Overview Summary's picture.
- * Unlike `collectCovers`, a missing file yields none rather than an older
- * picture: only the newest candidate is ever considered.
+ * A missing file yields none rather than an older picture: only the newest
+ * candidate is ever considered.
  */
 export async function newestVisualCover(
   sessionId: string,
@@ -205,62 +203,4 @@ export async function newestVisualCover(
   if (seeds.length === 0) return null
   seeds.sort((a, b) => b.time - a.time || b.order - a.order)
   return seeds[0].pick()
-}
-
-export async function collectCovers(
-  sessionId: string,
-  file: SessionFile,
-  list: SessionFolderList,
-  entries: readonly HistoryEntry[],
-  recordsOf: RecordsLookup,
-): Promise<{ covers: OverviewCover[]; total: number; truncated: boolean }> {
-  const candidates: OverviewCover[] = []
-  const seen = new Set<string>()
-  const push = (cover: OverviewCover) => {
-    if (seen.has(cover.path)) return
-    seen.add(cover.path)
-    candidates.push(cover)
-  }
-  for (const entry of entries) {
-    for (const artifact of entry.artifacts) {
-      if (artifact.mediaType === 'image') {
-        const host = artifactHostPath(sessionId, artifact, list)
-        if (host && (await isFile(host))) {
-          push({
-            path: host,
-            mediaType: 'image',
-            prompt: entry.prompt,
-            time: entry.timestamp,
-            source: 'artifact',
-          })
-        }
-      } else if (artifact.mediaType === 'video') {
-        const host = await videoCoverOf(sessionId, file, artifact, recordsOf)
-        if (host) {
-          push({
-            path: host,
-            mediaType: 'image',
-            prompt: entry.prompt,
-            time: entry.timestamp,
-            source: 'video-thumbnail',
-          })
-        }
-      }
-    }
-  }
-  for (const game of gameCoversOf(file, list)) {
-    push({
-      path: game.iconPath,
-      mediaType: 'image',
-      prompt: game.prompt,
-      time: game.time,
-      source: 'game-icon',
-    })
-  }
-  candidates.sort((a, b) => b.time - a.time)
-  return {
-    covers: candidates.slice(0, OVERVIEW_COVER_CAP),
-    total: candidates.length,
-    truncated: candidates.length > OVERVIEW_COVER_CAP,
-  }
 }

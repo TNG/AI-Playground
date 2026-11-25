@@ -17,12 +17,8 @@ export type OverviewDocument = {
   window: OverviewWindow
   /** The language the chrome strings were resolved for. */
   locale: string
-  /** The query's order: most recently updated Session first. */
+  /** The query's order: the Session active most recently first. */
   sessions: OverviewSection[]
-  shownEntries: number
-  /** Every turn in range, including those the read's line budget left out. */
-  totalEntries: number
-  truncated: boolean
 }
 
 const ESCAPES: Record<string, string> = {
@@ -90,8 +86,9 @@ function sessionCard(session: OverviewSection): string {
     session.picture?.startsWith('data:image/') === true
       ? `<img class="picture" src="${escapeHtml(session.picture)}" alt="">\n`
       : ''
-  const icon =
-    session.icon ? `<span class="icon" aria-hidden="true">${escapeHtml(session.icon)}</span>` : ''
+  const icon = session.icon
+    ? `<span class="icon" aria-hidden="true">${escapeHtml(session.icon)}</span>`
+    : ''
   return (
     `<article class="card">\n` +
     `<header class="card-head"><p class="title">${icon}${escapeHtml(session.title)}</p></header>\n` +
@@ -119,7 +116,6 @@ h1 { margin: 0; font-size: 1.75rem; line-height: 1.25; font-weight: 650; letter-
 .text { flex: 1; min-width: 0; }
 .picture { flex: none; width: 7.5rem; height: 7.5rem; object-fit: cover; border-radius: .65rem; background: rgba(127, 127, 127, .12); }
 .summary { margin: 0; opacity: .92; white-space: pre-wrap; }
-.note { opacity: .75; margin: 0 0 1.75rem; }
 @media (max-width: 48rem) { .cards { grid-template-columns: minmax(0, 1fr); } }
 @media print { .cards { display: block; } .card { break-inside: avoid; margin-bottom: 1rem; } }
 `
@@ -129,12 +125,6 @@ export function renderOverviewHtml(overview: OverviewDocument, chrome: OverviewC
   const to = overviewDateTime(overview.window.to)
   const title = chromeHtml(chrome, 'OVERVIEW_PAGE_TITLE', { from, to })
   const subtitle = chromeHtml(chrome, 'OVERVIEW_SUBTITLE')
-  const note = overview.truncated
-    ? `<p class="note">${chromeHtml(chrome, 'OVERVIEW_REPORT_TRUNCATED', {
-        shown: overview.shownEntries,
-        total: overview.totalEntries,
-      })}</p>\n`
-    : ''
 
   return `<!doctype html>
 <html lang="${escapeHtml(overview.locale)}">
@@ -148,7 +138,7 @@ export function renderOverviewHtml(overview: OverviewDocument, chrome: OverviewC
 <body>
 <main>
 <header class="head"><h1>${title}</h1><p class="subtitle">${subtitle}</p></header>
-${note}<div class="cards">
+<div class="cards">
 ${overview.sessions.map((session) => sessionCard(session)).join('\n')}
 </div>
 </main>

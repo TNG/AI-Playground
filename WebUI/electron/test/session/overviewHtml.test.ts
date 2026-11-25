@@ -11,8 +11,8 @@ import {
 } from '../../session/overviewHtml'
 
 // The Overview page is produced by code, never by the model: one resolved Overview
-// in, a self-contained HTML string out. One entry per Session — its Title, its
-// summary and a picture when it has one — and nothing about the turns behind them.
+// in, a self-contained HTML string out. One card per Session — its type icon, Title
+// and stored Overview Summary — and nothing about the turns behind them.
 
 const FROM = new Date(2026, 10, 22).getTime()
 const TO = new Date(2026, 10, 25).getTime()
@@ -49,15 +49,12 @@ function documentOf(sessions: OverviewSection[], overrides: Partial<OverviewDocu
     window: { from: FROM, to: TO },
     locale: 'en-US',
     sessions,
-    shownEntries: sessions.length,
-    totalEntries: sessions.length,
-    truncated: false,
     ...overrides,
   } satisfies OverviewDocument
 }
 
 describe('overview HTML renderer', () => {
-  it('renders one entry per Session with its Title and summary, in the order given', () => {
+  it('renders one card per Session with its Title and summary, in the order given', () => {
     const html = renderOverviewHtml(
       documentOf([
         section({ title: 'Beta', summary: 'Beta built the asteroid field.' }),
@@ -92,7 +89,6 @@ describe('overview HTML renderer', () => {
     expect(html).not.toContain('class="prompt"')
     expect(html).not.toContain('class="response"')
     expect(html).not.toContain('class="status"')
-    expect(html).not.toContain('class="range"')
     expect(html).not.toContain('turns in range')
     expect(html).not.toContain('By day')
   })
@@ -106,11 +102,11 @@ describe('overview HTML renderer', () => {
     expect(html).toContain('<p class="subtitle">')
   })
 
-  it('states the window in the document title and in the headline', () => {
+  it('heads the page "Sessions active …" and states the window in the document title', () => {
     const html = renderOverviewHtml(documentOf([section({})]), english)
 
-    expect(html).toContain('<title>Overview: 2026-11-22 00:00 to 2026-11-25 00:00</title>')
-    expect(html).toContain('<h1>Overview: 2026-11-22 00:00 to 2026-11-25 00:00</h1>')
+    expect(html).toContain('<title>Sessions active 2026-11-22 00:00 to 2026-11-25 00:00</title>')
+    expect(html).toContain('<h1>Sessions active 2026-11-22 00:00 to 2026-11-25 00:00</h1>')
     expect(html.match(/<h1>/g)).toHaveLength(1)
   })
 
@@ -145,51 +141,6 @@ describe('overview HTML renderer', () => {
     expect(html).not.toMatch(/<img\b/)
   })
 
-  it('inlines a Session picture as a data URI', () => {
-    const picture = 'data:image/png;base64,AAAA'
-    const html = renderOverviewHtml(
-      documentOf([
-        section({ title: 'Pictured', summary: 'With a picture.', picture }),
-        section({ title: 'Plain', summary: 'Without one.' }),
-      ]),
-      english,
-    )
-
-    expect(html).toContain(`<img class="picture" src="${picture}" alt="">`)
-    expect(html.match(/<img\b/g)).toHaveLength(1)
-    // The picture sits to the right of the text, in the same card.
-    expect(html.indexOf('class="text"')).toBeLessThan(html.indexOf('class="picture"'))
-  })
-
-  it('never renders a picture source that is not a data URI', () => {
-    const html = renderOverviewHtml(
-      documentOf([
-        section({ title: 'Remote', picture: 'https://example.com/cat.png' }),
-        section({ title: 'Local', picture: 'file:///tmp/cat.png' }),
-        section({ title: 'Media', picture: 'aipg-media://games/x/icon.png' }),
-      ]),
-      english,
-    )
-
-    expect(html).not.toMatch(/<img\b/)
-    expect(html).not.toContain('https://example.com/cat.png')
-    expect(html).not.toContain('file:///tmp/cat.png')
-    expect(html).not.toContain('aipg-media://games/x/icon.png')
-  })
-
-  it('says the read was cut in one footnote, and only when it was', () => {
-    const complete = renderOverviewHtml(documentOf([section({})]), english)
-    expect(complete).not.toContain('class="note"')
-    expect(complete).not.toContain('newest')
-
-    const capped = renderOverviewHtml(
-      documentOf([section({})], { shownEntries: 5, totalEntries: 173, truncated: true }),
-      english,
-    )
-    expect(capped.match(/class="note"/g)).toHaveLength(1)
-    expect(capped).toContain('newest 5 of 173')
-  })
-
   it('names a day range by date and a rolling range by its exact time', () => {
     const day = {
       from: new Date(2026, 10, 23).getTime(),
@@ -219,12 +170,7 @@ describe('overview HTML renderer', () => {
       const locale = file.replace(/\.json$/, '')
       const chrome = chromeOf(locale, readLocale(file))
       const html = renderOverviewHtml(
-        documentOf([section({ title: 'A Session', summary: 'A summary.' })], {
-          locale,
-          shownEntries: 2,
-          totalEntries: 5,
-          truncated: true,
-        }),
+        documentOf([section({ title: 'A Session', summary: 'A summary.' })], { locale }),
         chrome,
       )
 
@@ -243,5 +189,11 @@ describe('overview HTML renderer', () => {
         for (const part of parts) expect(html).toContain(part)
       }
     }
+  })
+
+  it('has no truncation footnote any more', () => {
+    const html = renderOverviewHtml(documentOf([section({})]), english)
+
+    expect(html).not.toContain('class="note"')
   })
 })

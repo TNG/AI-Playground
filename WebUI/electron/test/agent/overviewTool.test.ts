@@ -2,13 +2,15 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { OverviewChrome } from '@/types/overviewChrome'
 
-// The `overview_data` tool is the Overview Agent's whole read side: one range in,
-// the included Sessions' turns and picture candidates out. It is exercised the way
-// the agent reaches it — through the capability's tool against real `session.json`
-// files and real History Entries on disk, with Electron and Pi mocked away.
+// The Overview capability's one tool: the agent translates a timeframe, calls it
+// once, and relays the window and link. It never chooses a Session, writes a
+// summary or markup; the page is built from the Sessions' stored Overview
+// Summaries inside the asking Session's Workspace.
 
 const dirs = vi.hoisted(() => ({ real: '', demo: '', games: '', mediaRecords: '' }))
+const preview = vi.hoisted(() => ({ root: '', base: '' }))
 
 vi.mock('electron', () => ({
   app: { isPackaged: false, getPath: () => dirs.real, getAppPath: () => dirs.real },
@@ -41,20 +43,16 @@ vi.mock('../../agent/piRuntime.ts', () => ({
   loadPi: async () => ({ defineTool: (definition: unknown) => definition }),
 }))
 
+vi.mock('../../agent/piWorkspaceRuntime.ts', () => ({
+  workspacePreviewRoot: () => preview.root || null,
+  resolvePreviewUrl: (url: string | undefined) =>
+    url && preview.base ? new URL(url, preview.base).toString() : url,
+  sameFolder: (a: string, b: string) => path.resolve(a) === path.resolve(b),
+}))
+
 const { overviewCapability } = await import('../../agent/capabilities/overview.ts')
-const {
-  createSession,
-  mutateSession,
-  resetSessionsForTest,
-  setSessionDeps,
-  sessionPaths,
-  setSessionIncludedInOverviews,
-} = await import('../../session/sessions')
-const { writeHistoryLines } = await import('../../persist/sessionFiles')
-const { addSessionFolder } = await import('../../session/sessionFolders')
-const { ensureWorkspaceEntry } = await import('../../session/appWorkspace')
-const { createGame, updateGame } = await import('../../agent/games/gameLibrary')
-const { sessionFolderMediaUrl } = await import('@/lib/comfyWorkflow')
+const { mutateSession, resetSessionsForTest, setSessionDeps } =
+  await import('../../session/sessions')
 const {
   NOW,
   HOUR,
@@ -62,44 +60,66 @@ const {
   TODAY,
   historyEntry,
   seedSession,
-  writeFile,
   hostFor: fixtureHostFor,
   textOf,
+  toolNamed,
 } = await import('../overviewFixtures')
-import type { HistoryEntry } from '@/types/sessionIpc'
+
+const CHROME: OverviewChrome = {
+  locale: 'en-US',
+  strings: {
+    OVERVIEW_PAGE_TITLE: 'Sessions active {from} to {to}',
+    OVERVIEW_SUBTITLE:
+      "Each card is the Session's own account of its work, not a report of this window.",
+  },
+}
 
 type Host = Parameters<NonNullable<typeof overviewCapability.buildTools>>[0]
 
 type Tool = {
   name: string
+  parameters: { properties: Record<string, unknown> }
   execute: (toolCallId: string, params: Record<string, unknown>) => Promise<unknown>
 }
 
-/** `null` is a turn with no reporting Session, as a Trial Run would have. */
-function hostFor(sessionRef?: string | null): Host {
-  return fixtureHostFor({
+function hostFor(
+  overrides: { sessionRef?: string | null; overviewChrome?: OverviewChrome | null } = {},
+): Host {
+  const host = fixtureHostFor({
     workspaceDir: path.join(dirs.real, 'workspace'),
     agentDir: dirs.real,
-    sessionRef,
+    sessionRef: overrides.sessionRef,
+    responseLocale: 'en-US',
+    ...(overrides.overviewChrome === null
+      ? {}
+      : { overviewChrome: overrides.overviewChrome ?? CHROME }),
   })
+  return host
 }
 
-async function overviewTool(host: Host): Promise<Tool> {
-  const tools = await overviewCapability.buildTools!(host)
-  return tools[0] as unknown as Tool
+async function tool(host: Host = hostFor()): Promise<Tool> {
+  return toolNamed(await overviewCapability.buildTools!(host), 'overview') as unknown as Tool
 }
 
-async function dataFrom(host: Host, range: unknown): Promise<Record<string, unknown>> {
-  const result = await (await overviewTool(host)).execute('call-1', { range })
-  return JSON.parse(textOf(result))
+async function call(host: Host, params: Record<string, unknown>): Promise<Record<string, unknown>> {
+  return JSON.parse(textOf(await (await tool(host)).execute('call-1', params))) as Record<
+    string,
+    unknown
+  >
 }
 
-async function dataWith(
-  host: Host,
-  params: Record<string, unknown>,
-): Promise<Record<string, unknown>> {
-  const result = await (await overviewTool(host)).execute('call-1', params)
-  return JSON.parse(textOf(result))
+async function callText(host: Host, params: Record<string, unknown>): Promise<string> {
+  return textOf(await (await tool(host)).execute('call-1', params))
+}
+
+async function htmlFiles(): Promise<string[]> {
+  return (await fs.readdir(path.join(dirs.real, 'workspace')).catch(() => [])).filter((file) =>
+    file.endsWith('.html'),
+  )
+}
+
+async function htmlAt(fileName: unknown): Promise<string> {
+  return fs.readFile(path.join(dirs.real, 'workspace', String(fileName)), 'utf8')
 }
 
 beforeAll(async () => {
@@ -110,10 +130,13 @@ beforeAll(async () => {
   dirs.mediaRecords = path.join(root, 'media-records')
 })
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(NOW)
+  preview.root = ''
+  preview.base = ''
   setSessionDeps({ isDemoMode: () => false })
+  await fs.mkdir(path.join(dirs.real, 'workspace'), { recursive: true })
 })
 
 afterEach(async () => {
@@ -123,373 +146,306 @@ afterEach(async () => {
   await fs.rm(dirs.games, { recursive: true, force: true })
 })
 
-describe('overview_data', () => {
-  it('is the read tool of the overview capability', async () => {
+describe('the overview capability', () => {
+  it('exposes exactly one tool, and no summary, cover or session parameter', async () => {
     expect(overviewCapability.id).toBe('overview')
     const tools = await overviewCapability.buildTools!(hostFor())
-    expect(tools.map((tool) => tool.name)).toEqual(['overview_data', 'overview_write'])
+    expect(tools.map((candidate) => candidate.name)).toEqual(['overview'])
+
+    const parameters = (await tool()) as unknown as {
+      parameters: { properties: Record<string, unknown> }
+    }
+    expect(Object.keys(parameters.parameters.properties).sort()).toEqual([
+      'from',
+      'lastHours',
+      'range',
+      'to',
+    ])
+    expect(overviewCapability.summary).toMatch(/Included in Overviews/)
   })
+})
 
-  it('resolves every named range and echoes the concrete window', async () => {
-    await seedSession([historyEntry({ timestamp: NOW - HOUR })], { updatedAt: NOW })
-    const tool = await overviewTool(hostFor())
+describe('the window', () => {
+  it('resolves every named range and echoes the concrete window and its label', async () => {
+    await seedSession([historyEntry({ timestamp: NOW - HOUR })])
 
-    const last24 = await dataFrom(hostFor(), 'last-24h')
+    const last24 = await call(hostFor(), { range: 'last-24h' })
     expect(last24.window).toEqual({ from: NOW - DAY, to: NOW })
+    expect(String(last24.windowLabel)).toMatch(/2026/)
 
-    const today = await dataFrom(hostFor(), 'today')
+    const today = await call(hostFor(), { range: 'today' })
     expect(today.window).toEqual({ from: TODAY, to: TODAY + DAY })
 
-    const yesterday = await dataFrom(hostFor(), 'yesterday')
+    const yesterday = await call(hostFor(), { range: 'yesterday' })
     expect(yesterday.window).toEqual({ from: TODAY - DAY, to: TODAY })
 
-    const week = await dataFrom(hostFor(), 'last-7-days')
+    const week = await call(hostFor(), { range: 'last-7-days' })
     expect(week.window).toEqual({ from: TODAY - 6 * DAY, to: NOW })
 
-    const month = await dataFrom(hostFor(), 'last-30-days')
+    const month = await call(hostFor(), { range: 'last-30-days' })
     expect(month.window).toEqual({ from: TODAY - 29 * DAY, to: NOW })
-
-    // The window rides on an empty result too, so the answer can always state it.
-    const quiet = await dataFrom(hostFor(), 'yesterday')
-    expect(quiet.outcome).toBe('none-in-range')
-    expect(quiet.window).toEqual({ from: TODAY - DAY, to: TODAY })
-    expect(tool.name).toBe('overview_data')
   })
 
-  it('accepts a number of hours the user named', async () => {
-    const data = await dataFrom(hostFor(), { lastHours: 12 })
+  it('takes a number of hours the user named', async () => {
+    await seedSession([historyEntry({ timestamp: NOW - HOUR })])
+
+    const data = await call(hostFor(), { lastHours: 12 })
     expect(data.window).toEqual({ from: NOW - 12 * HOUR, to: NOW })
 
-    const day = await dataFrom(hostFor(), { lastHours: 24 })
-    const named = await dataFrom(hostFor(), 'last-24h')
+    const day = await call(hostFor(), { lastHours: 24 })
+    const named = await call(hostFor(), { range: 'last-24h' })
     expect(day.window).toEqual(named.window)
   })
 
-  it('takes the window as flat arguments, and returns its label', async () => {
-    const flat = await dataWith(hostFor(), { lastHours: 1 })
-    expect(flat.window).toEqual({ from: NOW - HOUR, to: NOW })
-    expect(String(flat.windowLabel)).toMatch(/2026/)
-
-    const named = await dataWith(hostFor(), { range: 'today' })
-    expect(named.window).toEqual({ from: TODAY, to: TODAY + DAY })
-  })
-
   it('accepts a kind tag in range beside the real field, and ignores its case', async () => {
-    const tagged = await dataWith(hostFor(), { range: 'lastHours', lastHours: 1 })
+    await seedSession([historyEntry({ timestamp: NOW - HOUR })])
+
+    const tagged = await call(hostFor(), { range: 'lastHours', lastHours: 1 })
     expect(tagged.window).toEqual({ from: NOW - HOUR, to: NOW })
 
-    const upper = await dataWith(hostFor(), { range: 'LAST-24H' })
+    const upper = await call(hostFor(), { range: 'LAST-24H' })
     expect(upper.window).toEqual({ from: NOW - DAY, to: NOW })
   })
 
   it('accepts a window a model sent as a JSON string or a string number', async () => {
-    const nested = await dataWith(hostFor(), { range: JSON.stringify({ lastHours: 2 }) })
+    await seedSession([historyEntry({ timestamp: NOW - HOUR })])
+
+    const nested = await call(hostFor(), { range: JSON.stringify({ lastHours: 2 }) })
     expect(nested.window).toEqual({ from: NOW - 2 * HOUR, to: NOW })
 
-    const stringy = await dataWith(hostFor(), { lastHours: '3' })
+    const stringy = await call(hostFor(), { lastHours: '3' })
     expect(stringy.window).toEqual({ from: NOW - 3 * HOUR, to: NOW })
   })
 
-  it('is from-inclusive and to-exclusive', async () => {
+  it('answers a nonsense range as text, not a thrown error', async () => {
+    for (const params of [
+      { range: 'since forever' },
+      { lastHours: 0 },
+      { lastHours: 1.5 },
+      { lastHours: 9000 },
+    ]) {
+      expect(await callText(hostFor(), params)).toMatch(/range|date|hour/i)
+    }
+  })
+
+  it('uses from-inclusive and to-exclusive bounds on the newest Entry', async () => {
     const from = new Date(2026, 10, 24, 10).getTime()
     const to = new Date(2026, 10, 24, 12).getTime()
-    const { id } = await createSession()
-    await writeHistoryLines(id, [
-      JSON.stringify(historyEntry({ prompt: 'just before', timestamp: from - 1 })),
-      JSON.stringify(historyEntry({ prompt: 'first', timestamp: from })),
-      JSON.stringify(historyEntry({ prompt: 'last', timestamp: to - 1 })),
-      JSON.stringify(historyEntry({ prompt: 'at the end', timestamp: to })),
-    ])
-    await mutateSession(id, (file) => ({ ...file, updatedAt: to }))
-    await setSessionIncludedInOverviews(id, true)
+    const included = await seedSession([historyEntry({ timestamp: from })], {
+      summary: 'Started at the boundary.',
+    })
+    const excluded = await seedSession([historyEntry({ timestamp: to })], {
+      summary: 'Started at the end.',
+    })
 
-    const data = await dataFrom(hostFor(), {
+    const result = await call(hostFor(), {
       from: '2026-11-24T10:00:00',
       to: '2026-11-24T12:00:00',
     })
+    const html = await htmlAt(result.path)
 
-    const sessions = data.sessions as { entries: { prompt: string }[] }[]
-    expect(sessions[0].entries.map((entry) => entry.prompt)).toEqual(['last', 'first'])
+    expect(html).toContain('Started at the boundary.')
+    expect(html).not.toContain('Started at the end.')
+    expect(included).toBeTruthy()
+    expect(excluded).toBeTruthy()
   })
+})
 
-  it('gives each Session a short handle beside its full id', async () => {
-    const id = await seedSession([historyEntry({})])
+describe('the page', () => {
+  it('writes the range-named file into the Workspace and returns only the facts', async () => {
+    const id = await seedSession([historyEntry({ timestamp: NOW - HOUR })], {
+      summary: 'It shipped the thing and fixed two bugs.',
+    })
+    await mutateSession(id, (file) => ({ ...file, title: 'Shipped the thing', renamed: true }))
 
-    const data = await dataFrom(hostFor(), 'last-24h')
-    const [session] = data.sessions as { id: string; handle: string }[]
+    const result = await call(hostFor(), { range: 'last-24h' })
 
-    expect(session.id).toBe(id)
-    expect(session.handle).toBe(id.replace(/^session-/, '').slice(0, 8))
-  })
+    expect(result).toEqual({
+      written: true,
+      path: 'overview-2026-11-23_1530..2026-11-24_1530.html',
+      window: { from: NOW - DAY, to: NOW },
+      windowLabel: expect.any(String),
+    })
+    expect(Object.keys(result).sort()).toEqual(['path', 'window', 'windowLabel', 'written'])
+    const serialized = JSON.stringify(result)
+    expect(serialized).not.toContain('It shipped the thing')
+    expect(serialized).not.toContain('Shipped the thing')
 
-  it('reads only included Sessions and never the reporting Session', async () => {
-    const included = await seedSession([historyEntry({})])
-    const excluded = await seedSession([historyEntry({})], { included: false })
-    const reporting = await seedSession([historyEntry({})])
-
-    const data = await dataFrom(hostFor(reporting), 'last-24h')
-
-    const ids = (data.sessions as { id: string }[]).map((session) => session.id)
-    expect(ids).toEqual([included])
-    expect(ids).not.toContain(excluded)
-    expect(ids).not.toContain(reporting)
-    expect(data.includedSessions).toBe(1)
-  })
-
-  it("keeps an Agent Run's steps inside their Session", async () => {
-    const step = {
-      preset: 'Game Agent',
-      kind: 'agent' as const,
-      taskName: 'Digest',
-      harnessSessionId: 'aipg-agent-run',
-      response: 'Tuned the collision boxes.',
-    }
-    const { id } = await createSession()
-    await writeHistoryLines(id, [
-      JSON.stringify(historyEntry({ ...step, prompt: 'step one', timestamp: NOW - 2 * HOUR })),
-      JSON.stringify(historyEntry({ ...step, prompt: 'step two', timestamp: NOW - HOUR })),
-    ])
-    await mutateSession(id, (file) => ({ ...file, updatedAt: NOW }))
-    await setSessionIncludedInOverviews(id, true)
-
-    const data = await dataFrom(hostFor(), 'last-24h')
-    const sessions = data.sessions as {
-      id: string
-      entries: { prompt: string; agent?: string }[]
-    }[]
-
-    expect(sessions).toHaveLength(1)
-    expect(sessions[0].id).toBe(id)
-    expect(sessions[0].entries.map((entry) => entry.prompt)).toEqual(['step two', 'step one'])
-    expect(sessions[0].entries.every((entry) => entry.agent === 'Digest')).toBe(true)
-  })
-
-  it('caps a Session at 40 turns and 8 pictures, with the counters', async () => {
-    const { id } = await createSession()
-    const filesDir = sessionPaths(id).filesDir
-    const entries: HistoryEntry[] = []
-    for (let index = 0; index < 45; index++) {
-      const image = index >= 35
-      const name = `picture-${index}.png`
-      if (image) await writeFile(path.join(filesDir, name))
-      entries.push(
-        historyEntry({
-          prompt: `turn ${index}`,
-          timestamp: NOW - (45 - index) * 60_000,
-          ...(image
-            ? {
-                kind: 'image' as const,
-                preset: 'Image Gen',
-                artifacts: [{ path: `files/${name}`, mediaType: 'image' as const }],
-              }
-            : {}),
-        }),
-      )
-    }
-    await writeHistoryLines(
-      id,
-      entries.map((entry) => JSON.stringify(entry)),
+    const html = await htmlAt(result.path)
+    expect(html).toContain('<h1>Sessions active 2026-11-23 15:30 to 2026-11-24 15:30</h1>')
+    expect(html).toContain(
+      '<p class="title"><span class="icon" aria-hidden="true">💬</span>Shipped the thing</p>',
     )
-    await mutateSession(id, (file) => ({ ...file, updatedAt: NOW }))
-    await setSessionIncludedInOverviews(id, true)
-
-    const data = await dataFrom(hostFor(), 'last-24h')
-    const [session] = data.sessions as {
-      entries: { prompt: string }[]
-      totalEntries: number
-      truncated: boolean
-      covers: unknown[]
-      totalCovers: number
-      coversTruncated: boolean
-    }[]
-
-    expect(session.entries).toHaveLength(40)
-    expect(session.entries[0].prompt).toBe('turn 44')
-    expect(session.totalEntries).toBe(45)
-    expect(session.truncated).toBe(true)
-    expect(data.truncated).toBe(true)
-    expect(session.covers).toHaveLength(8)
-    expect(session.totalCovers).toBe(10)
-    expect(session.coversTruncated).toBe(true)
+    expect(html).toContain('<p class="summary">It shipped the thing and fixed two bugs.</p>')
+    // No pictures yet, and no turn or prompt text.
+    expect(html).not.toMatch(/<img\b/)
+    expect(html).not.toMatch(/<script/i)
+    expect(html).not.toContain('class="turn"')
   })
 
-  it('keeps 400 turn lines and omits whole Sessions from the Overview', async () => {
-    for (let index = 0; index < 11; index++) {
-      const entries = Array.from({ length: 40 }, (_, line) =>
-        historyEntry({
-          prompt: `session ${index} turn ${line}`,
-          timestamp: NOW - (index + 1) * HOUR - line * 60_000,
-        }),
-      )
-      await seedSession(entries, { updatedAt: NOW - index * HOUR })
-    }
+  it('renders the stored summaries of every active included Session, in the app’s order', async () => {
+    const newest = await seedSession([historyEntry({ timestamp: NOW - HOUR })], {
+      summary: 'Newest work.',
+    })
+    const oldest = await seedSession([historyEntry({ timestamp: NOW - 5 * HOUR })], {
+      summary: 'Oldest work.',
+    })
+    await mutateSession(newest, (file) => ({ ...file, title: 'Newest Session', renamed: true }))
+    await mutateSession(oldest, (file) => ({ ...file, title: 'Oldest Session', renamed: true }))
 
-    const data = await dataFrom(hostFor(), 'last-24h')
-    const sessions = data.sessions as { entries: unknown[] }[]
+    const result = await call(hostFor(), { range: 'last-24h' })
+    const html = await htmlAt(result.path)
 
-    expect(sessions.reduce((sum, session) => sum + session.entries.length, 0)).toBe(400)
-    expect(sessions).toHaveLength(10)
-    expect(data.sessionsOmitted).toBe(1)
-    expect(data.totalEntries).toBe(440)
-    expect(data.truncated).toBe(true)
+    expect(html.match(/<article class="card">/g)).toHaveLength(2)
+    expect(html.indexOf('Newest Session')).toBeLessThan(html.indexOf('Oldest Session'))
+    expect(html).toContain('Newest work.')
+    expect(html).toContain('Oldest work.')
   })
 
-  it("offers an image Artifact, a video's timeline thumbnail and a game's icon", async () => {
-    const { id: image } = await createSession()
-    const picked = path.join(dirs.real, '..', 'photos')
-    const { list } = await addSessionFolder(image, picked)
-    const folder = list.folders.find((entry) => entry.hostPath === picked)!
-    await writeFile(path.join(picked, 'cat.png'))
-    await writeHistoryLines(
-      image,
-      [
-        historyEntry({
-          kind: 'image',
-          preset: 'Image Gen',
-          prompt: 'a cat in a hat',
-          artifacts: [{ folderId: folder.id, path: 'cat.png', mediaType: 'image' }],
-        }),
-      ].map((entry) => JSON.stringify(entry)),
-    )
-    await mutateSession(image, (file) => ({ ...file, updatedAt: NOW }))
-    await setSessionIncludedInOverviews(image, true)
-
-    const { id: video } = await createSession()
-    const workspace = await ensureWorkspaceEntry(video)
-    await writeFile(path.join(workspace.hostPath, 'clip.mp4'))
-    await writeFile(path.join(workspace.hostPath, 'clip-thumb.png'))
-    await writeHistoryLines(
-      video,
-      [
-        historyEntry({
-          kind: 'video',
-          preset: 'Video',
-          prompt: 'a wave breaking',
-          artifacts: [{ folderId: workspace.id, path: 'clip.mp4', mediaType: 'video' }],
-        }),
-      ].map((entry) => JSON.stringify(entry)),
-    )
-    await mutateSession(video, (file) => ({
-      ...file,
-      updatedAt: NOW,
-      timeline: [
-        {
-          id: 'msg-1',
-          role: 'assistant',
-          createdAt: NOW - HOUR,
-          parts: [
-            {
-              type: 'data-media',
-              data: {
-                runId: 'run-1',
-                mode: 'video',
-                preset: 'Video',
-                status: 'completed',
-                items: [
-                  {
-                    id: 'item-1',
-                    state: 'done',
-                    mode: 'video',
-                    settings: {},
-                    type: 'video',
-                    videoUrl: sessionFolderMediaUrl(video, workspace.id, 'clip.mp4'),
-                    thumbnailUrl: sessionFolderMediaUrl(video, workspace.id, 'clip-thumb.png'),
-                  },
-                ],
-              },
-            },
-          ],
-        },
-      ],
-    }))
-    await setSessionIncludedInOverviews(video, true)
-
-    const { id: game } = await createSession()
-    const created = createGame({ name: 'Space Dodger' }, dirs.games)
-    await writeFile(path.join(created.dir, 'icon.png'))
-    updateGame(created.dir, { icon: 'icon.png' })
-    await writeHistoryLines(
-      game,
-      [historyEntry({ kind: 'agent', preset: 'Game Agent', prompt: 'make it harder' })].map(
-        (entry) => JSON.stringify(entry),
-      ),
-    )
-    await mutateSession(game, (file) => ({
-      ...file,
-      updatedAt: NOW,
-      harnessWorkspaces: { 'Game Agent': created.dir },
-    }))
-    await setSessionIncludedInOverviews(game, true)
-
-    const audio = await seedSession([
-      historyEntry({
-        kind: 'tts',
-        preset: 'Text to Speech',
-        artifacts: [{ path: 'files/speech.wav', mediaType: 'audio' }],
-      }),
-    ])
-
-    const data = await dataFrom(hostFor(), 'last-24h')
-    const byId = new Map(
-      (data.sessions as { id: string; covers: { path: string; source: string }[] }[]).map(
-        (session) => [session.id, session.covers],
-      ),
-    )
-
-    expect(byId.get(image)).toEqual([
-      expect.objectContaining({ path: path.join(picked, 'cat.png'), source: 'artifact' }),
-    ])
-    expect(byId.get(video)).toEqual([
-      expect.objectContaining({
-        path: path.join(workspace.hostPath, 'clip-thumb.png'),
-        source: 'video-thumbnail',
-      }),
-    ])
-    expect(byId.get(game)).toEqual([
-      expect.objectContaining({ path: path.join(created.dir, 'icon.png'), source: 'game-icon' }),
-    ])
-    expect(byId.get(audio)).toEqual([])
-  })
-
-  it('distinguishes "nothing is included" from "the included Sessions were quiet"', async () => {
-    await seedSession([historyEntry({})], { included: false })
-
-    const noneIncluded = await dataFrom(hostFor(), 'last-24h')
-    expect(noneIncluded.outcome).toBe('none-included')
-    expect(noneIncluded.includedSessions).toBe(0)
-    expect(noneIncluded.message).toMatch(/included in Overviews/i)
-
-    resetSessionsForTest()
-    await fs.rm(dirs.real, { recursive: true, force: true })
-    setSessionDeps({ isDemoMode: () => false })
-    await seedSession([historyEntry({ timestamp: NOW - 10 * DAY })])
-
-    const quiet = await dataFrom(hostFor(), 'last-24h')
-    expect(quiet.outcome).toBe('none-in-range')
-    expect(quiet.includedSessions).toBe(1)
-    expect(quiet.message).toMatch(/no turn/i)
-  })
-
-  it('answers a nonsense range as text, not a thrown error', async () => {
-    for (const range of ['since forever', { lastHours: 0 }, { lastHours: 1.5 }, { lastHours: 9000 }]) {
-      const result = await (
-        await overviewTool(hostFor())
-      ).execute('call-1', {
-        range,
-      })
-      expect(textOf(result)).toMatch(/range|date|hour/i)
-    }
-  })
-
-  it('refuses when the turn has no Session to exclude', async () => {
-    await seedSession([historyEntry({})])
-
-    const result = await (
-      await overviewTool(hostFor(null))
-    ).execute('call-1', {
-      range: 'last-24h',
+  it('leaves out the Session that asked and every Session not included', async () => {
+    const asking = await seedSession([historyEntry({})], { summary: 'Asking.' })
+    const included = await seedSession([historyEntry({ timestamp: NOW - HOUR })], {
+      summary: 'Included.',
+    })
+    await seedSession([historyEntry({ timestamp: NOW - 2 * HOUR })], {
+      included: false,
+      summary: 'Not included.',
     })
 
-    expect(textOf(result)).toMatch(/not attached to a Session/i)
+    const result = await call(hostFor({ sessionRef: asking }), { range: 'last-24h' })
+    const html = await htmlAt(result.path)
+
+    expect(html).toContain('Included.')
+    expect(html).not.toContain('Asking.')
+    expect(html).not.toContain('Not included.')
+    expect(included).toBeTruthy()
+  })
+
+  it('escapes Titles and summaries containing markup', async () => {
+    const id = await seedSession([historyEntry({})], {
+      summary: 'It shipped </p><script>alert(1)</script> the thing.',
+    })
+    await mutateSession(id, (file) => ({
+      ...file,
+      title: '<b>Bold</b> & "quoted"',
+      renamed: true,
+    }))
+
+    const result = await call(hostFor(), { range: 'last-24h' })
+    const html = await htmlAt(result.path)
+
+    expect(html).toContain('&lt;b&gt;Bold&lt;/b&gt; &amp; &quot;quoted&quot;')
+    expect(html).toContain('It shipped &lt;/p&gt;&lt;script&gt;alert(1)&lt;/script&gt; the thing.')
+    expect(html).not.toMatch(/<script/i)
+    expect(html).not.toContain('<b>Bold</b>')
+  })
+
+  it('replaces the same range and leaves a different range alone', async () => {
+    const dayOne = await seedSession(
+      [historyEntry({ timestamp: new Date(2026, 10, 22, 12).getTime() })],
+      {
+        summary: 'First summary.',
+      },
+    )
+    await seedSession([historyEntry({ timestamp: new Date(2026, 10, 23, 12).getTime() })], {
+      summary: 'Second day.',
+    })
+    const firstWindow = { from: '2026-11-22', to: '2026-11-23' }
+    const secondWindow = { from: '2026-11-23', to: '2026-11-24' }
+
+    const first = await call(hostFor(), firstWindow)
+    expect(await htmlAt(first.path)).toContain('First summary.')
+
+    await mutateSession(dayOne, (file) => ({
+      ...file,
+      overviewSummary: { state: 'ready', contractVersion: 1, text: 'Rewritten summary.' },
+    }))
+    const rewritten = await call(hostFor(), firstWindow)
+    expect(rewritten.path).toBe(first.path)
+    const rewrittenHtml = await htmlAt(first.path)
+    expect(rewrittenHtml).toContain('Rewritten summary.')
+    expect(rewrittenHtml).not.toContain('First summary.')
+
+    const second = await call(hostFor(), secondWindow)
+    expect(second.path).not.toBe(first.path)
+    expect(await htmlFiles()).toHaveLength(2)
+    expect(await htmlAt(first.path)).toBe(rewrittenHtml)
+  })
+
+  it('returns the preview URL only when that server is serving the Workspace', async () => {
+    await seedSession([historyEntry({})], { summary: 'A day.' })
+
+    preview.root = path.join(dirs.real, 'somewhere-else')
+    preview.base = 'http://127.0.0.1:4711/'
+    const elsewhere = await call(hostFor(), { range: 'last-24h' })
+    expect(elsewhere.written).toBe(true)
+    expect(elsewhere.url).toBeUndefined()
+
+    preview.root = path.join(dirs.real, 'workspace')
+    const served = await call(hostFor(), { range: 'last-24h' })
+    expect(served.url).toBe('http://127.0.0.1:4711/overview-2026-11-23_1530..2026-11-24_1530.html')
+  })
+
+  it('uses the reader’s locale for its chrome and label', async () => {
+    await seedSession([historyEntry({})], { summary: 'Ein Tag.' })
+    const chrome: OverviewChrome = {
+      locale: 'de',
+      strings: {
+        OVERVIEW_PAGE_TITLE: 'Aktive Sitzungen {from} bis {to}',
+        OVERVIEW_SUBTITLE: 'Jede Karte ist die eigene Beschreibung.',
+      },
+    }
+
+    const result = await call(hostFor({ overviewChrome: chrome }), { range: 'last-24h' })
+    const html = await htmlAt(result.path)
+
+    expect(html).toContain('<html lang="de">')
+    expect(html).toContain('<h1>Aktive Sitzungen 2026-11-23 15:30 bis 2026-11-24 15:30</h1>')
+    expect(String(result.windowLabel)).not.toMatch(/\d{2}:\d{2} (AM|PM)/)
+  })
+})
+
+describe('the empty outcomes', () => {
+  it('writes no file when no Session is included, and names the reason', async () => {
+    await seedSession([historyEntry({})], { included: false })
+
+    const result = await call(hostFor(), { range: 'last-24h' })
+
+    expect(result).toMatchObject({ written: false, outcome: 'none-included' })
+    expect(String(result.message)).toMatch(/included in Overviews/i)
+    expect(result.path).toBeUndefined()
+    expect(await htmlFiles()).toEqual([])
+  })
+
+  it('writes no file when included Sessions were quiet, and names the other reason', async () => {
+    await seedSession([historyEntry({ timestamp: NOW - 10 * DAY })])
+
+    const result = await call(hostFor(), { range: 'last-24h' })
+
+    expect(result).toMatchObject({ written: false, outcome: 'none-in-range' })
+    expect(String(result.message)).toMatch(/active/i)
+    expect(result.path).toBeUndefined()
+    expect(await htmlFiles()).toEqual([])
+  })
+})
+
+describe('the refusing cases', () => {
+  it('refuses a Trial Run with no Session to write into, and writes nothing', async () => {
+    await seedSession([historyEntry({})], { summary: 'A day.' })
+
+    const text = await callText(hostFor({ sessionRef: null }), { range: 'last-24h' })
+
+    expect(text).toMatch(/not attached to a Session/i)
+    expect(await htmlFiles()).toEqual([])
+  })
+
+  it('refuses when the chrome did not reach the turn instead of rendering a raw key', async () => {
+    await seedSession([historyEntry({})], { summary: 'A day.' })
+
+    const text = await callText(hostFor({ overviewChrome: null }), { range: 'last-24h' })
+
+    expect(text).toMatch(/Overview language/i)
+    expect(text).not.toContain('OVERVIEW_PAGE_TITLE')
+    expect(await htmlFiles()).toEqual([])
   })
 })

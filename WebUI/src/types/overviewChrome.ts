@@ -4,11 +4,7 @@ import { z } from 'zod'
 // Session data. The renderer resolves them from the app's locale files and ships
 // them with the agent turn, because main reads no translations.
 
-export const OVERVIEW_CHROME_KEYS = [
-  'OVERVIEW_PAGE_TITLE',
-  'OVERVIEW_SUBTITLE',
-  'OVERVIEW_REPORT_TRUNCATED',
-] as const
+export const OVERVIEW_CHROME_KEYS = ['OVERVIEW_PAGE_TITLE', 'OVERVIEW_SUBTITLE'] as const
 
 export type OverviewChromeKey = (typeof OVERVIEW_CHROME_KEYS)[number]
 

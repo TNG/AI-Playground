@@ -7,7 +7,7 @@ import type { AgentMediaDetails, AgentMediaItem } from '@/types/agentMediaDetail
 import { appLoggerInstance } from '../observability/logger.ts'
 import { emitAgentToolImage } from '../kernel/kernelBus.ts'
 import { typedSend } from '../kernel/typedIpc.ts'
-import { moveEntry, nextNumberedName } from '../persist/fileOps.ts'
+import { freeName, moveEntry, nextNumberedName } from '../persist/fileOps.ts'
 import { noteGeneratedMedia } from './generatedMedia.ts'
 import { recordJournalMedia, recordWorkspaceWrite } from './workspaceJournal.ts'
 import { sessionFolderMediaUrl } from '@/lib/comfyWorkflow'

@@ -107,12 +107,12 @@ export async function buildDelegatedMediaTool(
       // generation setting. The slim copy below is for the parent model's
       // context only; the transcript's items come from the full one.
       const saved = (await saveGeneratedMediaToWorkspace(
-        slimCondensedMedia(condensed),
+        condensed,
         workspaceDir,
         host.sessionMedia,
         host.sessionId,
-      )
-      return mediaToolResult(saved, condensed.steps)
+      )) as CondensedMediaAgentResult
+      return mediaToolResult(slimCondensedMedia(saved), condensed.steps, saved)
     },
   }) as ToolDefinition
 }

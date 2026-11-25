@@ -421,6 +421,10 @@ async function createSession(
     extensionFactories: [
       ...capabilities.extensionFactories,
       reclaimBeforeModelCall(sessionId),
+      ...(config.modelConfig.source === 'local' &&
+      (config.modelConfig.backend ?? 'llamaCPP') === 'llamaCPP'
+        ? [createOutputBudgetExtension(modelMaxTokens(config.modelConfig))]
+        : []),
       // Pi's agent path ignores `Model.samplingParams`, so the turn's sampling
       // is merged into each request here instead (piSampling.ts).
       createSamplingExtension(
@@ -429,10 +433,6 @@ async function createSession(
           ? () => llmServerMtpArmed('openVINO')
           : undefined,
       ),
-      ...(config.modelConfig.source === 'local' &&
-      (config.modelConfig.backend ?? 'llamaCPP') === 'llamaCPP'
-        ? [createOutputBudgetExtension(modelMaxTokens(config.modelConfig))]
-        : []),
     ],
     // Laminar's own Pi extension traces the run (one trace per agent run, LLM
     // and tool spans). Nothing when no developer opted into tracing, and never

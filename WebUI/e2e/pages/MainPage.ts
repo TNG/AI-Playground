@@ -26,7 +26,8 @@ export class MainPage {
 
   /** Visible only when idle; replaced by a Stop button while a turn is running. */
   get sendButton(): Locator {
-    return this.page.getByRole('button', { name: 'Send' })
+    // Exact: a turn that never ran leaves a "Resend" button on its message.
+    return this.page.getByRole('button', { name: 'Send', exact: true })
   }
 
   /**
@@ -41,6 +42,18 @@ export class MainPage {
     return this.page
       .getByRole('button', { name: 'Stop generating' })
       .or(this.page.getByRole('button', { name: 'Stopping' }))
+  }
+
+  /**
+   * Anything showing a turn is still running. While the inline model-download card
+   * (`ModelDownloadCard.vue`) is up the prompt bar hides Send and Stop alike, and the
+   * turn resumes by itself once the download lands — so the card counts as busy too.
+   */
+  get turnActivity(): Locator {
+    return this.busyButton
+      .or(this.page.getByRole('region', { name: 'Downloading models' }))
+      .filter({ visible: true })
+      .first()
   }
 
   /**
@@ -299,11 +312,12 @@ export class MainPage {
    * Deliberately NOT the accessible name: that is `oemBranding.presetLabel()`,
    * which prefixes the co-branded presets on Acer systems ("Acer Game Agent"), so
    * a test looking one up by name would find nothing on exactly the hardware the
-   * preset ships on. `data-aipg-preset-name` is the unbranded name. Only the open
-   * picker is mounted, so this stays unambiguous across modes.
+   * preset ships on. `data-aipg-preset-name` is the unbranded name. The Inferencing
+   * tab's preset card carries it too and stays mounted (hidden) behind the Viewport
+   * tab, so only the visible match is the picker's.
    */
   private presetCard(name: string): Locator {
-    return this.page.locator(`[data-aipg-preset-name="${name}"]`)
+    return this.page.locator(`[data-aipg-preset-name="${name}"]`).filter({ visible: true })
   }
 
   /**
@@ -400,11 +414,11 @@ export class MainPage {
    */
   async waitUntilIdle(timeout: number = MainPage.TEXT_TIMEOUT): Promise<void> {
     try {
-      await expect(this.busyButton).toBeVisible({ timeout: 20_000 })
+      await expect(this.turnActivity).toBeVisible({ timeout: 20_000 })
     } catch {
       // A very fast turn may finish before the busy state is observed.
     }
-    await expect(this.busyButton).toBeHidden({ timeout })
+    await expect(this.turnActivity).toBeHidden({ timeout })
     await expect(this.sendButton).toBeVisible({ timeout: 20_000 })
   }
 
@@ -415,15 +429,15 @@ export class MainPage {
    */
   async expectTurnStarted(): Promise<void> {
     try {
-      await expect(this.busyButton).toBeVisible({ timeout: 20_000 })
+      await expect(this.turnActivity).toBeVisible({ timeout: 20_000 })
     } catch {
       // A very fast turn may finish before the busy state is observed.
     }
   }
 
-  /** True while a turn is running (the busy/Stop control is present). */
+  /** True while a turn is running (see {@link turnActivity}). */
   async isBusy(): Promise<boolean> {
-    return this.busyButton.isVisible().catch(() => false)
+    return this.turnActivity.isVisible().catch(() => false)
   }
 
   /** Short pause between poll iterations. */

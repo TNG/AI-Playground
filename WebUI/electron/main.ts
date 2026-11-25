@@ -182,6 +182,7 @@ import {
   openArtifactRuns,
   openComponentHolds,
   openTextRequests,
+  prepareChatForSettlement,
   setOrchestratorDeps,
   submitArtifactRun,
 } from './kernel/orchestrator'
@@ -1603,6 +1604,7 @@ function wireArtifactRunner(settings: LocalSettings): void {
     getPlatform: () => process.platform,
     devPresetsEnabled: () => isDeveloperMode(),
     localPathOf: getLocalPathFromAipgMediaUrl,
+    prepareChatForSettlement,
   })
 
   // The orchestrator owns GPU policy (step 7): every run — panel, chat tool,

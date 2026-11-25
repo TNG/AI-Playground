@@ -206,9 +206,14 @@ function withLiveChatTurn(
   return [...merged, ...tagged.values()]
 }
 
-const OVERVIEW_UPDATE_TURN_KIND: Partial<Record<OverviewTurnUpdate['kind'], 'chat' | 'agent'>> = {
-  chat: 'chat',
-  agent: 'agent',
+type SettledTurnKind = 'chat' | 'agent' | 'media' | 'audio'
+
+/** Which History Entry kinds belong to a turn kind, so a media or audio turn finds its own row. */
+const OVERVIEW_UPDATE_TURN_KINDS: Record<SettledTurnKind, readonly OverviewTurnUpdate['kind'][]> = {
+  chat: ['chat'],
+  agent: ['agent'],
+  media: ['image', 'edit', 'video'],
+  audio: ['tts', 'stt'],
 }
 
 function normalizedPrompt(text: string): string {
@@ -225,17 +230,24 @@ function attachOverviewUpdates(turns: TimelineTurn[], rows: readonly OverviewTur
   if (rows.length === 0) return
   const remaining = rows.map((row) => ({ row, used: false }))
   for (const turn of turns) {
-    if (turn.kind !== 'chat' && turn.kind !== 'agent') continue
-    const kind = turn.kind
+    if (
+      turn.kind !== 'chat' &&
+      turn.kind !== 'agent' &&
+      turn.kind !== 'media' &&
+      turn.kind !== 'audio'
+    ) {
+      continue
+    }
+    const kinds = OVERVIEW_UPDATE_TURN_KINDS[turn.kind]
     const prompt = normalizedPrompt(turn.prompt?.text ?? '')
     const harness = turn.kind === 'agent' ? turn.harnessSessionId : undefined
     const fits = (row: OverviewTurnUpdate) =>
-      OVERVIEW_UPDATE_TURN_KIND[row.kind] === kind &&
+      kinds.includes(row.kind) &&
       (!harness || !row.harnessSessionId || row.harnessSessionId === harness)
     let index = remaining.findIndex(
       (entry) => !entry.used && fits(entry.row) && normalizedPrompt(entry.row.prompt) === prompt,
     )
-    if (index < 0 && kind === 'agent') {
+    if (index < 0 && turn.kind === 'agent') {
       index = remaining.findIndex((entry) => !entry.used && fits(entry.row))
     }
     if (index < 0) continue

@@ -104,6 +104,11 @@ export type OverviewSummaryCompleteInput = {
   /** True for the answer that is stored; false for an intermediate chunk read. */
   final: boolean
   sessionId: string
+  /**
+   * The caller already holds the Turn Queue's place (a panel media run settling),
+   * so the runner loads the model instead of taking a second place.
+   */
+  admitted?: boolean
 }
 
 export type OverviewSummaryComplete = (
@@ -349,6 +354,7 @@ async function performUpdate(
   sessionId: string,
   request: OverviewSummaryRequest,
   run: ActiveRun,
+  admitted: boolean,
 ): Promise<UpdateRunResult | null> {
   const model = localModelOf(request)
   if (!model) return null
@@ -412,6 +418,7 @@ async function performUpdate(
       signal: run.controller.signal,
       final: pass.final,
       sessionId,
+      ...(admitted ? { admitted } : {}),
     })
     if (!isCurrentRun(sessionId, run.token) || run.controller.signal.aborted) return null
     if (completion.tokens !== undefined) tokens = (tokens ?? 0) + completion.tokens
@@ -474,7 +481,7 @@ async function failUpdate(
 function startUpdate(sessionId: string, request: OverviewSummaryRequest): void {
   if (!localModelOf(request)) return
   const run = beginRun(sessionId)
-  void performUpdate(sessionId, request, run)
+  void performUpdate(sessionId, request, run, false)
     .catch((error: unknown) => {
       if (run.controller.signal.aborted) return null
       return failUpdate(sessionId, run.token, error, request.language)
@@ -502,6 +509,7 @@ export async function updateOverviewSummaryForTurn(
   sessionId: string,
   request: OverviewSummaryRequest,
   external?: AbortSignal,
+  options: { admitted?: boolean } = {},
 ): Promise<OverviewSummaryUpdateOutcome | null> {
   const startedAt = Date.now()
   const file = await readSession(sessionId).catch(() => null)
@@ -518,7 +526,7 @@ export async function updateOverviewSummaryForTurn(
   external?.addEventListener('abort', onAbort, { once: true })
   if (external?.aborted) run.controller.abort()
   try {
-    const result = await performUpdate(sessionId, request, run)
+    const result = await performUpdate(sessionId, request, run, options.admitted === true)
     if (!result) return null
     return {
       state: 'ready',

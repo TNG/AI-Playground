@@ -40,11 +40,12 @@ vi.mock('../../persist/mediaItemFiles.ts', () => ({
 }))
 
 const { recordMediaTurn } = vi.hoisted(() => ({
-  recordMediaTurn: vi.fn(async (turn: { sessionId: string; items: unknown[] }) =>
-    (turn.items as { id: string }[]).map((item) => ({
-      ...item,
-      imageUrl: `aipg-media://sessions/${turn.sessionId}/files/${item.id}.png`,
-    })),
+  recordMediaTurn: vi.fn(
+    async (turn: { sessionId: string; items: unknown[] }, _settlement?: unknown) =>
+      (turn.items as { id: string }[]).map((item) => ({
+        ...item,
+        imageUrl: `aipg-media://sessions/${turn.sessionId}/files/${item.id}.png`,
+      })),
   ),
 }))
 
@@ -142,6 +143,7 @@ function deps(overrides: Partial<Parameters<typeof setArtifactRunnerDeps>[0]> = 
     readMediaAsDataUri: vi.fn(async () => null),
     getPlatform: () => 'darwin' as NodeJS.Platform,
     devPresetsEnabled: () => false,
+    prepareChatForSettlement: vi.fn(async () => {}),
     ...overrides,
   }
 }
@@ -211,6 +213,17 @@ function phases(): string[] {
   return kernelEvents
     .filter((event) => event.type === 'artifact-phase')
     .map((event) => String(event.phase ?? ''))
+}
+
+function deferred(): { promise: Promise<void>; resolve: (value?: unknown) => void } {
+  let resolve!: (value?: unknown) => void
+  const promise = new Promise<void>((done) => {
+    resolve = (value) => {
+      void value
+      done()
+    }
+  })
+  return { promise, resolve }
 }
 
 describe('artifact runner', () => {
@@ -345,6 +358,61 @@ describe('artifact runner', () => {
     )
     expect(movedEvent).toBeGreaterThan(-1)
     expect(movedEvent).toBeLessThan(done)
+  })
+
+  it('hands the GPU back to chat before settling a panel run with a summariser', async () => {
+    const release = vi.fn(async () => {})
+    const settlementHold = deferred()
+    recordMediaTurn.mockImplementationOnce(async () => {
+      await settlementHold.promise
+      return []
+    })
+    const depsUnderTest = deps({ prepareChatForSettlement: release })
+    setArtifactRunnerDeps(depsUnderTest)
+    const request = payload({
+      sessionId: 'session-1',
+      params: { ...payload().params, batchSize: 1 },
+    })
+    const summariser = {
+      readiness: { serviceName: 'llamacpp-backend', llmModelName: 'qwen-test' },
+      replyLanguage: 'de',
+    }
+    const run = submitArtifactRun({
+      ...request,
+      items: itemsFor(request),
+      origin: 'renderer',
+      summariser,
+    } as ArtifactRunPayload)
+
+    await vi.waitFor(() => expect(submittedPrompts).toHaveLength(1))
+    socketHandlers!.onJson({
+      type: 'executed',
+      data: {
+        node: '2',
+        output: { images: [{ filename: 'out0.png', subfolder: '', type: 'output' }] },
+      },
+    })
+
+    await vi.waitFor(() => expect(recordMediaTurn).toHaveBeenCalledTimes(1))
+    // The settlement is not done, so the run is not done: the update runs first.
+    let settled = false
+    void run.then(() => {
+      settled = true
+    })
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    expect(settled).toBe(false)
+    const settlementOptions = recordMediaTurn.mock.calls[0][1] as {
+      summariser: unknown
+      beforeSummary: () => Promise<void>
+    }
+    expect(settlementOptions.summariser).toEqual(summariser)
+    // The settlement receives the GPU handoff; settleTurn runs it before the update's call.
+    await settlementOptions.beforeSummary()
+    expect(depsUnderTest.prepareChatForSettlement).toHaveBeenCalledTimes(1)
+
+    settlementHold.resolve({})
+    await run
+    expect(settled).toBe(true)
   })
 
   it('records a failed panel run in its Session too', async () => {

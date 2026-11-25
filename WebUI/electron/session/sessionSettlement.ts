@@ -7,6 +7,7 @@ import type {
   HistoryEntry,
   OverviewSummaryUpdate,
   OverviewSummaryRequest,
+  TurnSummariser,
 } from '@/types/sessionIpc'
 import type { ChatModelConfig } from '@/types/chatIpc'
 
@@ -17,15 +18,22 @@ const LOG_SCOPE = 'sessions'
  * model the renderer resolved and the Session's frozen reply language. A cloud
  * turn carries none, because a summary is never written by a cloud model.
  */
-export type SummariserDescriptor = {
-  readiness?: NonNullable<ChatModelConfig['readiness']>
-  replyLanguage: string
-}
+export type SummariserDescriptor = TurnSummariser
 
 export type TurnSettlement = {
   /** Absent for a turn with no local model to write an Overview Summary with. */
   summariser?: SummariserDescriptor
   abortSignal?: AbortSignal
+  /**
+   * Runs after the turn is recorded but before the update's model call: a panel
+   * media run hands the GPU back to chat here. Failure is logged, never thrown.
+   */
+  beforeSummary?: () => Promise<void>
+  /**
+   * The caller already admitted this work and holds the Turn Queue's place (a
+   * panel media run), so the update loads the model but takes no second place.
+   */
+  summariserAdmitted?: boolean
 }
 
 const BACKEND_OF_SERVICE: Record<string, ChatModelConfig['backend']> = {
@@ -122,14 +130,22 @@ export async function settleTurn(
     return rewriteOutcome(sessionId, written, { state: 'skipped' })
   }
 
+  const request = summaryRequestOf(options.summariser)
+  if (request && options.beforeSummary) {
+    try {
+      await options.beforeSummary()
+    } catch (error) {
+      appLoggerInstance.warn(`could not hand the GPU back before summarising: ${error}`, LOG_SCOPE)
+    }
+  }
+
   let outcome: Awaited<ReturnType<typeof updateOverviewSummaryForTurn>> = null
   try {
     outcome = await updateOverviewSummaryForTurn(
       sessionId,
-      summaryRequestOf(options.summariser) ?? {
-        language: options.summariser?.replyLanguage ?? 'en-US',
-      },
+      request ?? { language: options.summariser?.replyLanguage ?? 'en-US' },
       options.abortSignal,
+      { admitted: options.summariserAdmitted },
     )
   } catch (error) {
     appLoggerInstance.warn(`Overview Summary update did not settle the turn: ${error}`, LOG_SCOPE)

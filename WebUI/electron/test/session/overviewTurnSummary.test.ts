@@ -376,4 +376,57 @@ describe('the turn details data', () => {
     })
     expect(timeline.some((message) => 'overviewUpdate' in message)).toBe(false)
   })
+
+  it('gives a media turn and an audio turn their own update row', () => {
+    const timeline = [
+      { id: 'u1', role: 'user', parts: [{ type: 'text', text: 'a red fox' }] },
+      {
+        id: 'a1',
+        role: 'assistant',
+        parts: [
+          {
+            type: 'data-media',
+            data: {
+              runId: 'run-1',
+              mode: 'imageGen',
+              preset: 'Draft Image',
+              status: 'completed',
+              items: [],
+            },
+          },
+        ],
+      },
+      { id: 'u2', role: 'user', parts: [{ type: 'text', text: 'Hello there' }] },
+      {
+        id: 'a2',
+        role: 'assistant',
+        parts: [
+          {
+            type: 'data-audio',
+            data: { kind: 'tts', preset: 'Text to Speech', status: 'completed' },
+          },
+        ],
+      },
+    ]
+    const rows: OverviewTurnUpdate[] = [
+      {
+        entryId: 'entry-1',
+        kind: 'image',
+        prompt: 'a red fox',
+        update: { state: 'ready', text: 'A picture.', coveredEntryId: 'entry-1' },
+      },
+      {
+        entryId: 'entry-2',
+        kind: 'tts',
+        prompt: 'Hello there',
+        update: { state: 'ready', text: 'A clip.', coveredEntryId: 'entry-2' },
+      },
+    ]
+
+    const items = sessionTimelineItems(timeline, {} as never, {}, rows)
+    const media = items.find((item) => item.kind === 'media')
+    const audio = items.find((item) => item.kind === 'audio')
+    expect(media?.details.parts).toContainEqual({ kind: 'overview-update', update: rows[0].update })
+    expect(audio?.details.parts).toContainEqual({ kind: 'overview-update', update: rows[1].update })
+  })
 })

@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
+import type { AudioTurnRequest } from '@/types/sessionIpc'
 
 // The audio turn driver against the real Session module in a temp dir; only the
 // speech engines are faked.
@@ -14,6 +15,10 @@ const speech = vi.hoisted(() => ({
   readyTranscriptionForInput: vi.fn(),
 }))
 const activePreset = vi.hoisted(() => ({ name: 'Text to Speech' }))
+const turnSummariser = vi.hoisted(() => ({
+  readiness: { serviceName: 'llamacpp-backend', llmModelName: 'qwen-test' },
+  replyLanguage: 'en-US',
+}))
 
 vi.mock('../../persist/userDataPaths.ts', () => ({
   getSessionsDir: () => dirs.real,
@@ -40,6 +45,7 @@ vi.mock('@/assets/js/toast', () => ({
 }))
 
 vi.mock('@/assets/js/speech/speechIO', () => speech)
+vi.mock('@/lib/turnSummariser', () => ({ turnSummariser: () => turnSummariser }))
 
 vi.mock('@/assets/js/store/i18n', () => ({
   useI18N: () => ({ langName: 'en-US', state: {} }),
@@ -166,6 +172,28 @@ describe('Text-to-Speech in a Session', () => {
     expect(new Uint8Array(await fs.readFile(saved))).toEqual(WAV_BYTES)
     expect(sessions.openTimeline).toHaveLength(2)
     expect(sessions.openSession?.title).toBe('Read this aloud')
+  })
+
+  it('ships the renderer-resolved summariser with the turn', async () => {
+    await openSession()
+    speech.synthesizeClip.mockResolvedValue({
+      audioBase64: Buffer.from(WAV_BYTES).toString('base64'),
+      mediaType: 'audio/wav',
+      voice: 'af_heart',
+      engine: 'kokoro',
+    })
+    const recorded: AudioTurnRequest[] = []
+    const record = window.electronAPI.sessions.recordAudioTurn
+    window.electronAPI.sessions.recordAudioTurn = vi.fn(
+      async (request: Parameters<typeof record>[0]) => {
+        recorded.push(request)
+        return record(request)
+      },
+    )
+
+    await useSessionAudio().synthesize('Read this aloud')
+
+    expect(recorded[0]?.summariser).toEqual(turnSummariser)
   })
 
   it('records a failed synthesis as a failed turn', async () => {

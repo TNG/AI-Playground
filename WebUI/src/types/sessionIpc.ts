@@ -135,6 +135,17 @@ export const OverviewSummaryRequestSchema = z.object({
 })
 export type OverviewSummaryRequest = z.infer<typeof OverviewSummaryRequestSchema>
 
+/**
+ * What a media or audio turn ships so main never guesses a summariser: the
+ * Assistant preset's local model readiness (absent for a cloud setup) and the
+ * Session's reply language.
+ */
+export const TurnSummariserSchema = z.object({
+  readiness: ChatModelConfigSchema.shape.readiness,
+  replyLanguage: z.string().min(1),
+})
+export type TurnSummariser = z.infer<typeof TurnSummariserSchema>
+
 export const SessionFileSchema = z.object({
   schemaVersion: z.literal(1),
   id: z.string(),
@@ -321,6 +332,8 @@ export const AudioTurnRequestSchema = z.object({
   engine: z.string().optional(),
   /** TTS: the synthesized clip; STT: the source audio. */
   audio: z.object({ base64: z.string().min(1), fileName: z.string().min(1) }).optional(),
+  /** The renderer-resolved local model and reply language for the Overview Summary update. */
+  summariser: TurnSummariserSchema.optional(),
 })
 
 export type AudioTurnRequest = z.infer<typeof AudioTurnRequestSchema>

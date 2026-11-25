@@ -3,7 +3,7 @@ import { appLoggerInstance } from '../observability/logger'
 import { emitSessionChanged } from '../kernel/kernelBus'
 import { followSessionTitle } from './appWorkspace'
 import { moveGeneratedIntoWorkspace, type WorkspaceFile } from './sessionWorkspace'
-import { settleTurn } from './sessionSettlement'
+import { settleTurn, type TurnSettlement } from './sessionSettlement'
 import { mutateSession, sessionDocumentOf } from './sessions'
 import { afterTurn, type TitleSource } from './sessionTitle'
 import type { MediaItem } from '@/types/mediaItem'
@@ -87,20 +87,31 @@ async function adoptItem(turn: MediaTurn, item: MediaItem): Promise<AdoptedItem>
   }
 }
 
-/** Settles a panel run into its Session; returns its items as moved into `files/`. */
-export async function recordMediaTurn(turn: MediaTurn): Promise<MediaItem[]> {
+/**
+ * Settles a panel run into its Session; returns its items as moved into `files/`.
+ * A panel run carries the renderer-resolved summariser and the GPU handoff its
+ * Overview Summary update needs (the run still holds the Turn Queue's place).
+ */
+export async function recordMediaTurn(
+  turn: MediaTurn,
+  settlement: Pick<TurnSettlement, 'summariser' | 'beforeSummary'> = {},
+): Promise<MediaItem[]> {
   const adopted: AdoptedItem[] = []
   for (const item of turn.items) adopted.push(await adoptItem(turn, item))
   const items = adopted.map(({ item }) => item)
 
-  await settleTurn(turn.sessionId, {
-    preset: turn.preset,
-    variant: turn.variant,
-    kind: KIND_OF_MODE[turn.mode],
-    prompt: turn.prompt,
-    status: turn.status,
-    artifacts: adopted.flatMap(({ artifact }) => (artifact ? [artifact] : [])),
-  })
+  await settleTurn(
+    turn.sessionId,
+    {
+      preset: turn.preset,
+      variant: turn.variant,
+      kind: KIND_OF_MODE[turn.mode],
+      prompt: turn.prompt,
+      status: turn.status,
+      artifacts: adopted.flatMap(({ artifact }) => (artifact ? [artifact] : [])),
+    },
+    { ...settlement, summariserAdmitted: true },
+  )
 
   const now = Date.now()
   const messages: TimelineMessage[] = [

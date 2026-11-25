@@ -16,22 +16,26 @@ import {
 export async function runOverviewSummaryCompletion(
   input: OverviewSummaryCompleteInput,
 ): Promise<OverviewSummaryCompletion> {
-  const { model, prompt, signal, sessionId, final } = input
+  const { model, prompt, signal, sessionId, final, admitted } = input
   if (model.backend === 'cloud' || !model.readiness?.llmModelName) {
     throw new Error('An Overview Summary must be written by a local model')
   }
   const runId = `overview-summary-${randomUUID()}`
   const conversationKey = `overview-summary:${sessionId}`
-  await submitTextRequest(
-    {
-      runId,
-      conversationKey,
-      needsGpu: true,
-      joinsTurnQueue: true,
-      work: 'summary',
-    },
-    signal,
-  )
+  // A panel media run settled while still holding the Turn Queue's place; it
+  // enters its own admission here instead of taking a second place.
+  if (!admitted) {
+    await submitTextRequest(
+      {
+        runId,
+        conversationKey,
+        needsGpu: true,
+        joinsTurnQueue: true,
+        work: 'summary',
+      },
+      signal,
+    )
+  }
   try {
     await ensureChatBackendReady(model.readiness, {
       skipGpuAdmission: true,
@@ -53,6 +57,6 @@ export async function runOverviewSummaryCompletion(
       ...(tokens !== undefined ? { tokens } : {}),
     }
   } finally {
-    finishTextRequest(runId)
+    if (!admitted) finishTextRequest(runId)
   }
 }

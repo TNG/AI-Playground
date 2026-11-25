@@ -12,6 +12,7 @@ import { imageUrlToDataUri } from '@/lib/utils'
 import { cloneForIpc } from '@/lib/cloneForIpc'
 import { presetToMode } from '@/lib/presetModes'
 import { FALLBACK_PARAMS, presetDefault, presetDefaultResolution } from '@/lib/comfyParamDefaults'
+import { turnSummariser } from '@/lib/turnSummariser'
 
 /**
  * Renderer-side Artifact capability: one fully-resolved request in, one settled
@@ -320,6 +321,9 @@ export async function runArtifact(
         // The tool activity's id lets queue events relabel it while parked.
         activityId: typeof ctx.parentActivityId === 'string' ? ctx.parentActivityId : undefined,
         sessionId: ctx.sessionId,
+        // A panel run has no text model of its own; the Session's summary update needs
+        // the Assistant preset's local model resolved here, where the stores are.
+        ...(ctx.sessionId ? { summariser: turnSummariser() } : {}),
       }),
       ctx.queueMode ? { queue: ctx.queueMode } : undefined,
     )

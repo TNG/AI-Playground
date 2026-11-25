@@ -32,14 +32,18 @@ function saveIntoFiles(
 export async function recordAudioTurn(turn: AudioTurnRequest): Promise<SessionDocument> {
   const saved = turn.audio ? await saveIntoFiles(turn.sessionId, turn.audio) : undefined
 
-  await settleTurn(turn.sessionId, {
-    preset: turn.preset,
-    kind: turn.kind,
-    prompt: turn.prompt,
-    status: turn.status,
-    response: turn.transcript,
-    artifacts: saved ? [{ ...saved.artifact, mediaType: 'audio' }] : [],
-  })
+  await settleTurn(
+    turn.sessionId,
+    {
+      preset: turn.preset,
+      kind: turn.kind,
+      prompt: turn.prompt,
+      status: turn.status,
+      response: turn.transcript,
+      artifacts: saved ? [{ ...saved.artifact, mediaType: 'audio' }] : [],
+    },
+    { summariser: turn.summariser },
+  )
 
   const now = Date.now()
   const messages: TimelineMessage[] = [

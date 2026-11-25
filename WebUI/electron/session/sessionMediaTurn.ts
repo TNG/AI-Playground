@@ -3,7 +3,7 @@ import { appLoggerInstance } from '../observability/logger'
 import { emitSessionChanged } from '../kernel/kernelBus'
 import { followSessionTitle } from './appWorkspace'
 import { moveGeneratedIntoWorkspace, type WorkspaceFile } from './sessionWorkspace'
-import { appendHistoryEntry } from './sessionHistory'
+import { settleTurn } from './sessionSettlement'
 import { mutateSession, sessionDocumentOf } from './sessions'
 import { afterTurn, type TitleSource } from './sessionTitle'
 import type { MediaItem } from '@/types/mediaItem'
@@ -93,7 +93,7 @@ export async function recordMediaTurn(turn: MediaTurn): Promise<MediaItem[]> {
   for (const item of turn.items) adopted.push(await adoptItem(turn, item))
   const items = adopted.map(({ item }) => item)
 
-  await appendHistoryEntry(turn.sessionId, {
+  await settleTurn(turn.sessionId, {
     preset: turn.preset,
     variant: turn.variant,
     kind: KIND_OF_MODE[turn.mode],

@@ -1,6 +1,7 @@
 import { appLoggerInstance } from '../observability/logger'
 import { emitSessionChanged } from '../kernel/kernelBus'
-import { appendHistoryEntry, readHistoryEntries, removeHistoryEntry } from './sessionHistory'
+import { readHistoryEntries, removeHistoryEntry } from './sessionHistory'
+import { settleTurn } from './sessionSettlement'
 import path from 'node:path'
 import { adoptMediaFile } from './sessionMediaTurn'
 import { copyIntoWorkspace } from './sessionWorkspace'
@@ -218,7 +219,7 @@ export function trackChatTurnInSession(
   }): Promise<void> {
     try {
       if (trigger === 'regenerate-message') await forgetReplacedAttempt(turn.prompt)
-      await appendHistoryEntry(sessionId, {
+      await settleTurn(sessionId, {
         preset: turn.preset,
         variant: turn.variant,
         kind: 'chat',

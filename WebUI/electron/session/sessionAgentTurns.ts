@@ -5,7 +5,7 @@ import { onGeneratedMedia } from '../agent/generatedMedia'
 import type { AgentTurnEnd } from '../agent/agentTurnOutcome'
 import { artifactReferenceOf } from './historyArtifacts'
 import { readSessionFolders } from './sessionFolders'
-import { appendHistoryEntry } from './sessionHistory'
+import { settleTurn } from './sessionSettlement'
 import { mutateSession, sessionDocumentOf } from './sessions'
 import { afterTurn } from './sessionTitle'
 import type { AgentFollowUpTag } from '@/types/agentSessionIpc'
@@ -81,7 +81,7 @@ export function trackAgentTurnInSession(turn: AgentTurnInSession): {
       stop()
       try {
         const artifacts = await artifactsOf(turn.sessionRef, files)
-        await appendHistoryEntry(turn.sessionRef, {
+        await settleTurn(turn.sessionRef, {
           preset: turn.presetName,
           kind: 'agent',
           prompt,

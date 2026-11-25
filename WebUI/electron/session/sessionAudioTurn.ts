@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 import { writeIntoWorkspace, type WorkspaceFile } from './sessionWorkspace'
-import { appendHistoryEntry } from './sessionHistory'
+import { settleTurn } from './sessionSettlement'
 import { appendTurnToTimeline } from './sessionMediaTurn'
 import type { AudioTurnRequest, SessionDocument } from '@/types/sessionIpc'
 import type { TimelineMessage } from '@/types/sessionTimeline'
@@ -32,7 +32,7 @@ function saveIntoFiles(
 export async function recordAudioTurn(turn: AudioTurnRequest): Promise<SessionDocument> {
   const saved = turn.audio ? await saveIntoFiles(turn.sessionId, turn.audio) : undefined
 
-  await appendHistoryEntry(turn.sessionId, {
+  await settleTurn(turn.sessionId, {
     preset: turn.preset,
     kind: turn.kind,
     prompt: turn.prompt,

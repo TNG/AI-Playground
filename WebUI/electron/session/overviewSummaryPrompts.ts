@@ -15,7 +15,8 @@ const TITLE_FALLBACK = 'Untitled Session'
 const SUMMARY_RULES =
   `Write two to four sentences, at most ${OVERVIEW_SUMMARY_MAX_CHARS} characters, saying what ` +
   'this Session is about and what it has done. Include failures and results. Never list turns ' +
-  'or transcribe the transcript.'
+  'or transcribe the transcript. You do not have to describe the work in order; if you do, use ' +
+  'only an order the entries establish, and never claim an event happened first when it did not.'
 
 const CHUNK_INSTRUCTION =
   'You are reading part of one Session of a desktop AI app. Summarise the work in these ' +
@@ -28,14 +29,16 @@ const COMBINE_INSTRUCTION =
   `${SUMMARY_RULES}\n`
 
 const INCREMENTAL_INSTRUCTION =
-  'You update the Overview Summary of one Session of a desktop AI app: rewrite the current ' +
+  'You update the Overview Summary of one Session of a desktop AI app: rewrite the earlier ' +
   'account so it also covers the History Entries listed after it, and still describes the ' +
-  'whole Session.\n' +
+  'whole Session. The earlier account is the older work; the entries below happened after it, ' +
+  'oldest first. Do not reverse them.\n' +
   `${SUMMARY_RULES}\n`
 
 const COMBINE_INCREMENTAL_INSTRUCTION =
   'You update the Overview Summary of one Session of a desktop AI app from the summaries of ' +
-  'the History Entries the current account did not cover.\n' +
+  'the History Entries the earlier account did not cover. The earlier account is older; those ' +
+  'entries happened after it, oldest first. Do not reverse them.\n' +
   `${SUMMARY_RULES}\n`
 
 const SINGLE_INSTRUCTION =
@@ -191,13 +194,13 @@ export function incrementalOverviewSummaryPrompts(
   const total = blocks.reduce((sum, block) => sum + estimateTokens(block) + 1, 0)
   const header =
     `Session title: ${title}\nReply language: ${language}\n\n` +
-    `Current account:\n${previousText}\n`
+    `Earlier account (older than every entry below):\n${previousText}\n`
   if (total <= OVERVIEW_SUMMARY_CHUNK_TOKENS) {
     return [
       {
         prompt:
-          `${INCREMENTAL_INSTRUCTION}${header}\nHistory Entries the account does not cover ` +
-          `(oldest first):\n${blocks.join('\n')}` +
+          `${INCREMENTAL_INSTRUCTION}${header}\nNewer History Entries (oldest first, after ` +
+          `everything in the earlier account):\n${blocks.join('\n')}` +
           (candidate ? candidateText(candidate) : '') +
           FORMAT_INSTRUCTION,
         final: true,

@@ -137,7 +137,7 @@ describe('a settled text turn updates its summary', () => {
     })
 
     expect(calls).toHaveLength(1)
-    expect(calls[0].prompt).toContain('Current account')
+    expect(calls[0].prompt).toContain('Earlier account')
     expect(calls[0].prompt).toContain('A short account of the Session.')
     expect(calls[0].prompt).toContain('fixed the last bug')
     expect(calls[0].prompt).not.toContain('set up the project')
@@ -218,7 +218,7 @@ describe('a settled text turn updates its summary', () => {
     })
 
     expect(calls[0].model.modelId).toBe('other-model')
-    expect(calls[0].prompt).toContain('Current account')
+    expect(calls[0].prompt).toContain('Earlier account')
     expect(written?.overviewUpdate?.model).toBe('other-model')
     expect((await openSession(sessionId)).overviewSummary?.model).toBe('other-model')
   })
@@ -237,7 +237,11 @@ describe('rebuilds', () => {
       await settleTurn(sessionId, entry({ prompt: `turn ${index}` }), { summariser: DESCRIPTOR })
     }
 
-    expect(prompts.every((prompt) => prompt.includes('Current account'))).toBe(true)
+    expect(prompts.every((prompt) => prompt.includes('Earlier account'))).toBe(true)
+    expect(prompts.every((prompt) => prompt.includes('Newer History Entries'))).toBe(true)
+    expect(prompts.every((prompt) => prompt.includes('never claim an event happened first'))).toBe(
+      true,
+    )
   })
 
   it('rebuilds when the covered entry no longer exists', async () => {
@@ -246,7 +250,7 @@ describe('rebuilds', () => {
 
     await settleTurn(sessionId, entry({ prompt: 'a red fox' }), { summariser: DESCRIPTOR })
 
-    expect(calls[0].prompt).not.toContain('Current account')
+    expect(calls[0].prompt).not.toContain('Earlier account')
     expect(calls[0].prompt).toContain('a red fox')
   })
 
@@ -262,7 +266,7 @@ describe('rebuilds', () => {
 
     await settleTurn(sessionId, entry({ prompt: 'a red fox' }), { summariser: DESCRIPTOR })
 
-    expect(calls[0].prompt).not.toContain('Current account')
+    expect(calls[0].prompt).not.toContain('Earlier account')
     expect(calls[0].prompt).toContain('set up the project')
   })
 })

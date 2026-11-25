@@ -148,7 +148,7 @@ describe('retrying a failed update', () => {
     })
     expect(retried?.response).toBe('The answer that must survive.')
     expect(calls).toHaveLength(1)
-    expect(calls[0].prompt).toContain('Current account')
+    expect(calls[0].prompt).toContain('Earlier account')
     expect(calls[0].prompt).toContain('a red fox')
   })
 

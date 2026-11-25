@@ -97,13 +97,13 @@ describe('overview HTML renderer', () => {
     expect(html).not.toContain('By day')
   })
 
-  it('places the Session icon beside its Title and keeps the page subtitle', () => {
+  it('places the Session icon beside its Title and has no subtitle', () => {
     const html = renderOverviewHtml(documentOf([section({ title: 'Art', icon: '🎨' })]), english)
 
     expect(html).toContain(
       '<p class="title"><span class="icon" aria-hidden="true">🎨</span>Art</p>',
     )
-    expect(html).toContain('<p class="subtitle">')
+    expect(html).not.toContain('class="subtitle"')
   })
 
   it('heads the page "Sessions active …" and states the window in the document title', () => {

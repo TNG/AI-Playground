@@ -163,7 +163,6 @@
   "SESSIONS_IN_OVERVIEWS_PENDING": "正在根据历史记录条目撰写此会话的 Overview 摘要…",
   "SESSIONS_IN_OVERVIEWS_FAILED": "无法撰写 Overview 摘要。点击以关闭；摘要会保留。",
   "OVERVIEW_PAGE_TITLE": "{from} 至 {to} 期间活跃的会话",
-  "OVERVIEW_SUBTITLE": "每张卡片都是该会话对自身工作的叙述，而不是这段时间的报告。",
   "OVERVIEW_OMITTED_NOTE": "已省略，尚无可用的概览摘要：{sessions}",
   "OVERVIEW_BEHIND_NOTE": "摘要落后于最新一轮：{sessions}",
   "SESSIONS_SCHEDULE_PAUSED": "此会话中的智能体有一个已暂停的计划",

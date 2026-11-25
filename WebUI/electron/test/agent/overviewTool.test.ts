@@ -69,8 +69,6 @@ const CHROME: OverviewChrome = {
   locale: 'en-US',
   strings: {
     OVERVIEW_PAGE_TITLE: 'Sessions active {from} to {to}',
-    OVERVIEW_SUBTITLE:
-      "Each card is the Session's own account of its work, not a report of this window.",
     OVERVIEW_OMITTED_NOTE: 'Omitted: {sessions}',
     OVERVIEW_BEHIND_NOTE: 'Behind: {sessions}',
   },
@@ -403,7 +401,6 @@ describe('the page', () => {
       locale: 'de',
       strings: {
         OVERVIEW_PAGE_TITLE: 'Aktive Sitzungen {from} bis {to}',
-        OVERVIEW_SUBTITLE: 'Jede Karte ist die eigene Beschreibung.',
         OVERVIEW_OMITTED_NOTE: 'Ausgelassen: {sessions}',
         OVERVIEW_BEHIND_NOTE: 'Zurück: {sessions}',
       },

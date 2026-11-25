@@ -163,7 +163,6 @@
   "SESSIONS_IN_OVERVIEWS_PENDING": "Bu oturumun Overview Özeti Geçmiş Girdilerinden yazılıyor…",
   "SESSIONS_IN_OVERVIEWS_FAILED": "Overview Özeti yazılamadı. Kapatmak için tıklayın; özet kalır.",
   "OVERVIEW_PAGE_TITLE": "{from} – {to} arasında etkin oturumlar",
-  "OVERVIEW_SUBTITLE": "Her kart, o oturumun kendi çalışmasına dair kendi anlatımıdır; bu aralığın raporu değildir.",
   "OVERVIEW_OMITTED_NOTE": "Atlandı, henüz kullanılabilir bir özet yok: {sessions}",
   "OVERVIEW_BEHIND_NOTE": "Özet en yeni turun gerisinde: {sessions}",
   "SESSIONS_SCHEDULE_PAUSED": "Bu oturumdaki bir ajanın zamanlaması duraklatıldı",

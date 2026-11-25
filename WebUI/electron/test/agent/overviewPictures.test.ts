@@ -86,7 +86,6 @@ const CHROME: OverviewChrome = {
   locale: 'en-US',
   strings: {
     OVERVIEW_PAGE_TITLE: 'Sessions active {from} to {to}',
-    OVERVIEW_SUBTITLE: 'Each card is the Session’s own account.',
     OVERVIEW_OMITTED_NOTE: 'Omitted: {sessions}',
     OVERVIEW_BEHIND_NOTE: 'Behind: {sessions}',
   },

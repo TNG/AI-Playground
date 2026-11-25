@@ -6,7 +6,6 @@ import { z } from 'zod'
 
 export const OVERVIEW_CHROME_KEYS = [
   'OVERVIEW_PAGE_TITLE',
-  'OVERVIEW_SUBTITLE',
   'OVERVIEW_OMITTED_NOTE',
   'OVERVIEW_BEHIND_NOTE',
 ] as const

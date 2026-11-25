@@ -163,7 +163,6 @@
   "SESSIONS_IN_OVERVIEWS_PENDING": "Đang viết Bản tóm tắt Overview của phiên này từ các Mục lịch sử…",
   "SESSIONS_IN_OVERVIEWS_FAILED": "Không thể viết Bản tóm tắt Overview. Bấm để tắt; bản tóm tắt vẫn được giữ.",
   "OVERVIEW_PAGE_TITLE": "Các phiên hoạt động từ {from} đến {to}",
-  "OVERVIEW_SUBTITLE": "Mỗi thẻ là lời kể của chính phiên đó về công việc của nó, không phải báo cáo về khoảng thời gian này.",
   "OVERVIEW_OMITTED_NOTE": "Bỏ qua, chưa có tóm tắt dùng được: {sessions}",
   "OVERVIEW_BEHIND_NOTE": "Tóm tắt cũ hơn lượt mới nhất: {sessions}",
   "SESSIONS_SCHEDULE_PAUSED": "Một tác tử trong phiên này có lịch đang tạm dừng",

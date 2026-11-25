@@ -163,7 +163,6 @@
   "SESSIONS_IN_OVERVIEWS_PENDING": "Die Overview Summary dieser Sitzung wird aus ihren Verlaufseinträgen geschrieben…",
   "SESSIONS_IN_OVERVIEWS_FAILED": "Die Overview Summary konnte nicht geschrieben werden. Klicke, um sie auszuschalten; die Zusammenfassung bleibt erhalten.",
   "OVERVIEW_PAGE_TITLE": "Aktive Sitzungen {from} bis {to}",
-  "OVERVIEW_SUBTITLE": "Jede Karte ist die eigene Beschreibung der Sitzung ihrer Arbeit, kein Bericht über diesen Zeitraum.",
   "OVERVIEW_OMITTED_NOTE": "Ausgelassen, noch keine nutzbare Übersichtszusammenfassung: {sessions}",
   "OVERVIEW_BEHIND_NOTE": "Zusammenfassung hinter dem neuesten Turn: {sessions}",
   "SESSIONS_SCHEDULE_PAUSED": "Ein Agent in dieser Sitzung hat einen pausierten Zeitplan",

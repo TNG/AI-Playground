@@ -125,7 +125,6 @@ body { margin: 0; font: 16px/1.6 system-ui, sans-serif; }
 main { max-width: 68rem; margin: 0 auto; padding: 3rem 1.5rem 4rem; }
 .head { margin: 0 0 2rem; }
 h1 { margin: 0; font-size: 1.75rem; line-height: 1.25; font-weight: 650; letter-spacing: -.02em; color: var(--accent); }
-.subtitle { margin: .4rem 0 0; opacity: .7; }
 .cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.25rem; }
 .card { display: flex; flex-direction: column; min-height: 13rem; padding: 1.15rem 1.35rem 1.35rem; border: 1px solid rgba(127, 127, 127, .25); border-radius: 1rem; background: rgba(127, 127, 127, .06); background: color-mix(in srgb, var(--accent) 6%, transparent); box-shadow: 0 1px 2px rgba(0, 0, 0, .05); }
 .card-head { padding-bottom: .65rem; margin-bottom: .85rem; border-bottom: 1px solid rgba(127, 127, 127, .2); }
@@ -144,7 +143,6 @@ export function renderOverviewHtml(overview: OverviewDocument, chrome: OverviewC
   const from = overviewDateTime(overview.window.from)
   const to = overviewDateTime(overview.window.to)
   const title = chromeHtml(chrome, 'OVERVIEW_PAGE_TITLE', { from, to })
-  const subtitle = chromeHtml(chrome, 'OVERVIEW_SUBTITLE')
   const footnotes =
     footnote(chrome, 'OVERVIEW_OMITTED_NOTE', overview.omitted, 'omitted', overview.locale) +
     footnote(chrome, 'OVERVIEW_BEHIND_NOTE', overview.behind, 'behind', overview.locale)
@@ -160,7 +158,7 @@ export function renderOverviewHtml(overview: OverviewDocument, chrome: OverviewC
 </head>
 <body>
 <main>
-<header class="head"><h1>${title}</h1><p class="subtitle">${subtitle}</p></header>
+<header class="head"><h1>${title}</h1></header>
 <div class="cards">
 ${overview.sessions.map((session) => sessionCard(session)).join('\n')}
 </div>

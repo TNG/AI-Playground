@@ -112,7 +112,18 @@ export async function buildDelegatedMediaTool(
         host.sessionMedia,
         host.sessionId,
       )) as CondensedMediaAgentResult
-      return mediaToolResult(slimCondensedMedia(saved), condensed.steps, saved)
+      // The model's copy also drops the folder-served URLs — the model would
+      // otherwise quote their Session and folder ids to the user; the files it
+      // may name by their `savedFiles` paths, the transcript's items keep the URLs.
+      const slim = slimCondensedMedia(saved)
+      const forModel = {
+        ...slim,
+        images: (slim.images as Record<string, unknown>[]).map((item) => {
+          const { imageUrl: _image, videoUrl: _video, model3dUrl: _model, ...rest } = item
+          return rest
+        }),
+      }
+      return mediaToolResult(forModel, condensed.steps, saved)
     },
   }) as ToolDefinition
 }

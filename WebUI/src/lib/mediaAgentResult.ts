@@ -132,9 +132,10 @@ export function slimItemSettings(
 
 /**
  * Drop what the parent model does not need before the result enters its context: the bulky
- * per-item settings and the opaque folder-served URLs, which the model would otherwise quote
- * to the user instead of the file's name. The friendly `savedFiles` paths stay, so the model
- * can tell the user where each file landed; the transcript's items come from the full record.
+ * per-item settings, and for an agent turn the folder-served URLs, which the model would
+ * otherwise quote to the user instead of the file's name (the delegated media tool strips
+ * those at its call site). The friendly `savedFiles` paths stay, so the model can tell the
+ * user where each file landed; the transcript's items come from the full record.
  */
 export function slimCondensedMedia(result: CondensedMediaAgentResult): Record<string, unknown> {
   const slim: Record<string, unknown> = {
@@ -142,6 +143,9 @@ export function slimCondensedMedia(result: CondensedMediaAgentResult): Record<st
     steps: result.steps,
     images: result.images.map((item) => {
       const entry: Record<string, unknown> = { id: item.id, type: item.type }
+      if (item.imageUrl) entry.imageUrl = item.imageUrl
+      if (item.videoUrl) entry.videoUrl = item.videoUrl
+      if (item.model3dUrl) entry.model3dUrl = item.model3dUrl
       const settings = slimItemSettings(item.settings)
       if (Object.keys(settings).length > 0) entry.settings = settings
       return entry

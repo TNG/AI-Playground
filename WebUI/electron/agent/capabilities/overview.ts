@@ -1,7 +1,8 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import { nativeImage } from 'electron'
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent'
-import { selectOverviewSessions } from '../../session/overviewData.ts'
+import { selectOverviewSessions, type OverviewSessionCard } from '../../session/overviewData.ts'
 import {
   OVERVIEW_MAX_LAST_HOURS,
   OVERVIEW_NAMED_RANGES,
@@ -9,7 +10,11 @@ import {
   type OverviewRangeInput,
   type OverviewWindow,
 } from '../../session/overviewRange.ts'
-import { overviewFileName, renderOverviewHtml } from '../../session/overviewHtml.ts'
+import {
+  overviewFileName,
+  renderOverviewHtml,
+  type OverviewSection,
+} from '../../session/overviewHtml.ts'
 import { resolvePreviewUrl, sameFolder, workspacePreviewRoot } from '../piWorkspaceRuntime.ts'
 import { jsonResult, jsonSchemaParameters, textResult } from '../piCustomTools.ts'
 import { loadPi } from '../piRuntime.ts'
@@ -182,6 +187,64 @@ function previewUrlOf(workspaceDir: string, fileName: string): string | undefine
   return root && sameFolder(root, workspaceDir) ? resolvePreviewUrl(fileName) : undefined
 }
 
+/** Longest edge a Session's picture is scaled to before it is inlined. */
+const OVERVIEW_PICTURE_EDGE = 480
+/** Encoded bytes one page may carry in total; later Sessions lose their pictures past it. */
+const OVERVIEW_PICTURE_BUDGET_BYTES = 4 * 1024 * 1024
+
+async function pictureDataUri(filePath: string): Promise<string | null> {
+  try {
+    const decoded = nativeImage.createFromBuffer(await fs.readFile(filePath))
+    if (decoded.isEmpty()) return null
+    const { width, height } = decoded.getSize()
+    const picture =
+      Math.max(width, height) > OVERVIEW_PICTURE_EDGE
+        ? decoded.resize(
+            width >= height ? { width: OVERVIEW_PICTURE_EDGE } : { height: OVERVIEW_PICTURE_EDGE },
+          )
+        : decoded
+    const dataUri = picture.toDataURL()
+    return dataUri.startsWith('data:image/') ? dataUri : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Each card's stored picture, newest Session first. Once the page budget binds
+ * nothing later is decoded, so a wide range stays a small file; a missing or
+ * undecodable file is simply that card without a picture.
+ */
+async function sectionsWithPictures(
+  sessions: readonly OverviewSessionCard[],
+): Promise<OverviewSection[]> {
+  let remaining = OVERVIEW_PICTURE_BUDGET_BYTES
+  let budgetBound = false
+  const sections: OverviewSection[] = []
+  for (const session of sessions) {
+    let picture: string | undefined
+    if (session.picturePath && !budgetBound) {
+      const dataUri = await pictureDataUri(session.picturePath)
+      if (dataUri) {
+        const size = Buffer.byteLength(dataUri)
+        if (size <= remaining) {
+          remaining -= size
+          picture = dataUri
+        } else {
+          budgetBound = true
+        }
+      }
+    }
+    sections.push({
+      title: session.title,
+      summary: session.summary,
+      icon: session.icon,
+      ...(picture ? { picture } : {}),
+    })
+  }
+  return sections
+}
+
 async function buildOverviewTools(host: CapabilityHost): Promise<ToolDefinition[]> {
   const pi = await loadPi()
   return [
@@ -222,6 +285,7 @@ async function buildOverviewTools(host: CapabilityHost): Promise<ToolDefinition[
             })
           }
           const fileName = overviewFileName(selection.window)
+          const sections = await sectionsWithPictures(selection.sessions)
           await fs.mkdir(host.workspaceDir, { recursive: true })
           await fs.writeFile(
             path.join(host.workspaceDir, fileName),
@@ -229,11 +293,7 @@ async function buildOverviewTools(host: CapabilityHost): Promise<ToolDefinition[
               {
                 window: selection.window,
                 locale: chrome.locale,
-                sessions: selection.sessions.map(({ title, summary, icon }) => ({
-                  title,
-                  summary,
-                  icon,
-                })),
+                sessions: sections,
               },
               chrome,
             ),

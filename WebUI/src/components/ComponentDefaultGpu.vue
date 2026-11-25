@@ -45,6 +45,12 @@ const draftDeviceOverride = ref(false)
 const selectedDeviceOption = computed(
   () => props.deviceOptions.find((option) => option.key === props.selectedDeviceKey) ?? null,
 )
+// Save is only meaningful once something changed: the dialog opens on the current value.
+const deviceSelectionDirty = computed(
+  () =>
+    draftDeviceKey.value !== props.selectedDeviceKey ||
+    draftDeviceOverride.value !== props.overrideDeviceSelection,
+)
 
 function deviceCategoryLabel(category: DeviceCategory): string {
   if (category === 'dgpu') return languages.SETUP_WIZARD_DEVICE_DEDICATED || 'Dedicated GPU'
@@ -218,7 +224,10 @@ function onSelectDevice(key: unknown) {
             <Button variant="ghost" @click="deviceDialogOpen = false">{{
               languages.COM_CANCEL || 'Cancel'
             }}</Button>
-            <Button :disabled="!draftDeviceKey" @click="saveDeviceSelection">
+            <Button
+              :disabled="!draftDeviceKey || !deviceSelectionDirty"
+              @click="saveDeviceSelection"
+            >
               {{ languages.COMPONENT_MANAGER_DEFAULT_GPU_SAVE || 'Save' }}
             </Button>
           </DialogFooter>

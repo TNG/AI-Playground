@@ -37,6 +37,18 @@ const setPendingPreferredDevice = vi.fn((pref: PreferredDevice) => {
   wizardState.pendingPreferredDevice.value = pref
 })
 const applyPreferredDevice = vi.fn(async () => {})
+const ensurePreferredDeviceSeeded = vi.fn(async () => {
+  if (wizardState.pendingPreferredDevice.value) return
+  const { resolvePreferredDevice } = await import('@/lib/preferredDevice')
+  wizardState.pendingPreferredDevice.value =
+    resolvePreferredDevice(
+      (localSettings.value.preferredDevice as PreferredDevice | null) ?? null,
+      wizardState.preferredDeviceOptions.value as Array<{
+        key: string
+        value: PreferredDevice
+      }>,
+    ) ?? null
+})
 
 vi.mock('@/assets/js/store/setupWizard', () => ({
   useSetupWizard: () => ({
@@ -53,6 +65,7 @@ vi.mock('@/assets/js/store/setupWizard', () => ({
       return wizardState.pendingPreferredDevice.value
     },
     preferredDeviceKey,
+    ensurePreferredDeviceSeeded,
     setPendingPreferredDevice,
     applyPreferredDevice,
     comfyUiNeedsVariantSwitch: false,
@@ -513,6 +526,11 @@ describe('Component Manager default GPU', () => {
     gpuDeviceId: '0x56a0',
     uuid: 'uuid-arc-b580',
   }
+  const a770: PreferredDevice = {
+    name: 'Intel Arc A770',
+    gpuDeviceId: '0x56a0',
+    uuid: 'uuid-arc-a770',
+  }
 
   function seedDeviceOptions(options: PreferredDevice[]) {
     wizardState.preferredDeviceOptions.value = options.map((value) => ({
@@ -548,6 +566,37 @@ describe('Component Manager default GPU', () => {
 
     expect(updateLocalSettings).toHaveBeenCalledWith({ preferredDevice: arc })
     expect(applyPreferredDevice).toHaveBeenCalledWith(arc)
+  })
+
+  it('shows the saved preference on a cold start, before the wizard has opened', async () => {
+    seedDeviceOptions([arc, a770])
+    localSettings.value = { preferredDevice: a770 }
+    const { useComponentManager } = await import('@/assets/js/store/componentManager')
+    const manager = useComponentManager()
+    await manager.hydrateFromSettings()
+
+    expect(manager.selectedDeviceKey).toBe(`gpu:${a770.uuid}`)
+  })
+
+  it('shows the best detected GPU when the saved one is no longer offered', async () => {
+    seedDeviceOptions([arc, a770])
+    localSettings.value = { preferredDevice: { ...a770, uuid: 'uuid-sold' } }
+    const { useComponentManager } = await import('@/assets/js/store/componentManager')
+    const manager = useComponentManager()
+    await manager.hydrateFromSettings()
+
+    expect(manager.selectedDeviceKey).toBe(`gpu:${arc.uuid}`)
+  })
+
+  it('keeps an already chosen device instead of overwriting it from settings', async () => {
+    seedDeviceOptions([arc, a770])
+    wizardState.pendingPreferredDevice.value = a770
+    localSettings.value = { preferredDevice: arc }
+    const { useComponentManager } = await import('@/assets/js/store/componentManager')
+    const manager = useComponentManager()
+    await manager.hydrateFromSettings()
+
+    expect(manager.selectedDeviceKey).toBe(`gpu:${a770.uuid}`)
   })
 
   it('hides the default GPU section when no device options are detected', async () => {

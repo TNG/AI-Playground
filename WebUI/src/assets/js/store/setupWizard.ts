@@ -27,6 +27,7 @@ import { extractMessage } from '../errors/appError'
 import { setupProgressLabel } from '@/lib/setupProgress'
 import { isComponentAvailableInMode } from '@/lib/productModeAvailability'
 import { deriveComponentRows } from '@/lib/componentRows'
+import { preferredDeviceKey, resolvePreferredDevice } from '@/lib/preferredDevice'
 import type { ErrorDetails } from '../../../../electron/adapters/backends/service'
 
 // Derived from the single source of truth rather than restated: a backend added
@@ -125,13 +126,6 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     value: PreferredDevice
   }
 
-  // Key by the strongest available identity (UUID → PCI id → name) so two
-  // identically-named GPUs don't collide and the selection stays stable.
-  function preferredDeviceKey(pref: PreferredDevice | null): string | null {
-    if (!pref) return null
-    return `gpu:${pref.uuid ?? pref.instanceId ?? pref.gpuDeviceId ?? pref.name}`
-  }
-
   const preferredDeviceOptions = computed<PreferredDeviceOption[]>(() => {
     const detected = productModeStore.hardwareRecommendation?.detectedDevices ?? []
     const gpuOptions: PreferredDeviceOption[] = detected
@@ -157,11 +151,6 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     // hides the "Default GPU" section entirely (there is nothing to choose).
     return gpuOptions
   })
-
-  /** Best default preference: the highest-category detected device, else CPU. */
-  function defaultPreferredDevice(): PreferredDevice | null {
-    return preferredDeviceOptions.value[0]?.value ?? null
-  }
 
   function setPendingPreferredDevice(pref: PreferredDevice) {
     pendingPreferredDevice.value = pref
@@ -239,19 +228,21 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     }
   }
 
-  async function initPendingPreferredDevice() {
+  async function initPendingPreferredDevice(): Promise<void> {
+    let stored: PreferredDevice | null = null
     try {
-      const s = await window.electronAPI.getLocalSettings()
-      pendingPreferredDevice.value = s.preferredDevice ?? defaultPreferredDevice()
+      stored = (await window.electronAPI.getLocalSettings()).preferredDevice ?? null
     } catch {
-      pendingPreferredDevice.value = defaultPreferredDevice()
+      stored = null
     }
-    // A persisted CPU preference is meaningless once GPUs are offered (CPU is
-    // hidden then), which would leave nothing selected — fall back to the default.
-    const key = preferredDeviceKey(pendingPreferredDevice.value)
-    if (!preferredDeviceOptions.value.some((o) => o.key === key)) {
-      pendingPreferredDevice.value = defaultPreferredDevice()
-    }
+    pendingPreferredDevice.value = resolvePreferredDevice(stored, preferredDeviceOptions.value)
+  }
+
+  /** Seed the picker the wizard shows. A no-op once a value exists, so an open
+   *  draft wins; reading never persists, only an explicit save does. */
+  async function ensurePreferredDeviceSeeded(): Promise<void> {
+    if (pendingPreferredDevice.value) return
+    await initPendingPreferredDevice()
   }
 
   const errorModalOpen = ref(false)
@@ -1102,6 +1093,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     pendingPreferredDevice,
     preferredDeviceOptions,
     preferredDeviceKey,
+    ensurePreferredDeviceSeeded,
     setPendingPreferredDevice,
     applyPreferredDevice,
     overrideExistingDeviceSelection,

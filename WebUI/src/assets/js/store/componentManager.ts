@@ -252,6 +252,9 @@ export const useComponentManager = defineStore('componentManager', () => {
     await wizard.restoreDisabledBackends()
     // The mode catalog is normally filled by the wizard; the manager needs it too.
     if (!productMode.hardwareRecommendation) await productMode.detectRecommendation()
+    // The wizard seeds this only when it opens, so a cold start would show an
+    // empty Default GPU row here. Reading it never persists the fallback.
+    await wizard.ensurePreferredDeviceSeeded()
     hydrated.value = true
   }
 

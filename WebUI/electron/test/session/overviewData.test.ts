@@ -331,18 +331,20 @@ describe('omitted and behind Sessions', () => {
   })
 
   it('omits a failed or pending summary only when it has no text', async () => {
-    const failed = await seedSession([historyEntry({ timestamp: NOW - HOUR })], {
-      summaryState: 'failed',
-    })
-    const pending = await seedSession([historyEntry({ timestamp: NOW - 2 * HOUR })], {
-      summaryState: 'pending',
-    })
-    for (const [id, title] of [
-      [failed, 'Failed Update'],
-      [pending, 'Pending Update'],
-    ] as const) {
-      await mutateSession(id, (file) => ({ ...file, title, renamed: true }))
-    }
+    const failed = await seedSession([historyEntry({ timestamp: NOW - HOUR })])
+    const pending = await seedSession([historyEntry({ timestamp: NOW - 2 * HOUR })])
+    await mutateSession(failed, (file) => ({
+      ...file,
+      title: 'Failed Update',
+      renamed: true,
+      overviewSummary: { state: 'failed', contractVersion: 1 },
+    }))
+    await mutateSession(pending, (file) => ({
+      ...file,
+      title: 'Pending Update',
+      renamed: true,
+      overviewSummary: { state: 'pending', contractVersion: 1 },
+    }))
 
     const selection = await query()
 

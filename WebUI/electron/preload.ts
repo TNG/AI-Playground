@@ -349,6 +349,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     recordAudioTurn: (turn: AudioTurnRequest) =>
       invoke('sessions:recordAudioTurn', cloneForIpc(turn)),
     listArtifacts: () => invoke('sessions:listArtifacts'),
+    listCreatedFiles: () => invoke('sessions:listCreatedFiles'),
     deleteArtifact: (sessionId: string, url: string) =>
       invoke('sessions:deleteArtifact', sessionId, url),
     readSettings: (id: string) => invoke('sessions:readSettings', id),

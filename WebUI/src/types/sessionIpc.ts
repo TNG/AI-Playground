@@ -245,6 +245,20 @@ export type SessionArtifact = {
   url: string
 }
 
+/** One file a Session's agent turns wrote, as the Artifacts tab lists it. */
+export type SessionCreatedFile = {
+  /** The path the model addressed the file with. */
+  file: string
+  /** The Harness Session whose workspace holds the file; previews open against it. */
+  harnessSessionId: string
+  /** The Session whose timeline wrote the file. */
+  sessionRef: string
+  sessionTitle: string
+  /** When the file was last written; an unstamped write falls back to its
+   * Harness Session's creation — static, so a later turn cannot re-float it. */
+  createdAt: number
+}
+
 export const SessionTurnKindSchema = z.enum(['chat', 'agent', 'media', 'audio'])
 export type SessionTurnKind = z.infer<typeof SessionTurnKindSchema>
 

@@ -289,6 +289,7 @@ import {
   missingArtifactUrls,
   newestArtifact,
 } from './session/sessionArtifacts'
+import { listAllCreatedFiles } from './session/sessionCreatedFiles'
 import {
   cleanUpHarnessSessionsOnDelete,
   harnessSessionFor,
@@ -1924,6 +1925,7 @@ function initEventHandle() {
       saveChatTranscript,
       recordAudioTurn,
       listAllArtifacts,
+      listAllCreatedFiles,
       missingArtifactUrls,
       deleteArtifact,
       readSessionSettings,

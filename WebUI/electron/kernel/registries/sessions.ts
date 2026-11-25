@@ -39,6 +39,7 @@ import type {
   missingArtifactUrls,
   newestArtifact,
 } from '../../session/sessionArtifacts'
+import type { listAllCreatedFiles } from '../../session/sessionCreatedFiles'
 import type { harnessSessionFor } from '../../session/sessionHarness'
 import type { setRealShellFolders, setSessionReachable } from '../../session/sessionChannels'
 import type { migrateHomeAgentThreads } from '../../session/homeAgentThreadMigration'
@@ -99,6 +100,7 @@ export type SessionsDeps = {
   sessionDeletePreview: typeof sessionDeletePreview
   recordAudioTurn: typeof recordAudioTurn
   listAllArtifacts: typeof listAllArtifacts
+  listAllCreatedFiles: typeof listAllCreatedFiles
   missingArtifactUrls: typeof missingArtifactUrls
   deleteArtifact: typeof deleteArtifact
   readSessionSettings: typeof readSessionSettings
@@ -517,6 +519,13 @@ export function buildSessionsRegistry(deps: SessionsDeps) {
     'sessions:listArtifacts': async () => {
       try {
         return { success: true as const, artifacts: await deps.listAllArtifacts() }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
+    'sessions:listCreatedFiles': async () => {
+      try {
+        return { success: true as const, files: await deps.listAllCreatedFiles() }
       } catch (e) {
         return ipcFail(e)
       }

@@ -48,6 +48,7 @@ import type {
   HarnessSessionRef,
   NewestArtifact,
   SessionArtifact,
+  SessionCreatedFile,
   MissingWorkspace,
   SessionCreateOptions,
   SessionDeletePreview,
@@ -516,6 +517,13 @@ export const CHANNELS = {
     owner: 'main',
     args: [] as const,
     result: null as unknown as IpcOkWith<{ artifacts: SessionArtifact[] }>,
+  },
+  /** The documents: every file the Sessions' agent turns wrote, latest write per file winning. */
+  'sessions:listCreatedFiles': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as IpcOkWith<{ files: SessionCreatedFile[] }>,
   },
   /** Move one artifact's file to the Trash (session id, its media URL); its History Entry stays. */
   'sessions:deleteArtifact': {

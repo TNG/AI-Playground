@@ -61,6 +61,7 @@ describe('per-owner handler registries', () => {
       | 'sessions:saveChatTranscript'
       | 'sessions:recordAudioTurn'
       | 'sessions:listArtifacts'
+      | 'sessions:listCreatedFiles'
       | 'sessions:deleteArtifact'
       | 'sessions:readSettings'
       | 'sessions:writePresetSettings'

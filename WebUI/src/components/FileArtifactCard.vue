@@ -18,8 +18,21 @@
     </div>
     <div class="flex flex-1 flex-col gap-1 px-3 py-2">
       <p class="truncate text-sm">{{ file }}</p>
-      <p class="truncate text-xs text-muted-foreground">{{ relativeTime(createdAt) }}</p>
-      <div class="mt-1 flex items-center justify-end">
+      <p class="truncate text-xs text-muted-foreground">
+        <template v-if="allSessions">{{ title }} · </template>
+        {{ relativeTime(createdAt) }}
+      </p>
+      <div class="mt-1 flex items-center justify-between gap-2">
+        <Button
+          v-if="sessionRef && sessionRef !== sessions.openSessionId"
+          variant="ghost"
+          size="sm"
+          class="px-2"
+          @click="openSessionRef()"
+        >
+          {{ languages.GALLERY_OPEN_SESSION }}
+        </Button>
+        <span v-else></span>
         <Tooltip>
           <TooltipTrigger as-child>
             <Button
@@ -40,20 +53,41 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { ArrowTopRightOnSquareIcon } from '@heroicons/vue/24/outline'
 import { useI18N } from '@/assets/js/store/i18n'
 import { relativeTime } from '@/assets/js/store/recordRows'
+import { useSessionLifecycle } from '@/assets/js/store/sessionLifecycle'
+import { useSessions } from '@/assets/js/store/sessions'
+import { useSessionTabs } from '@/assets/js/store/sessionTabs'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { snippetHtmlOf } from '@/lib/filePreview'
 import { useAnswerFileOpener } from '@/lib/useAnswerFileOpener'
 
 /** A written file as an Artifacts-grid card: the square tile shows what fits of the file's peek. */
-const props = defineProps<{ file: string; sessionId: string; createdAt: number }>()
+const props = defineProps<{
+  file: string
+  /** The Harness Session whose workspace holds the file; the preview opens against it. */
+  harnessSessionId: string
+  createdAt: number
+  sessionTitle: string
+  /** The Session whose timeline wrote the file; another Session's card offers to open it. */
+  sessionRef: string
+}>()
 
 const languages = useI18N().state
-const openAnswerFile = useAnswerFileOpener(() => props.sessionId)
+const sessions = useSessions()
+const sessionTabs = useSessionTabs()
+const lifecycle = useSessionLifecycle()
+const openAnswerFile = useAnswerFileOpener(() => props.harnessSessionId)
+
+const allSessions = computed(() => sessionTabs.artifactsScope === 'all-sessions')
+const title = computed(() => props.sessionTitle || languages.SESSIONS_UNTITLED)
+
+async function openSessionRef(): Promise<void> {
+  await lifecycle.openSession(props.sessionRef, 'open-from-artifacts')
+}
 
 const state = ref<'loading' | 'error' | 'ready'>('loading')
 const error = ref('')
@@ -61,7 +95,7 @@ const snippet = ref('')
 
 onMounted(async () => {
   const result = await window.electronAPI.agentMode.readSessionFile(
-    props.sessionId,
+    props.harnessSessionId,
     props.file,
     undefined,
   )

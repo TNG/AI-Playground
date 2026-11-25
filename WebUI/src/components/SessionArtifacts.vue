@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { CubeIcon, MusicalNoteIcon, TrashIcon } from '@heroicons/vue/24/outline'
-import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useGallery } from '@/assets/js/store/gallery'
 import { useI18N } from '@/assets/js/store/i18n'
 import { relativeTime } from '@/assets/js/store/recordRows'
+import { useSessionFiles } from '@/assets/js/store/sessionFiles'
 import { useSessionLifecycle } from '@/assets/js/store/sessionLifecycle'
 import { useSessions } from '@/assets/js/store/sessions'
 import { useSessionTabs } from '@/assets/js/store/sessionTabs'
@@ -14,15 +14,14 @@ import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { artifactsInScope } from '@/lib/artifactsInScope'
-import { createdFileEntriesOf, type SessionFileEntry } from '@/lib/sessionCreatedFiles'
 import type { ArtifactsScope } from '@/lib/sessionTabs'
-import type { SessionArtifact } from '@/types/sessionIpc'
+import type { SessionArtifact, SessionCreatedFile } from '@/types/sessionIpc'
 
 const gallery = useGallery()
+const sessionFiles = useSessionFiles()
 const sessions = useSessions()
 const sessionTabs = useSessionTabs()
 const lifecycle = useSessionLifecycle()
-const agentMode = useAgentMode()
 const languages = useI18N().state
 
 const deleting = ref<SessionArtifact | null>(null)
@@ -40,7 +39,7 @@ const allSessions = computed(() => sessionTabs.artifactsScope === 'all-sessions'
 /** One grid entry: a media artifact or a written file, ordered by timestamp. */
 type GridEntry =
   | { kind: 'media'; artifact: SessionArtifact; at: number }
-  | { kind: 'file'; file: SessionFileEntry; at: number }
+  | { kind: 'file'; file: SessionCreatedFile; at: number }
 
 const entries = computed<GridEntry[]>(() => {
   const media: GridEntry[] = shown.value.map((artifact) => ({
@@ -48,28 +47,39 @@ const entries = computed<GridEntry[]>(() => {
     artifact,
     at: artifact.timestamp,
   }))
-  if (allSessions.value) return media
-  // Files of messages that settled before timestamps existed fall back to their
-  // harness session's creation — static, so a new turn cannot re-float them.
-  const files: GridEntry[] = createdFileEntriesOf(
-    sessions.openVisibleTimeline,
-    (harnessId) => agentMode.sessions[harnessId]?.createdAt ?? 0,
-  ).map((file) => ({ kind: 'file', file, at: file.createdAt }))
+  const scoped =
+    allSessions.value || !sessions.openSessionId
+      ? sessionFiles.files
+      : sessionFiles.files.filter((file) => file.sessionRef === sessions.openSessionId)
+  const files: GridEntry[] = scoped.map((file) => ({ kind: 'file', file, at: file.createdAt }))
   return [...media, ...files].sort((a, b) => b.at - a.at)
 })
 
 function keyOf(entry: GridEntry): string {
   return entry.kind === 'media'
     ? entry.artifact.url
-    : `${entry.file.sessionId}\u0000${entry.file.file}`
+    : `${entry.file.harnessSessionId}\u0000${entry.file.file}`
 }
 
-onMounted(() => void gallery.refresh())
+const loading = computed(() => gallery.loading || sessionFiles.loading)
+
+onMounted(() => {
+  void gallery.refresh()
+  void sessionFiles.refresh()
+})
 watch(
   () => sessions.openTurn,
   (turn, previous) => {
-    if (previous && !turn) void gallery.refresh()
+    if (previous && !turn) {
+      void gallery.refresh()
+      void sessionFiles.refresh()
+    }
   },
+)
+// A Channel turn can write files in a Session the app has open in the background.
+watch(
+  () => sessionTabs.artifactsScope,
+  () => void sessionFiles.refresh(),
 )
 
 function sessionTitle(artifact: SessionArtifact): string {
@@ -112,12 +122,12 @@ async function confirmDelete() {
           {{ languages[option.label] }}
         </button>
       </div>
-      <Spinner v-if="gallery.loading" class="size-4" />
+      <Spinner v-if="loading" class="size-4" />
     </header>
 
     <div class="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
       <p
-        v-if="!gallery.loading && entries.length === 0"
+        v-if="!loading && entries.length === 0"
         class="flex h-full items-center justify-center text-center text-muted-foreground"
       >
         {{ allSessions ? languages.ARTIFACTS_EMPTY_ALL : languages.ARTIFACTS_EMPTY_SESSION }}
@@ -128,8 +138,10 @@ async function confirmDelete() {
             <li v-if="entry.kind === 'file'" class="min-w-0">
               <FileArtifactCard
                 :file="entry.file.file"
-                :session-id="entry.file.sessionId"
+                :harness-session-id="entry.file.harnessSessionId"
                 :created-at="entry.file.createdAt"
+                :session-title="entry.file.sessionTitle"
+                :session-ref="entry.file.sessionRef"
               />
             </li>
             <li

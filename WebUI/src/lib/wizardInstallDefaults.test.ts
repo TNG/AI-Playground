@@ -114,6 +114,6 @@ describe('component classification', () => {
   })
 
   it('treats only Channels as opt-in', () => {
-    expect([...OPT_IN_BACKENDS]).toEqual(['home-agent-backend'])
+    expect([...OPT_IN_BACKENDS]).toEqual(['home-agent-backend', 'hermes-backend'])
   })
 })

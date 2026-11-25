@@ -45,6 +45,7 @@ export type McpInvokeName = Extract<MainInvokeChannelName, `mcp:${string}`>
 export type McpSendName = Extract<MainSendChannelName, `mcp:${string}`>
 export type ComfyuiInvokeName = Extract<MainInvokeChannelName, `comfyui:${string}`>
 export type ComfyuiSendName = Extract<MainSendChannelName, `comfyui:${string}`>
+export type HermesInvokeName = Extract<MainInvokeChannelName, `hermes:${string}`>
 export type WebBrowserInvokeName = Extract<MainInvokeChannelName, `webBrowser:${string}`>
 export type WebBrowserSendName = Extract<MainSendChannelName, `webBrowser:${string}`>
 export type GamesInvokeName = Extract<MainInvokeChannelName, `games:${string}`>
@@ -86,6 +87,7 @@ export type CoreInvokeName = Exclude<
   | AgentModeInvokeName
   | McpInvokeName
   | ComfyuiInvokeName
+  | HermesInvokeName
   | WebBrowserInvokeName
   | GamesInvokeName
   | PermissionsInvokeName

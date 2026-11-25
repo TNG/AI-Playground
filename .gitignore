@@ -59,3 +59,6 @@ docs/agentic-scores.local.json
 
 # Local markdown issue tracker (docs/agents/issue-tracker.md)
 .scratch/
+
+# Hermes Agent checkout, cloned at install time (dev runs clone into the repo root)
+hermes-agent/

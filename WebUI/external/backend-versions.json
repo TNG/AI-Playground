@@ -1,5 +1,6 @@
 {
   "comfyui-backend": { "version": "v0.34.0" },
   "llamacpp-backend": { "version": "b10666" },
-  "openvino-backend": { "version": "2026.4.0" }
+  "openvino-backend": { "version": "2026.4.0" },
+  "hermes-backend": { "version": "f7e2898aaefc8f967dbf7345e3999a65672fe60e" }
 }

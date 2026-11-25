@@ -102,6 +102,8 @@ export function mapServiceNameToDisplayName(serviceName: string) {
       return 'OpenVINO'
     case 'home-agent-backend':
       return 'Channels'
+    case 'hermes-backend':
+      return 'Hermes Agent'
     // Both audio sidecars name their engine: the app can reach the same feature
     // through OpenVINO (Kokoro for TTS, OVMS Whisper for STT), so a bare "Text To
     // Speech" / "Speech To Text" row read as if it were the only way to get it.

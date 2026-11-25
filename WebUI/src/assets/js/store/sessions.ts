@@ -436,7 +436,7 @@ export const useSessions = defineStore('sessions', () => {
     return !!result
   }
 
-  /** Ask main to write the Overview Summary again without a new turn. */
+  /** Ask main to write the Overview Summary again without a new turn (the chip's Retry). */
   async function refreshOverviewSummary(
     id: string,
     request: OverviewSummaryRequest,
@@ -446,6 +446,27 @@ export const useSessions = defineStore('sessions', () => {
     )
     if (result) remember(result.session)
     return !!result
+  }
+
+  /** Retry one turn's failed Overview Summary update and write its new outcome to that entry. */
+  async function retryOverviewUpdate(
+    id: string,
+    entryId: string,
+    request: OverviewSummaryRequest,
+  ): Promise<boolean> {
+    const result = await call('sessions/retry-overview-update-failed', () =>
+      window.electronAPI.sessions.retryOverviewUpdate(id, entryId, request),
+    )
+    if (result) remember(result.session)
+    return !!result
+  }
+
+  /** Resume the pending updates an interrupted run left behind; returns the Session ids. */
+  async function resumePendingOverviewUpdates(request: OverviewSummaryRequest): Promise<string[]> {
+    const result = await call('sessions/resume-pending-overview-updates-failed', () =>
+      window.electronAPI.sessions.resumePendingOverviewUpdates(request),
+    )
+    return result?.data.resumed ?? []
   }
 
   /** The Agent picked in the Session's prompt bar, `null` for Assistant; false when not kept. */
@@ -828,6 +849,8 @@ export const useSessions = defineStore('sessions', () => {
     setReachable,
     setIncludedInOverviews,
     refreshOverviewSummary,
+    retryOverviewUpdate,
+    resumePendingOverviewUpdates,
     createGroup,
     moveToGroup,
     renameGroup,

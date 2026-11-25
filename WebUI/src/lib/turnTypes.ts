@@ -35,7 +35,7 @@ export type AnswerDetailKind = 'reasoning' | 'tool' | 'generation' | 'compaction
 export type TurnDetailPart =
   | ({ kind: AnswerDetailKind } & AnswerPartRef)
   | { kind: 'workspace-path'; path: string }
-  | { kind: 'overview-update'; update: OverviewSummaryUpdate }
+  | { kind: 'overview-update'; entryId: string; update: OverviewSummaryUpdate }
   | {
       kind: 'workflow'
       variant?: string

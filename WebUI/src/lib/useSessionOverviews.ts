@@ -32,5 +32,24 @@ export function useSessionOverviews() {
     )
   }
 
-  return { indicator, activate }
+  /** The chip's Retry: only the Session's summary state moves, not any turn's row. */
+  async function retry(): Promise<void> {
+    const sessionRef = sessions.openSessionId
+    if (!sessionRef) return
+    await sessions.refreshOverviewSummary(sessionRef, summaryRequest())
+  }
+
+  /** A turn's failed row: rerun the update and write the new outcome back onto that entry. */
+  async function retryUpdate(entryId: string): Promise<void> {
+    const sessionRef = sessions.openSessionId
+    if (!sessionRef) return
+    await sessions.retryOverviewUpdate(sessionRef, entryId, summaryRequest())
+  }
+
+  /** On launch, pick up the pending markers an interrupted run left behind. */
+  async function resumePending(): Promise<void> {
+    await sessions.resumePendingOverviewUpdates(summaryRequest())
+  }
+
+  return { indicator, activate, retry, retryUpdate, resumePending, summaryRequest }
 }

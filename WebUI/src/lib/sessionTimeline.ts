@@ -252,7 +252,11 @@ function attachOverviewUpdates(turns: TimelineTurn[], rows: readonly OverviewTur
     }
     if (index < 0) continue
     remaining[index].used = true
-    turn.details.parts.push({ kind: 'overview-update', update: remaining[index].row.update })
+    turn.details.parts.push({
+      kind: 'overview-update',
+      entryId: remaining[index].row.entryId,
+      update: remaining[index].row.update,
+    })
   }
 }
 

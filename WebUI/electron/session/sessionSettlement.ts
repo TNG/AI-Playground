@@ -1,6 +1,10 @@
 import { appLoggerInstance } from '../observability/logger'
 import { emitSessionChanged } from '../kernel/kernelBus'
-import { updateOverviewSummaryForTurn } from './overviewSummary'
+import {
+  overviewOutcomePatch,
+  recordOverviewOutcome,
+  updateOverviewSummaryForTurn,
+} from './overviewSummary'
 import { readSession, sessionDocumentOf } from './sessions'
 import { appendHistoryEntry, updateHistoryEntry, type NewHistoryEntry } from './sessionHistory'
 import type {
@@ -50,31 +54,6 @@ function summaryRequestOf(descriptor?: SummariserDescriptor): OverviewSummaryReq
   return {
     model: { backend, modelId: readiness.llmModelName, readiness },
     language: descriptor.replyLanguage || 'en-US',
-  }
-}
-
-function patchOf(
-  outcome: NonNullable<Awaited<ReturnType<typeof updateOverviewSummaryForTurn>>>,
-): OverviewSummaryUpdate | null {
-  if (outcome.state === 'ready') {
-    return {
-      state: 'ready',
-      ...(outcome.summary.model ? { model: outcome.summary.model } : {}),
-      ...(outcome.summary.writtenAt !== undefined ? { writtenAt: outcome.summary.writtenAt } : {}),
-      durationMs: outcome.durationMs,
-      ...(outcome.tokens !== undefined ? { tokens: outcome.tokens } : {}),
-      ...(outcome.summary.coveredEntryId ? { coveredEntryId: outcome.summary.coveredEntryId } : {}),
-      ...(outcome.summary.text ? { text: outcome.summary.text } : {}),
-    }
-  }
-  return {
-    state: 'failed',
-    ...(outcome.summary.model ? { model: outcome.summary.model } : {}),
-    writtenAt: Date.now(),
-    durationMs: outcome.durationMs,
-    ...(outcome.tokens !== undefined ? { tokens: outcome.tokens } : {}),
-    ...(outcome.summary.coveredEntryId ? { coveredEntryId: outcome.summary.coveredEntryId } : {}),
-    ...(outcome.failureReason ? { failureReason: outcome.failureReason } : {}),
   }
 }
 
@@ -151,6 +130,13 @@ export async function settleTurn(
     appLoggerInstance.warn(`Overview Summary update did not settle the turn: ${error}`, LOG_SCOPE)
   }
 
-  const patch = outcome ? patchOf(outcome) : null
-  return patch ? rewriteOutcome(sessionId, written, patch) : written
+  if (!outcome) return written
+  const patch = overviewOutcomePatch(outcome)
+  try {
+    const updated = await recordOverviewOutcome(sessionId, patch)
+    return updated.find((entry) => entry.id === written.id) ?? written
+  } catch (error) {
+    appLoggerInstance.warn(`turn's summary outcome not recorded: ${error}`, LOG_SCOPE)
+    return written
+  }
 }

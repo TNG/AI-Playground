@@ -16,18 +16,41 @@
       </span>
     </p>
     <p v-if="update.text" class="whitespace-pre-wrap wrap-break-word">{{ update.text }}</p>
+    <p v-if="update.state === 'failed'">
+      <button
+        type="button"
+        class="text-xs font-medium text-primary underline-offset-2 hover:underline disabled:opacity-50"
+        :disabled="busy"
+        @click="retry"
+      >
+        {{ languages.SESSION_OVERVIEW_UPDATE_RETRY }}
+      </button>
+    </p>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18N } from '@/assets/js/store/i18n'
 import { fillTemplate } from '@/lib/fillTemplate'
+import { useSessionOverviews } from '@/lib/useSessionOverviews'
 import type { OverviewSummaryUpdate } from '@/types/sessionIpc'
 
-const props = defineProps<{ update: OverviewSummaryUpdate }>()
+const props = defineProps<{ entryId: string; update: OverviewSummaryUpdate }>()
 
 const languages = useI18N().state
+const overviews = useSessionOverviews()
+const busy = ref(false)
+
+async function retry(): Promise<void> {
+  if (busy.value) return
+  busy.value = true
+  try {
+    await overviews.retryUpdate(props.entryId)
+  } finally {
+    busy.value = false
+  }
+}
 
 const statusText = computed(() => {
   const update = props.update

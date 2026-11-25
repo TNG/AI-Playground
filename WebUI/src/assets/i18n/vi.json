@@ -245,6 +245,7 @@
   "SESSION_OVERVIEW_UPDATE_MODEL": "bởi {model}",
   "SESSION_OVERVIEW_UPDATE_TOKENS": "{count} token",
   "SESSION_OVERVIEW_UPDATE_COVERED": "đến {entry}",
+  "SESSION_OVERVIEW_UPDATE_RETRY": "Thử lại cập nhật",
   "SESSION_TURN_LIVE_REASONING": "Đang suy luận…",
   "SESSION_TURN_LIVE_WRITING": "Đang viết…",
   "SESSION_TURN_LIVE_WORKING": "Đang xử lý…",

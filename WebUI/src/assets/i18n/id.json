@@ -245,6 +245,7 @@
   "SESSION_OVERVIEW_UPDATE_MODEL": "oleh {model}",
   "SESSION_OVERVIEW_UPDATE_TOKENS": "{count} token",
   "SESSION_OVERVIEW_UPDATE_COVERED": "hingga {entry}",
+  "SESSION_OVERVIEW_UPDATE_RETRY": "Coba lagi pembaruan",
   "SESSION_TURN_LIVE_REASONING": "Bernalar…",
   "SESSION_TURN_LIVE_WRITING": "Menulis…",
   "SESSION_TURN_LIVE_WORKING": "Bekerja…",

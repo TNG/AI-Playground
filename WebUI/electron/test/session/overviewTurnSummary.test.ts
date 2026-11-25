@@ -317,9 +317,11 @@ describe('cloud, cancellation and failure', () => {
       throw new Error('the model went away')
     }
 
-    const written = await settleTurn(sessionId, entry({ prompt: 'a red fox' }), {
-      summariser: DESCRIPTOR,
-    })
+    const written = await settleTurn(
+      sessionId,
+      entry({ prompt: 'a red fox', response: 'The answer that must survive.' }),
+      { summariser: DESCRIPTOR },
+    )
 
     const stored = (await openSession(sessionId)).overviewSummary
     expect(stored).toMatchObject({
@@ -334,6 +336,9 @@ describe('cloud, cancellation and failure', () => {
       coveredEntryId: covered.id,
       failureReason: expect.stringContaining('the model went away'),
     })
+    // The answer and its History Entry survive the summarisation failure.
+    expect(written?.status).toBe('completed')
+    expect(written?.response).toBe('The answer that must survive.')
     expect(written).toBeDefined()
   })
 })
@@ -372,6 +377,7 @@ describe('the turn details data', () => {
     const turn = items.find((item) => item.kind === 'chat')
     expect(turn?.details.parts).toContainEqual({
       kind: 'overview-update',
+      entryId: 'entry-1',
       update: rows[0].update,
     })
     expect(timeline.some((message) => 'overviewUpdate' in message)).toBe(false)
@@ -426,7 +432,15 @@ describe('the turn details data', () => {
     const items = sessionTimelineItems(timeline, {} as never, {}, rows)
     const media = items.find((item) => item.kind === 'media')
     const audio = items.find((item) => item.kind === 'audio')
-    expect(media?.details.parts).toContainEqual({ kind: 'overview-update', update: rows[0].update })
-    expect(audio?.details.parts).toContainEqual({ kind: 'overview-update', update: rows[1].update })
+    expect(media?.details.parts).toContainEqual({
+      kind: 'overview-update',
+      entryId: 'entry-1',
+      update: rows[0].update,
+    })
+    expect(audio?.details.parts).toContainEqual({
+      kind: 'overview-update',
+      entryId: 'entry-2',
+      update: rows[1].update,
+    })
   })
 })

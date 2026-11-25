@@ -245,6 +245,7 @@
   "SESSION_OVERVIEW_UPDATE_MODEL": "โดย {model}",
   "SESSION_OVERVIEW_UPDATE_TOKENS": "{count} โทเค็น",
   "SESSION_OVERVIEW_UPDATE_COVERED": "ถึง {entry}",
+  "SESSION_OVERVIEW_UPDATE_RETRY": "ลองอัปเดตอีกครั้ง",
   "SESSION_TURN_LIVE_REASONING": "กำลังใช้เหตุผล…",
   "SESSION_TURN_LIVE_WRITING": "กำลังเขียน…",
   "SESSION_TURN_LIVE_WORKING": "กำลังทำงาน…",

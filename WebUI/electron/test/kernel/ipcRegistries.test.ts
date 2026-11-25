@@ -45,6 +45,8 @@ describe('per-owner handler registries', () => {
       | 'sessions:pin'
       | 'sessions:setIncludedInOverviews'
       | 'sessions:refreshOverviewSummary'
+      | 'sessions:retryOverviewUpdate'
+      | 'sessions:resumePendingOverviewUpdates'
       | 'sessions:overviewUpdates'
       | 'sessions:pickAgent'
       | 'sessions:createGroup'

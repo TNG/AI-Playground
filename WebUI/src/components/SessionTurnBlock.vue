@@ -37,7 +37,11 @@
             :settings="part.settings"
             :inputs="part.inputs"
           />
-          <TurnOverviewUpdate v-else-if="part.kind === 'overview-update'" :update="part.update" />
+          <TurnOverviewUpdate
+            v-else-if="part.kind === 'overview-update'"
+            :entry-id="part.entryId"
+            :update="part.update"
+          />
           <template v-else-if="answerOf(part.messageId)">
             <ChatMessageParts
               v-if="item.kind === 'chat'"

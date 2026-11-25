@@ -245,6 +245,7 @@
   "SESSION_OVERVIEW_UPDATE_MODEL": "da {model}",
   "SESSION_OVERVIEW_UPDATE_TOKENS": "{count} token",
   "SESSION_OVERVIEW_UPDATE_COVERED": "fino a {entry}",
+  "SESSION_OVERVIEW_UPDATE_RETRY": "Riprova aggiornamento",
   "SESSION_TURN_LIVE_REASONING": "Ragionamento…",
   "SESSION_TURN_LIVE_WRITING": "Scrittura…",
   "SESSION_TURN_LIVE_WORKING": "Al lavoro…",

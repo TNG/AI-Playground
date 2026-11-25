@@ -1,23 +1,38 @@
 <template>
   <TooltipProvider v-if="indicator" :delay-duration="0">
-    <Tooltip>
-      <TooltipTrigger as-child>
-        <button
-          type="button"
-          class="flex h-6 flex-none items-center gap-1 rounded-md border px-1.5 transition-colors"
-          :class="chipClass"
-          :aria-label="languages.SESSIONS_IN_OVERVIEWS"
-          :aria-pressed="included"
-          @click="overviews.activate()"
-        >
-          <ArrowPathIcon v-if="pending" class="size-3.5 animate-spin" aria-hidden="true" />
-          <ExclamationTriangleIcon v-else-if="failed" class="size-3.5" aria-hidden="true" />
-          <DocumentTextIcon v-else class="size-3.5" aria-hidden="true" />
-          <span>{{ languages.SESSIONS_IN_OVERVIEWS_CHIP }}</span>
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="top" class="max-w-64">{{ hint }}</TooltipContent>
-    </Tooltip>
+    <div class="flex flex-none items-center gap-0.5">
+      <Tooltip>
+        <TooltipTrigger as-child>
+          <button
+            type="button"
+            class="flex h-6 flex-none items-center gap-1 rounded-md border px-1.5 transition-colors"
+            :class="chipClass"
+            :aria-label="languages.SESSIONS_IN_OVERVIEWS"
+            :aria-pressed="included"
+            @click="overviews.activate()"
+          >
+            <ArrowPathIcon v-if="pending" class="size-3.5 animate-spin" aria-hidden="true" />
+            <ExclamationTriangleIcon v-else-if="failed" class="size-3.5" aria-hidden="true" />
+            <DocumentTextIcon v-else class="size-3.5" aria-hidden="true" />
+            <span>{{ languages.SESSIONS_IN_OVERVIEWS_CHIP }}</span>
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="top" class="max-w-64">{{ hint }}</TooltipContent>
+      </Tooltip>
+      <Tooltip v-if="failed">
+        <TooltipTrigger as-child>
+          <button
+            type="button"
+            class="flex h-6 flex-none items-center rounded-md border border-warning/60 px-1.5 text-warning transition-colors hover:bg-warning/10"
+            :aria-label="languages.SESSION_OVERVIEW_UPDATE_RETRY"
+            @click="overviews.retry()"
+          >
+            <ArrowPathIcon class="size-3.5" aria-hidden="true" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="top">{{ languages.SESSION_OVERVIEW_UPDATE_RETRY }}</TooltipContent>
+      </Tooltip>
+    </div>
   </TooltipProvider>
 </template>
 

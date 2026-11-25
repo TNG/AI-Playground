@@ -245,6 +245,7 @@
   "SESSION_OVERVIEW_UPDATE_MODEL": "yazan: {model}",
   "SESSION_OVERVIEW_UPDATE_TOKENS": "{count} token",
   "SESSION_OVERVIEW_UPDATE_COVERED": "{entry} dahil",
+  "SESSION_OVERVIEW_UPDATE_RETRY": "Güncellemeyi yeniden dene",
   "SESSION_TURN_LIVE_REASONING": "Akıl yürütülüyor…",
   "SESSION_TURN_LIVE_WRITING": "Yazılıyor…",
   "SESSION_TURN_LIVE_WORKING": "Çalışılıyor…",

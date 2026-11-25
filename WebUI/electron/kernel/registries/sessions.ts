@@ -16,7 +16,12 @@ import {
   type AssistantCapabilityDefaults,
   type SessionCreateOptions,
 } from '@/types/sessionIpc'
-import { applyOverviewInclusion, refreshOverviewSummary } from '../../session/overviewSummary'
+import {
+  applyOverviewInclusion,
+  refreshOverviewSummary,
+  resumePendingOverviewUpdates,
+  retryOverviewUpdate,
+} from '../../session/overviewSummary'
 import type {
   createSession,
   createSessionGroup,
@@ -377,6 +382,28 @@ export function buildSessionsRegistry(deps: SessionsDeps) {
           OverviewSummaryRequestSchema.parse(request),
         )
         return { success: true as const, session }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
+    'sessions:retryOverviewUpdate': async (_event, id, entryId, request) => {
+      try {
+        const session = await retryOverviewUpdate(
+          requireString(id, 'session id'),
+          requireString(entryId, 'entry id'),
+          OverviewSummaryRequestSchema.parse(request),
+        )
+        return { success: true as const, session }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
+    'sessions:resumePendingOverviewUpdates': async (_event, request) => {
+      try {
+        const resumed = await resumePendingOverviewUpdates(
+          OverviewSummaryRequestSchema.parse(request),
+        )
+        return { success: true as const, data: { resumed } }
       } catch (e) {
         return ipcFail(e)
       }

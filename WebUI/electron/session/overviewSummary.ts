@@ -3,8 +3,14 @@ import { emitFailure, emitSessionChanged } from '../kernel/kernelBus'
 import { appLoggerInstance } from '../observability/logger'
 import { artifactReferenceOf } from './historyArtifacts'
 import { createRecordsLookup, newestVisualCover, type OverviewCover } from './overviewCovers'
-import { readHistoryEntries } from './sessionHistory'
-import { mutateSession, readSession, sessionDocumentOf, sessionPaths } from './sessions'
+import { readHistoryEntries, updateHistoryEntry } from './sessionHistory'
+import {
+  listSessions,
+  mutateSession,
+  readSession,
+  sessionDocumentOf,
+  sessionPaths,
+} from './sessions'
 import { readSessionFolders } from './sessionFolders'
 import { autoTitle } from './sessionTitle'
 import type { ChatModelConfig } from '@/types/chatIpc'
@@ -13,6 +19,7 @@ import type {
   OverviewSummary,
   OverviewSummaryPicture,
   OverviewSummaryRequest,
+  OverviewSummaryUpdate,
   SessionDocument,
   SessionFile,
 } from '@/types/sessionIpc'
@@ -348,6 +355,16 @@ async function writeSummary(
   return sessionDocumentOf(file)
 }
 
+/** The durable marker a run leaves if it is interrupted: the next launch or turn resumes it. */
+async function markPendingForRun(sessionId: string, token: number): Promise<void> {
+  const file = await mutateSession(sessionId, (current) =>
+    current.includedInOverviews && isCurrentRun(sessionId, token)
+      ? { ...current, overviewSummary: pendingSummary(current.overviewSummary) }
+      : current,
+  )
+  emitSessionChanged(sessionDocumentOf(file))
+}
+
 type UpdateRunResult = { summary: OverviewSummary; tokens?: number }
 
 async function performUpdate(
@@ -500,6 +517,53 @@ export type OverviewSummaryUpdateOutcome = {
   failureReason?: string
 }
 
+/** The History Entry outcome a settled update records, for the turn's details row. */
+export function overviewOutcomePatch(outcome: OverviewSummaryUpdateOutcome): OverviewSummaryUpdate {
+  if (outcome.state === 'ready') {
+    return {
+      state: 'ready',
+      ...(outcome.summary.model ? { model: outcome.summary.model } : {}),
+      ...(outcome.summary.writtenAt !== undefined ? { writtenAt: outcome.summary.writtenAt } : {}),
+      durationMs: outcome.durationMs,
+      ...(outcome.tokens !== undefined ? { tokens: outcome.tokens } : {}),
+      ...(outcome.summary.coveredEntryId ? { coveredEntryId: outcome.summary.coveredEntryId } : {}),
+      ...(outcome.summary.text ? { text: outcome.summary.text } : {}),
+    }
+  }
+  return {
+    state: 'failed',
+    ...(outcome.summary.model ? { model: outcome.summary.model } : {}),
+    writtenAt: Date.now(),
+    durationMs: outcome.durationMs,
+    ...(outcome.tokens !== undefined ? { tokens: outcome.tokens } : {}),
+    ...(outcome.summary.coveredEntryId ? { coveredEntryId: outcome.summary.coveredEntryId } : {}),
+    ...(outcome.failureReason ? { failureReason: outcome.failureReason } : {}),
+  }
+}
+
+/**
+ * Writes one update's outcome back onto the entries still waiting for it: the turn
+ * that was interrupted, a crashed run, or (with `entryId`) the one row a Retry names.
+ * A failure never touches earlier failed entries.
+ */
+export async function recordOverviewOutcome(
+  sessionId: string,
+  patch: OverviewSummaryUpdate,
+  entryId?: string,
+): Promise<HistoryEntry[]> {
+  const entries = await readHistoryEntries(sessionId)
+  const updated: HistoryEntry[] = []
+  for (const entry of entries) {
+    const waiting = entry.overviewUpdate?.state === 'pending'
+    if (entryId !== undefined ? entry.id !== entryId : !waiting) continue
+    const next = await updateHistoryEntry(sessionId, entry.id, { overviewUpdate: patch })
+    if (next) updated.push(next)
+  }
+  const file = await readSession(sessionId).catch(() => null)
+  if (file) emitSessionChanged(sessionDocumentOf(file))
+  return updated
+}
+
 /**
  * The turn-settlement entry point: run the update and report what happened, or
  * null when there is nothing to update (not included, no entries, no local model).
@@ -526,6 +590,7 @@ export async function updateOverviewSummaryForTurn(
   external?.addEventListener('abort', onAbort, { once: true })
   if (external?.aborted) run.controller.abort()
   try {
+    await markPendingForRun(sessionId, run.token)
     const result = await performUpdate(sessionId, request, run, options.admitted === true)
     if (!result) return null
     return {
@@ -600,7 +665,10 @@ export async function applyOverviewInclusion(
   return pending
 }
 
-/** Run the same update again without a turn (a Retry, or a refresh after a failure). */
+/**
+ * Run the update again without a turn, from the chip: only the Session's summary
+ * state moves. A turn's own details row is left exactly as that turn recorded it.
+ */
 export async function refreshOverviewSummary(
   sessionId: string,
   request: OverviewSummaryRequest,
@@ -614,4 +682,120 @@ export async function refreshOverviewSummary(
   const pending = await markPending(sessionId, file.overviewSummary)
   startUpdate(sessionId, request)
   return pending
+}
+
+/**
+ * A turn's failed row runs the update again without a new turn, and the new outcome
+ * is written back onto that same History Entry. Resolves once it has settled.
+ */
+export async function retryOverviewUpdate(
+  sessionId: string,
+  entryId: string,
+  request: OverviewSummaryRequest,
+): Promise<SessionDocument> {
+  const startedAt = Date.now()
+  const file = await readSession(sessionId)
+  if (!file.includedInOverviews) return sessionDocumentOf(file)
+  const entries = await readHistoryEntries(sessionId)
+  if (!entries.some((entry) => entry.id === entryId)) return sessionDocumentOf(file)
+  if (!localModelOf(request)) return sessionDocumentOf(file)
+  // The account keeps the language it was written in; a UI language change does not retranslate it.
+  const retryRequest = { ...request, language: file.overviewSummary?.language ?? request.language }
+
+  const retrying = await updateHistoryEntry(sessionId, entryId, {
+    overviewUpdate: { state: 'pending' },
+  })
+  if (!retrying) return sessionDocumentOf(file)
+  await markPending(sessionId, file.overviewSummary)
+
+  const run = beginRun(sessionId)
+  let patch: OverviewSummaryUpdate | null = null
+  try {
+    const result = await performUpdate(sessionId, retryRequest, run, false)
+    if (result) {
+      patch = overviewOutcomePatch({
+        state: 'ready',
+        summary: result.summary,
+        durationMs: Date.now() - startedAt,
+        ...(result.tokens !== undefined ? { tokens: result.tokens } : {}),
+      })
+    }
+  } catch (error) {
+    if (!run.controller.signal.aborted) {
+      const summary = await failUpdate(sessionId, run.token, error, retryRequest.language)
+      if (summary) {
+        patch = overviewOutcomePatch({
+          state: 'failed',
+          summary,
+          durationMs: Date.now() - startedAt,
+          failureReason: error instanceof Error ? error.message : String(error),
+        })
+      }
+    }
+  } finally {
+    if (activeRuns.get(sessionId)?.token === run.token) activeRuns.delete(sessionId)
+  }
+
+  if (patch) await recordOverviewOutcome(sessionId, patch, entryId)
+  return sessionDocumentOf(await readSession(sessionId))
+}
+
+/**
+ * Resumes the pending markers a crash left behind: every pending History Entry an
+ * included Session still has is covered by one update, whose outcome then replaces
+ * all of them. Nothing is retried unless a marker is pending, so a failure waits.
+ */
+export async function resumePendingOverviewUpdates(
+  request: OverviewSummaryRequest,
+): Promise<string[]> {
+  const resumed: string[] = []
+  if (!localModelOf(request)) return resumed
+  const sessions = await listSessions()
+  for (const session of sessions) {
+    if (!session.includedInOverviews) continue
+    const pending = (await readHistoryEntries(session.id)).filter(
+      (entry) => entry.overviewUpdate?.state === 'pending',
+    )
+    if (pending.length === 0) continue
+
+    const startedAt = Date.now()
+    const file = await readSession(session.id).catch(() => null)
+    if (!file?.includedInOverviews) continue
+    const sessionRequest = {
+      ...request,
+      language: file.overviewSummary?.language ?? request.language,
+    }
+    const run = beginRun(session.id)
+    let patch: OverviewSummaryUpdate | null = null
+    try {
+      const result = await performUpdate(session.id, sessionRequest, run, false)
+      if (result) {
+        patch = overviewOutcomePatch({
+          state: 'ready',
+          summary: result.summary,
+          durationMs: Date.now() - startedAt,
+          ...(result.tokens !== undefined ? { tokens: result.tokens } : {}),
+        })
+      }
+    } catch (error) {
+      if (!run.controller.signal.aborted) {
+        const summary = await failUpdate(session.id, run.token, error, sessionRequest.language)
+        if (summary) {
+          patch = overviewOutcomePatch({
+            state: 'failed',
+            summary,
+            durationMs: Date.now() - startedAt,
+            failureReason: error instanceof Error ? error.message : String(error),
+          })
+        }
+      }
+    } finally {
+      if (activeRuns.get(session.id)?.token === run.token) activeRuns.delete(session.id)
+    }
+
+    if (!patch) continue
+    await recordOverviewOutcome(session.id, patch)
+    resumed.push(session.id)
+  }
+  return resumed
 }

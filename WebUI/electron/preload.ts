@@ -323,6 +323,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
         : invoke('sessions:setIncludedInOverviews', id, included, cloneForIpc(request)),
     refreshOverviewSummary: (id: string, request: OverviewSummaryRequest) =>
       invoke('sessions:refreshOverviewSummary', id, cloneForIpc(request)),
+    retryOverviewUpdate: (id: string, entryId: string, request: OverviewSummaryRequest) =>
+      invoke('sessions:retryOverviewUpdate', id, entryId, cloneForIpc(request)),
+    resumePendingOverviewUpdates: (request: OverviewSummaryRequest) =>
+      invoke('sessions:resumePendingOverviewUpdates', cloneForIpc(request)),
     overviewUpdates: (id: string) => invoke('sessions:overviewUpdates', id),
     addFolder: (id: string, hostPath: string) => invoke('sessions:addFolder', id, hostPath),
     removeFolder: (id: string, folderId: string) => invoke('sessions:removeFolder', id, folderId),

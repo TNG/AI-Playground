@@ -344,6 +344,27 @@ export const CHANNELS = {
     result: null as unknown as IpcOkWith<{ session: SessionSummary }>,
   },
   /**
+   * Retry the Overview Summary update a settled turn's details row names, without a new turn,
+   * and write the new outcome back onto that same History Entry. Pushes `session-changed`.
+   */
+  'sessions:retryOverviewUpdate': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string, OverviewSummaryRequest],
+    result: null as unknown as IpcOkWith<{ session: SessionSummary }>,
+  },
+  /**
+   * Resume the pending update markers an interrupted run left behind, on launch. Only pending
+   * entries are rerun; a failed update is left for its Retry or a later turn. Pushes
+   * `session-changed` for each Session it resumes.
+   */
+  'sessions:resumePendingOverviewUpdates': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [OverviewSummaryRequest],
+    result: null as unknown as IpcDataResult<{ resumed: string[] }>,
+  },
+  /**
    * The per-turn Overview Summary update outcomes of a Session's History Entries, which a
    * settled chat or agent turn's details row shows. `pending` is a durable marker.
    */

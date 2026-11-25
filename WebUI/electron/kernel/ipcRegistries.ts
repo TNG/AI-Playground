@@ -45,6 +45,7 @@ export type McpInvokeName = Extract<MainInvokeChannelName, `mcp:${string}`>
 export type McpSendName = Extract<MainSendChannelName, `mcp:${string}`>
 export type ComfyuiInvokeName = Extract<MainInvokeChannelName, `comfyui:${string}`>
 export type ComfyuiSendName = Extract<MainSendChannelName, `comfyui:${string}`>
+export type HermesInvokeName = Extract<MainInvokeChannelName, `hermes:${string}`>
 export type WebBrowserInvokeName = Extract<MainInvokeChannelName, `webBrowser:${string}`>
 export type WebBrowserSendName = Extract<MainSendChannelName, `webBrowser:${string}`>
 export type GamesInvokeName = Extract<MainInvokeChannelName, `games:${string}`>
@@ -77,6 +78,8 @@ export type DemoModeInvokeName = Extract<MainInvokeChannelName, `demoMode:${stri
 export type DemoModeSendName = Extract<MainSendChannelName, `demoMode:${string}`>
 export type SessionsInvokeName = Extract<MainInvokeChannelName, `sessions:${string}`>
 export type SessionsSendName = Extract<MainSendChannelName, `sessions:${string}`>
+export type RemoteKernelInvokeName = Extract<MainInvokeChannelName, `remoteKernel:${string}`>
+export type RemoteKernelSendName = Extract<MainSendChannelName, `remoteKernel:${string}`>
 
 /** The core registry's names (batch D): every main channel no prefix domain claims. */
 export type CoreInvokeName = Exclude<
@@ -86,6 +89,7 @@ export type CoreInvokeName = Exclude<
   | AgentModeInvokeName
   | McpInvokeName
   | ComfyuiInvokeName
+  | HermesInvokeName
   | WebBrowserInvokeName
   | GamesInvokeName
   | PermissionsInvokeName
@@ -102,6 +106,7 @@ export type CoreInvokeName = Exclude<
   | CameraCaptureInvokeName
   | DemoModeInvokeName
   | SessionsInvokeName
+  | RemoteKernelInvokeName
 >
 
 export type CoreSendName = Exclude<
@@ -127,6 +132,7 @@ export type CoreSendName = Exclude<
   | CameraCaptureSendName
   | DemoModeSendName
   | SessionsSendName
+  | RemoteKernelSendName
 >
 
 export function registerInvokeHandlers<Names extends InvokeChannelName>(

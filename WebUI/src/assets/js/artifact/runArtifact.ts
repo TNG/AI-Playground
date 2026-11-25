@@ -11,6 +11,7 @@ import { usePresets, type ComfyInput, type ComfyUiPreset, type Preset } from '..
 import { imageUrlToDataUri } from '@/lib/utils'
 import { cloneForIpc } from '@/lib/cloneForIpc'
 import { presetToMode } from '@/lib/presetModes'
+import { FALLBACK_PARAMS, presetDefault, presetDefaultResolution } from '@/lib/comfyParamDefaults'
 
 /**
  * Renderer-side Artifact capability: one fully-resolved request in, one settled
@@ -84,24 +85,8 @@ export type ArtifactResult = {
   error?: string
 }
 
-// Fallbacks when neither the request nor the preset declares a value. Matches
-// the create tool's historic defaults; presets normally declare their own.
-const FALLBACK_PARAMS: Omit<ComfyGenerationParams, 'prompt'> = {
-  seed: -1,
-  width: 512,
-  height: 512,
-  inferenceSteps: 6,
-  batchSize: 1,
-  negativePrompt: 'nsfw',
-}
-
 const QUEUED_PLACEHOLDER_URL =
   'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="1" height="1"%3E%3C/svg%3E'
-
-function presetDefault(preset: Preset, settingName: string): unknown {
-  return preset.settings.find((s) => 'settingName' in s && s.settingName === settingName)
-    ?.defaultValue
-}
 
 function settingIsRelevantFor(preset: Preset, settingName: string): boolean {
   const setting = preset.settings.find((s) => 'settingName' in s && s.settingName === settingName)
@@ -126,11 +111,7 @@ function resolveVariantName(preset: Preset, requested: string | undefined): stri
 function resolveParams(request: ArtifactRequest, preset: ComfyUiPreset): ComfyGenerationParams {
   const params = request.params ?? {}
   const mediaType = preset.mediaType ?? 'image'
-  const resolutionDefault = presetDefault(preset, 'resolution')
-  const [defaultWidth, defaultHeight] =
-    typeof resolutionDefault === 'string'
-      ? resolutionDefault.split('x').map(Number)
-      : [undefined, undefined]
+  const [defaultWidth, defaultHeight] = presetDefaultResolution(preset)
 
   // Batching only makes sense for images (cheap alternates); video and 3D are
   // expensive and a single result is expected, so batch is forced to 1.

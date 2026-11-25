@@ -171,8 +171,13 @@ function provenanceOf(source: GameProvenance): GameProvenance {
   return kept
 }
 
-function writeMetadata(dir: string, metadata: GameMetadata): GameEntry {
+function writeMetadata(
+  dir: string,
+  metadata: GameMetadata,
+  onWrite?: (file: string) => void,
+): GameEntry {
   fs.mkdirSync(dir, { recursive: true })
+  onWrite?.(metadataPath(dir))
   fs.writeFileSync(metadataPath(dir), `${JSON.stringify(metadata, null, 2)}\n`, 'utf-8')
   return toEntry(dir, metadata)
 }
@@ -231,10 +236,11 @@ export function readGame(dir: string): GameEntry | null {
 export function updateGame(
   dir: string,
   patch: Partial<Omit<GameMetadata, 'id' | 'createdAt' | keyof GameProvenance>>,
+  onWrite?: (file: string) => void,
 ): GameEntry {
   const current = readMetadata(dir)
   if (!current) throw new Error(`Not a game folder: ${dir}`)
-  return writeMetadata(dir, { ...current, ...patch, updatedAt: Date.now() })
+  return writeMetadata(dir, { ...current, ...patch, updatedAt: Date.now() }, onWrite)
 }
 
 /**
@@ -242,7 +248,11 @@ export function updateGame(
  * the game folder (the agent generates into `generated/`); it is copied to
  * `icon.<ext>` so the icon survives a cleanup of the generated art.
  */
-export function setGameIcon(dir: string, relativePath: string): GameEntry {
+export function setGameIcon(
+  dir: string,
+  relativePath: string,
+  onWrite?: (file: string) => void,
+): GameEntry {
   const source = path.resolve(dir, relativePath)
   const inside = path.relative(dir, source)
   if (inside.startsWith('..') || path.isAbsolute(inside)) {
@@ -251,8 +261,11 @@ export function setGameIcon(dir: string, relativePath: string): GameEntry {
   if (!fs.existsSync(source)) throw new Error(`Icon file does not exist: ${relativePath}`)
   const icon = `icon${path.extname(source).toLowerCase() || '.png'}`
   const target = path.join(dir, icon)
-  if (path.resolve(target) !== source) fs.copyFileSync(source, target)
-  return updateGame(dir, { icon })
+  if (path.resolve(target) !== source) {
+    onWrite?.(target)
+    fs.copyFileSync(source, target)
+  }
+  return updateGame(dir, { icon }, onWrite)
 }
 
 /** Every game in the library, most recently worked on first. */

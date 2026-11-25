@@ -104,6 +104,7 @@ export const HARNESS_TURN_REFUSALS = {
   running: 'AGENT_TURN_EDIT_RUNNING',
   notLatest: 'AGENT_REGENERATE_NOT_LATEST',
   noPrompt: 'AGENT_REGENERATE_NO_PROMPT',
+  hostShell: 'AGENT_TURN_EDIT_HOST_SHELL',
 } as const
 
 export type HarnessTurnRefusal = (typeof HARNESS_TURN_REFUSALS)[keyof typeof HARNESS_TURN_REFUSALS]
@@ -129,6 +130,8 @@ export const AgentModeTurnConfigSchema = z.object({
   instructions: z.string().optional(),
   /** `instructions` replace Pi's coding-agent prompt; file and shell tools need `files`. */
   ownsPrompt: z.boolean().optional(),
+  /** The agent runtime: Pi in main (default) or the Hermes Agent sidecar. */
+  harness: z.enum(['pi', 'hermes']).optional(),
   /** The agent preset this turn was held with, for labelling its trace. */
   presetName: z.string().optional(),
   capabilities: z.array(z.string()).optional(),
@@ -167,6 +170,10 @@ export const AgentModeTurnConfigSchema = z.object({
   followedRun: AgentRunTagSchema.pick({ taskName: true, startedAt: true }).optional(),
   /** Regenerate: the latest harness turn, which this one replaces from just before it. */
   rewindTurnId: z.string().optional(),
+  /** The rewind carries an edited prompt: send it instead of replaying the stored one. */
+  editedPrompt: z.boolean().optional(),
+  /** The id of the user message that asked; another window watching the turn shows the same one. */
+  userMessageId: z.string().min(1).optional(),
 })
 
 export type AgentModeModelConfig = z.infer<typeof AgentModeModelConfigSchema>

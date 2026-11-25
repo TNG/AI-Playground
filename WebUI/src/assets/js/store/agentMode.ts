@@ -54,6 +54,7 @@ import {
 } from '@/lib/agentSessionSettings'
 import { HARNESS_CHAT_PRESET } from '@/lib/harnessChatPreset'
 import { hasChatAffordances } from '@/lib/chatAffordances'
+import { runPrompt, stepPrompts } from '@/lib/taskSteps'
 import { harnessInstructions } from '@/lib/presetPrompt'
 import {
   describeSettingsProblems,
@@ -1023,6 +1024,7 @@ export const useAgentMode = defineStore(
           chatAware.responseLanguage(sessionResponseLocale(sessionId)),
         ),
         ownsPrompt: activeAgentPreset.value?.agentOwnsPrompt === true,
+        harness: activeAgentPreset.value?.harness,
         userSampling: hasChatAffordances(activeAgentPreset.value),
         capabilities: [...capabilities.value],
         unsandboxed: unsandboxed.value,
@@ -1062,6 +1064,7 @@ export const useAgentMode = defineStore(
           chatAware.responseLanguage(sessionResponseLocale(sessionId)),
         ),
         ownsPrompt: chatPreset?.agentOwnsPrompt === true,
+        harness: chatPreset?.harness,
         userSampling: hasChatAffordances(chatPreset),
         capabilities: [...context.capabilities],
         unsandboxed: isUnsandboxed(context.workspaceDir),
@@ -1836,6 +1839,18 @@ export const useAgentMode = defineStore(
         })
         return
       }
+      if (result.unrestorable.length > 0) {
+        errors.report(new Error(result.unrestorable.join(', ')), {
+          category: 'unknown',
+          code: 'agent/delete-turn-unrestorable',
+          severity: 'warning',
+          userMessage: i18n.state.AGENT_TURN_RESTORE_UNRESTORABLE.replace(
+            '{files}',
+            result.unrestorable.join(', '),
+          ),
+          surface: 'toast',
+        })
+      }
       const removed = new Set(ref.messageIds)
       const runtime = turns.runtimeOf(id)
       if (runtime) {
@@ -2153,6 +2168,15 @@ export const useAgentMode = defineStore(
       taskLockOf = lookup
     }
 
+    let taskStepsOf: (taskId: string) => readonly AgentTaskStep[] | undefined = () => undefined
+
+    /** The Tasks store owns the Agents, so an Agent Run's Edit reads its Steps through here. */
+    function setTaskStepsLookup(
+      lookup: (taskId: string) => readonly AgentTaskStep[] | undefined,
+    ): void {
+      taskStepsOf = lookup
+    }
+
     function taskLockRefusal(
       sessionId: string,
       signal: AbortSignal | undefined,
@@ -2186,6 +2210,8 @@ export const useAgentMode = defineStore(
         followUp?: AgentFollowUpTag
         /** Regenerate this latest Turn: its prompt is sent again and `prompt` is unused. */
         regenerate?: HarnessTurnRef
+        /** The regeneration carries an edited prompt: main sends it, not the stored one. */
+        editedPrompt?: boolean
       } = {},
     ): Promise<SendToSessionResult> {
       const record = sessions.value[sessionId]
@@ -2306,7 +2332,7 @@ export const useAgentMode = defineStore(
       const redo = options.regenerate
       runTurn(sessionId, context, (chat) =>
         redo?.promptId
-          ? regenerateIn(chat, redo.promptId, redo)
+          ? regenerateIn(chat, redo.promptId, redo, options.editedPrompt === true)
           : chat.sendMessage({ text: prompt, metadata }),
       ).catch((error) =>
         errors.report(error, {
@@ -2342,6 +2368,7 @@ export const useAgentMode = defineStore(
       chat: AgentSessionRuntime['chat'],
       promptId: string,
       redo: HarnessTurnRef,
+      edited = false,
     ): Promise<void> {
       const before = chat.messages
       const known = new Set(before.map((message) => message.id))
@@ -2362,7 +2389,10 @@ export const useAgentMode = defineStore(
       try {
         await chat.regenerate({
           messageId: promptId,
-          body: { rewindTurnId: redo.turnIds[0] } satisfies RegenerateBody,
+          body: {
+            rewindTurnId: redo.turnIds[0],
+            ...(edited ? { editedPrompt: true } : {}),
+          } satisfies RegenerateBody,
         })
       } finally {
         stop()
@@ -2408,9 +2438,15 @@ export const useAgentMode = defineStore(
     }
 
     /** Regenerate the latest Assistant Turn from its Harness Session as it was before it. */
-    async function regenerateTurn(ref: HarnessTurnRef): Promise<void> {
+    async function regenerateTurn(ref: HarnessTurnRef, edited = false): Promise<void> {
       if (!ref.promptId || ref.turnIds.length === 0) return
-      const result = await sendToSession(ref.harnessSessionId, '', { regenerate: ref })
+      const record = sessions.value[ref.harnessSessionId]
+      const result = await sendToSession(ref.harnessSessionId, '', {
+        regenerate: ref,
+        ...(edited ? { editedPrompt: true } : {}),
+        // A Task Run re-runs in the Agent's own workspace, under its own run tag.
+        ...(record?.taskRun ? { taskRun: record.taskRun } : {}),
+      })
       if (result.ok) return
       errors.report(new Error(result.message), {
         category: 'inference',
@@ -2424,8 +2460,22 @@ export const useAgentMode = defineStore(
       if (!ref.promptId || ref.turnIds.length === 0) return
       const chat = turns.runtimeFor(ref.harnessSessionId).chat
       const prompt = chat.messages.find((m) => m.id === ref.promptId && m.role === 'user')
-      if (prompt) applyEditedPrompt(prompt, edited)
-      await regenerateTurn(ref)
+      if (!prompt) return
+      const record = sessions.value[ref.harnessSessionId]
+      // An Agent Run's prompt is its Start Prompt over its Steps: the edit is the new Start
+      // Prompt, which its run tag carries from here on.
+      const steps =
+        record?.taskRun?.taskId !== undefined ? taskStepsOf(record.taskRun.taskId) : undefined
+      if (record?.taskRun) {
+        const { input: _replaced, ...withoutInput } = record.taskRun
+        const input = edited.trim()
+        rewriteSession(ref.harnessSessionId, {
+          ...record,
+          taskRun: input ? { ...record.taskRun, input } : withoutInput,
+        })
+      }
+      applyEditedPrompt(prompt, steps ? runPrompt(edited, stepPrompts(steps)) : edited)
+      await regenerateTurn(ref, true)
     }
 
     /**
@@ -2550,6 +2600,7 @@ export const useAgentMode = defineStore(
       endAgentRun,
       sendToSession,
       setTaskLockLookup,
+      setTaskStepsLookup,
       quietSessionErrors,
       onTurnSettled,
       stopSession,

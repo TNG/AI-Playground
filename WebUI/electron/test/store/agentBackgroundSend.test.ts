@@ -155,7 +155,7 @@ const existsPath = vi.fn(async (dir: string) => dir !== '/missing')
 const deleteTurns = vi.fn(async (request: { harnessSessionId: string }) =>
   runningSessions.has(request.harnessSessionId)
     ? { success: false, error: 'This session already has a turn in flight.' }
-    : { success: true },
+    : { success: true, unrestorable: [] },
 )
 
 beforeEach(() => {

@@ -90,6 +90,30 @@ export async function freeName(dir: string, name: string): Promise<string> {
   return firstFree(dashNumbered(name), notTakenIn(dir))
 }
 
+/** A ComfyUI output stem, `<prefix>_<NNNNN>_`; null when `stem` is not that shape. */
+export function parseNumberedStem(stem: string): { prefix: string; n: number } | null {
+  const matched = /^(.+)_(\d{5,})_$/.exec(stem)
+  return matched ? { prefix: matched[1], n: Number(matched[2]) } : null
+}
+
+/**
+ * The next number in `dir`'s series for a ComfyUI output, `<prefix>_<max + 1>_.<ext>` from 1 —
+ * session adoption moves earlier outputs away, so ComfyUI's own counter keeps restarting and
+ * would otherwise collide. A name of another shape falls back to `freeName`.
+ */
+export async function nextNumberedName(dir: string, name: string): Promise<string> {
+  const { name: stem, ext } = path.parse(name)
+  const series = parseNumberedStem(stem)
+  if (!series) return freeName(dir, name)
+  let highest = 0
+  for (const entry of await entriesOf(dir)) {
+    const parsed = parseNumberedStem(path.parse(entry.name).name)
+    if (parsed?.prefix === series.prefix) highest = Math.max(highest, parsed.n)
+  }
+  const next = `${series.prefix}_${String(highest + 1).padStart(5, '0')}_${ext}`
+  return firstFree(dashNumbered(next), notTakenIn(dir))
+}
+
 /** Where `name` or `name (n)` is free in `parent`; nothing is made there. */
 export async function freeFolderPath(parent: string, name: string): Promise<string> {
   return path.join(parent, await firstFree(parenNumbered(name), notTakenIn(parent)))

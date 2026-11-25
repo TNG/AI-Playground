@@ -9,6 +9,7 @@ import type { MediaItem } from './mediaItem'
 import type { ActivityCategory, ActivityScope, ActivityState } from '@/assets/js/activities/types'
 import type { SerializedAppError } from '@/assets/js/errors/types'
 import type { SessionDocument, SessionGroupsState, SessionTurns } from './sessionIpc'
+import type { HeldComponent } from './componentChange'
 
 export type KernelEventScope =
   { kind: 'global' } | { kind: 'chat'; conversationKey: string } | { kind: 'run'; runId: string }
@@ -55,6 +56,9 @@ export type KernelAgentToolImageEvent = {
 
 /** The turn settled (success, error or abort); its stream can close. */
 /** The turn moved within the Turn Queue (queued → running when it takes the place). */
+/** What started a turn, so a window that did not start it can show it from its first event. */
+export type AgentTurnOrigin = { prompt: string; userMessageId: string }
+
 export type KernelAgentTurnStateEvent = {
   type: 'agent-turn-state'
   sessionId: string
@@ -62,6 +66,8 @@ export type KernelAgentTurnStateEvent = {
   state: AgentTurnState
   /** What the user is asked; only while `paused`. */
   pauseReason?: PauseReason
+  /** Only on the turn's first event, which precedes every chunk of it. */
+  origin?: AgentTurnOrigin
 }
 
 export type KernelAgentTurnDoneEvent = {
@@ -272,6 +278,13 @@ export type KernelSessionTurnsEvent = {
   turns: SessionTurns
 }
 
+/** Components held by Work in flight, and whether any In-flight Work exists at all. */
+export type KernelComponentHoldsEvent = {
+  type: 'component-holds'
+  holds: HeldComponent[]
+  anyInFlightWork: boolean
+}
+
 /** Last successful local chat load — kernel memory, not the settings dropdown. */
 export type KernelInferenceProfile = {
   serviceName: string
@@ -303,6 +316,7 @@ export type KernelEventPayload =
   | KernelSessionChangedEvent
   | KernelSessionGroupsChangedEvent
   | KernelSessionTurnsEvent
+  | KernelComponentHoldsEvent
 
 export type KernelEvent = KernelEventPayload & KernelEventEnvelope
 
@@ -382,6 +396,10 @@ export type KernelSnapshotState = {
   inferenceProfile: KernelInferenceProfile | null
   /** Sessions with a turn in flight, one turn each. */
   sessionTurns?: SessionTurns
+  /** Components held by Work in flight, for the Component Manager's in-use guard. */
+  componentHolds?: HeldComponent[]
+  /** Whether any In-flight Work exists; a Hardware Mode change waits for it. */
+  anyInFlightWork?: boolean
 }
 
 export type KernelSnapshot = {

@@ -113,10 +113,25 @@ import {
   resetAgentSession,
   setAgentModeMainWindow,
   shutdownAgentMode,
-  startAgentTurn,
   submitAgentToolResult,
 } from './agent/piAgentManager'
-import { getKernelSnapshot, onKernelEvent, setKernelEventWindow } from './kernel/kernelBus'
+import { startAgentTurnOnHarness } from './agent/agentHarness'
+import { hermesService, wireHermesService } from './agent/hermes/hermesIntegration'
+import { HermesBackendService } from './adapters/backends/hermesBackendService'
+import {
+  getKernelEventWindow,
+  getKernelSnapshot,
+  onKernelEvent,
+  relayKernelEvent,
+  setComponentHolds,
+  setKernelEventWindow,
+  setKernelRelayOnly,
+} from './kernel/kernelBus'
+import { createRemoteKernel } from './kernel/remoteKernel/remoteKernel'
+import { createProtectedJsonFile } from './persist/remoteKernelSecrets'
+import { createLanDiscovery } from './adapters/lanDiscovery'
+import { buildRemoteKernelRegistry } from './kernel/registries/remoteKernel'
+import type { PushChannelName } from '@/types/ipcChannels'
 import { registerInvokeHandlers, registerSendHandlers } from './kernel/ipcRegistries'
 import { typedSend } from './kernel/typedIpc'
 import { bindRendererWorkReset, createCloseCoordinator } from './kernel/closeCoordinator'
@@ -129,6 +144,8 @@ import {
   showRefreshedCloseQuestion,
 } from './kernel/closeAsk'
 import { createInFlightWork, queuedChannelMessages } from './kernel/inFlightWork'
+import { createComponentChanges } from './kernel/componentChanges'
+import type { HeldComponent } from '@/types/componentChange'
 import { openAgentTaskFolder } from './agent/agentTaskFolders.ts'
 import { setVerboseLogging as setVerboseAgentLogging } from './agent/piAgentLog.ts'
 import { setRagAccess } from './agent/ragAccess.ts'
@@ -166,10 +183,13 @@ import {
   type RunnerComfyService,
 } from './artifact/runner'
 import {
+  artifactWorkOpen,
   awaitChatWindow,
   cancelArtifactRun,
   cancelAllArtifactRuns,
+  mediaRequestsQueued,
   openArtifactRuns,
+  openComponentHolds,
   openTextRequests,
   setOrchestratorDeps,
   submitArtifactRun,
@@ -318,6 +338,7 @@ import { claimSessionTurn, inSessionTurn, releaseSessionTurn } from './session/s
 import { buildAgentModeRegistry } from './kernel/registries/agentMode'
 import { buildChatRegistry } from './kernel/registries/chat'
 import { buildComfyuiRegistry } from './kernel/registries/comfyui'
+import { buildHermesRegistry } from './kernel/registries/hermes'
 import { buildGamesRegistry } from './kernel/registries/games'
 import { buildMcpRegistry, buildMcpSendRegistry } from './kernel/registries/mcp'
 import {
@@ -596,6 +617,32 @@ const inFlightWork = createInFlightWork({
   readAgentTasks,
 })
 
+/** Components the window reports holding (speech turns, model downloads), as last heard. */
+let windowComponentHolds: HeldComponent[] = []
+
+// Main's own work plus the window's report, in one admission rule the IPC
+// handlers and the Component Manager both consult.
+const componentChanges = createComponentChanges({
+  heldComponents: () => [...openComponentHolds(), ...windowComponentHolds],
+  hasInFlightWork: () =>
+    openTextRequests().length > 0 ||
+    openArtifactRuns().length > 0 ||
+    artifactWorkOpen() ||
+    mediaRequestsQueued() > 0 ||
+    windowComponentHolds.length > 0 ||
+    inFlightWork.rendererWork().length > 0,
+})
+
+/** Push the guard's current view through the kernel stream so the tab can re-enable actions. */
+function publishComponentState(): void {
+  setComponentHolds(openComponentHolds(), componentChanges.anyInFlightWork())
+}
+
+function setWindowComponentHolds(holds: HeldComponent[]): void {
+  windowComponentHolds = holds
+  publishComponentState()
+}
+
 const closeCoordinator = createCloseCoordinator({
   listInFlightWork: inFlightWork.list,
   askWindow: (question) => askWindowToClose(win, question),
@@ -780,6 +827,27 @@ const demoModeConfig = createDemoModeConfig({
 // device chosen after install) without importing main.ts's private writer.
 registerSettingsPersist(persistLocalSettingsToDisk)
 
+const remoteKernelCipher = {
+  available: () => safeStorage.isEncryptionAvailable(),
+  encrypt: (plain: string) => safeStorage.encryptString(plain),
+  decrypt: (data: Buffer) => safeStorage.decryptString(data),
+}
+const remoteKernelFile = <T>(name: string) =>
+  createProtectedJsonFile<T>(() => path.join(app.getPath('userData'), name), remoteKernelCipher)
+const remoteKernelLog = (message: string, level: 'info' | 'warn' | 'error' = 'info') =>
+  appLogger[level](message, 'remote-kernel', true)
+const remoteKernel = createRemoteKernel({
+  settings: () => settings,
+  persistSettings: persistLocalSettingsToDisk,
+  files: {
+    tls: remoteKernelFile('remote-kernel-tls.json'),
+    devices: remoteKernelFile('remote-kernel-devices.json'),
+    pairedHost: remoteKernelFile('remote-kernel-paired-host.json'),
+  },
+  discovery: createLanDiscovery(remoteKernelLog),
+  log: remoteKernelLog,
+})
+
 protocol.registerSchemesAsPrivileged([
   {
     scheme: 'aipg-media',
@@ -888,6 +956,7 @@ async function createWindow() {
   setAgentModeMainWindow(win)
   setKernelEventWindow(win)
   bindRendererWorkReset(win.webContents, inFlightWork.setRendererWork)
+  bindRendererWorkReset(win.webContents, () => setWindowComponentHolds([]))
   // The renderer that was asked a media request cannot answer from a new
   // window; settle its pendings so waiters fail instead of hanging. The same
   // holds for a chat tool execution the old renderer was told to run. Artifact
@@ -1242,6 +1311,8 @@ appShutdown.register({
   },
 })
 appShutdown.register({ name: 'web browser', run: () => destroyWebBrowser() })
+// Withdraws the mDNS record, so clients stop listing a workstation that is gone.
+appShutdown.register({ name: 'remote kernel', run: () => remoteKernel.close() })
 // Demo conversations are session-scoped (§6.1): nothing demo-written may
 // survive the process that wrote it.
 appShutdown.register({ name: 'demo conversations', run: () => wipeDemoConversations() })
@@ -1344,7 +1415,9 @@ app.on('second-instance', (_event, _commandLine, _workingDirectory) => {
 })
 
 async function initServiceRegistry(win: BrowserWindow, settings: LocalSettings) {
-  serviceRegistry = await aiplaygroundApiServiceRegistry(win, settings)
+  serviceRegistry = await aiplaygroundApiServiceRegistry(win, settings, {
+    startBackends: !remoteKernel.isThinClientDevice(),
+  })
   const homeAgent = serviceRegistry.getService('home-agent-backend')
   if (homeAgent instanceof HomeAgentBackendService) {
     homeAgent.registerIpcHandlers()
@@ -1354,6 +1427,8 @@ async function initServiceRegistry(win: BrowserWindow, settings: LocalSettings) 
       ),
     )
   }
+  const hermes = serviceRegistry.getService('hermes-backend')
+  if (hermes instanceof HermesBackendService) wireHermesService(hermes)
   wireArtifactRunner(settings)
   wireConversations(settings)
   wireSessions(settings)
@@ -1575,6 +1650,7 @@ function wireArtifactRunner(settings: LocalSettings): void {
     },
     restartChatBackend: reloadLastChatBackend,
     chatRequestsOpen: () => chatInferenceStreamsActive() + piAgentCallsActive(),
+    onWorkHoldsChanged: publishComponentState,
   })
 }
 
@@ -1713,6 +1789,7 @@ function initEventHandle() {
   registerSendHandlers(
     buildLifecycleSendRegistry({
       setRendererWork: inFlightWork.setRendererWork,
+      setRendererComponentHolds: setWindowComponentHolds,
       requestClose: () => void closeCoordinator.requestClose(),
       answerClose: handleCloseAnswer,
       closeBridgeReady: handleCloseBridgeReady,
@@ -1730,6 +1807,7 @@ function initEventHandle() {
   // BEFORE requesting this snapshot and applies only events above its
   // sequence (docs/architecture-target.md §4.6).
   registerInvokeHandlers(buildKernelRegistry({ getKernelSnapshot }))
+  registerInvokeHandlers(buildRemoteKernelRegistry({ remoteKernel }))
 
   const pathsManager = new PathsManager(
     // Packaged: the per-user writable copy (seeded from the shared default on
@@ -1796,6 +1874,7 @@ function initEventHandle() {
     HomeAgentBackendService,
     Qwen3TtsBackendService,
     WhisperBackendService,
+    componentChanges,
   }
 
   // The core registry (#301): every flat main-owned invoke channel — the
@@ -1946,7 +2025,7 @@ function initEventHandle() {
 
   registerInvokeHandlers(
     buildAgentModeRegistry({
-      startAgentTurn,
+      startAgentTurn: startAgentTurnOnHarness,
       cancelAgentTurn,
       resetAgentSession,
       deleteAgentSession,
@@ -2037,6 +2116,7 @@ function initEventHandle() {
       comfyuiTools,
     }),
   )
+  registerInvokeHandlers(buildHermesRegistry({ hermesService }))
 
   // Auto-detect MCP servers (e.g., Acer MCP service installed via WindowsApps).
   // Runs on every startup so newly installed services are picked up and stale
@@ -2235,6 +2315,22 @@ app.whenReady().then(async () => {
     appLogger.info('startup step: initializing tracing', 'electron-backend', true)
     await initLaminarTracing()
 
+    // Before the registries register: a thin client's remote rows become forwarders.
+    if (
+      await remoteKernel.startClient({
+        relayKernelEvent,
+        deliverPush: (channel, payload) => {
+          if (win && !win.isDestroyed())
+            typedSend(win.webContents, channel as PushChannelName, payload as never)
+        },
+        rehydrate: () => {
+          if (win && !win.isDestroyed()) win.webContents.reload()
+        },
+      })
+    ) {
+      setKernelRelayOnly(true)
+    }
+
     appLogger.info('startup step: initializing event handlers', 'electron-backend', true)
     initEventHandle()
 
@@ -2243,6 +2339,8 @@ app.whenReady().then(async () => {
     // handler enforces the same path-traversal containment as the IPC reader
     // — without it, crafted `aipg-media://../...` URLs could escape `mediaDir`.
     protocol.handle('aipg-media', async (request) => {
+      const remote = remoteKernel.fetchMedia(request)
+      if (remote) return remote
       const safePath = getLocalPathFromAipgMediaUrl(request.url)
       if (!safePath) {
         return new Response('Not Found', { status: 404 })
@@ -2275,7 +2373,12 @@ app.whenReady().then(async () => {
     }
     appLogger.info('startup step: initializing service registry', 'electron-backend', true)
     await initServiceRegistry(window, settings)
-    if (!settings.isDemoModeEnabled) {
+    await remoteKernel.startHost({
+      sender: () => getKernelEventWindow()?.webContents,
+      resolveMediaPath: getLocalPathFromAipgMediaUrl,
+      onKernelEvent,
+    })
+    if (!settings.isDemoModeEnabled && !remoteKernel.isThinClientDevice()) {
       appLogger.info('startup step: migrating agent presets', 'electron-backend', true)
       await migrateAgentLibrary({
         presetsDir: getUserPresetsDir(),

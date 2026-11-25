@@ -36,8 +36,10 @@ import type { DemoConfigUpdate } from '@/types/demoModeIpc'
 import type { McpServerConfig } from '@/types/mcpIpc'
 import type { PauseReason } from '@/types/kernelEvents'
 import type { CloseAnswerPayload, CloseAskPayload, InFlightWorkItem } from '@/types/lifecycleIpc'
+import type { HeldComponent } from '@/types/componentChange'
 import type { MediaRequestPayload, MediaResponsePayload } from '@/types/mediaRequests'
 import type { SpeechSynthesisRequest } from '@/types/speechIpc'
+import type { RemoteKernelConfigUpdate, RemoteKernelPairRequest } from '@/types/remoteKernelIpc'
 import type { NotificationConfig } from '@/types/notificationsIpc'
 import type {
   PermissionGrant,
@@ -115,6 +117,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   startService: (serviceName: string) => invoke('startService', serviceName),
   stopService: (serviceName: string) => invoke('stopService', serviceName),
   setUpService: (serviceName: BackendServiceName) => invoke('setUpService', serviceName),
+  componentChangeAdmission: (serviceName: BackendServiceName) =>
+    invoke('componentChangeAdmission', serviceName),
   updatePresetsFromIntelRepo: () => invoke('updatePresetsFromIntelRepo'),
   reloadPresets: () => invoke('reloadPresets'),
   getUserPresetsPath: () => invoke('getUserPresetsPath'),
@@ -219,6 +223,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     listen('kernel:event', callback),
   getKernelSnapshot: () => invoke('kernel:getSnapshot'),
   reportInFlightWork: (work: InFlightWorkItem[]) => send('lifecycle:reportWork', work),
+  reportComponentHolds: (holds: HeldComponent[]) => send('lifecycle:reportComponentHolds', holds),
   requestAppClose: () => send('lifecycle:requestClose'),
   lifecycle: {
     onAskClose: (callback: (payload: CloseAskPayload) => void) =>
@@ -420,6 +425,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     listInstalledCustomNodes: () => invoke('comfyui:listInstalledCustomNodes'),
     openInBrowser: () => invoke('comfyui:openInBrowser'),
   },
+  hermes: {
+    openDashboard: () => invoke('hermes:openDashboard'),
+  },
   mcp: {
     listServers: () => invoke('mcp:listServers'),
     startServer: (serverId: string) => invoke('mcp:startServer', serverId),
@@ -579,6 +587,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
     deleteKey: (providerId: string) => invoke('cloudProvider:deleteKey', providerId),
     listModels: (providerId: string, baseUrl: string, authStyle: string) =>
       invoke('cloudProvider:listModels', providerId, baseUrl, authStyle),
+  },
+  remoteKernel: {
+    getStatus: () => invoke('remoteKernel:getStatus'),
+    saveConfig: (update: RemoteKernelConfigUpdate) => invoke('remoteKernel:saveConfig', update),
+    openPairing: () => invoke('remoteKernel:openPairing'),
+    closePairing: () => invoke('remoteKernel:closePairing'),
+    listDevices: () => invoke('remoteKernel:listDevices'),
+    revokeDevice: (id: string) => invoke('remoteKernel:revokeDevice', id),
+    resetPairing: () => invoke('remoteKernel:resetPairing'),
+    discover: () => invoke('remoteKernel:discover'),
+    pair: (request: RemoteKernelPairRequest) => invoke('remoteKernel:pair', request),
+    forgetHost: () => invoke('remoteKernel:forgetHost'),
   },
   // The one whole-object exhaustiveness check: every member of this object must
   // match the manifest-derived ElectronApi exactly (path, args, result) — a

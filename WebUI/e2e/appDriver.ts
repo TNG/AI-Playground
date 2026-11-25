@@ -8,6 +8,7 @@ import { AgentModePage, type GameSummary } from './pages/AgentModePage'
 import { SpecificSettingsPage } from './pages/SpecificSettingsPage'
 import { DownloadDialogPage } from './pages/DownloadDialogPage'
 import { ModelLibraryPage } from './pages/ModelLibraryPage'
+import { ComponentManagerPage } from './pages/ComponentManagerPage'
 import { ToolSettingsPage } from './pages/ToolSettingsPage'
 import {
   AssistantSettingsPage,
@@ -79,6 +80,7 @@ export class AppDriver {
   readonly settings: SpecificSettingsPage
   readonly downloads: DownloadDialogPage
   readonly models: ModelLibraryPage
+  readonly components: ComponentManagerPage
   readonly tools: ToolSettingsPage
   readonly assistant: AssistantSettingsPage
 
@@ -91,6 +93,7 @@ export class AppDriver {
     this.settings = new SpecificSettingsPage(window)
     this.downloads = new DownloadDialogPage(window)
     this.models = new ModelLibraryPage(window)
+    this.components = new ComponentManagerPage(window)
     this.tools = new ToolSettingsPage(window)
     this.assistant = new AssistantSettingsPage(window)
   }
@@ -202,6 +205,7 @@ export class AppDriver {
     /** Which RAG document format to attach when `attach === 'document'`. Defaults to txt. */
     doc?: 'txt' | 'pdf'
   }): Promise<void> {
+    await this.startFreshSession()
     const available = await test.step(`Select Assistant preset "${opts.preset}"`, () =>
       this.selectModeAndPreset('Assistant', opts.preset))
     test.skip(!available, `Preset "${opts.preset}" is not available in this product mode`)
@@ -407,7 +411,7 @@ export class AppDriver {
   private async startAgentTurn(prompt: string): Promise<void> {
     await this.main.sendPrompt(prompt)
     await expect(
-      this.main.busyButton,
+      this.main.turnActivity,
       'the agent turn never started — the model or backend most likely failed to load (check the app log)',
     ).toBeVisible({ timeout: 60_000 })
   }
@@ -449,12 +453,21 @@ export class AppDriver {
   }
 
   /**
+   * Sessions are saved files that outlive the app, so a test that reuses the open one
+   * inherits an earlier run's history and its failed tool cards.
+   */
+  private async startFreshSession(): Promise<void> {
+    await test.step('Start a fresh Session', () => this.shell.startNewSession())
+  }
+
+  /**
    * Select the general-purpose "Assistant" preset on its defaults, a backend (`backend`'s
-   * picker label, or one at random) and an {@link AGENT_CONTEXT} context. It works in the
-   * open Session's own folder, so there is no folder to pick. Returns false when the
+   * picker label, or one at random) and an {@link AGENT_CONTEXT} context. It works in a
+   * fresh Session's own folder, so there is no folder to pick. Returns false when the
    * preset, or the asked-for backend, isn't offered in this product mode.
    */
   async prepareAgentPreset(backend?: string): Promise<boolean> {
+    await this.startFreshSession()
     const selected = await test.step(`Select agent preset "${HARNESS_CHAT_PRESET}"`, () =>
       this.main.selectPreset('Assistant', HARNESS_CHAT_PRESET))
     if (!selected) return false
@@ -982,6 +995,7 @@ export class AppDriver {
     needsImage?: boolean
     timeout: number
   }): Promise<void> {
+    await this.startFreshSession()
     const available = await test.step(`Select ${opts.mode} preset "${opts.preset}"`, () =>
       this.selectModeAndPreset(opts.mode, opts.preset))
     test.skip(!available, `Preset "${opts.preset}" is not available in this product mode`)

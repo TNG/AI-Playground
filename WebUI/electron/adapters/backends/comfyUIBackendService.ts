@@ -948,7 +948,10 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
   }
 
   get_info(): ApiServiceInformation {
-    const baseInfo = super.get_info()
+    const baseInfo = {
+      ...super.get_info(),
+      comfyUiInstalledVariant: this.readInstalledVariant() ?? undefined,
+    }
 
     // Always show environment mismatch error if it exists, even if there's a startup error
     // This guides users toward a potential fix (reinstallation)

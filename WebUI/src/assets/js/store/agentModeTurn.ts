@@ -24,7 +24,12 @@ import { CLOUD_DEFAULT_MODEL } from './cloudMode'
 import type { AgentAnswerOrigin, AgentModeTurnConfig } from '@/types/agentIpc'
 import type { CloudForTurn, InferenceForTurn, ToolsForTurn } from '@/lib/storedSessionInference'
 import { turnMediaToolSettings } from '@/lib/mediaToolSettings'
-import type { AgentTurnSnapshot, AgentTurnState, PauseReason } from '@/types/kernelEvents'
+import type {
+  AgentTurnOrigin,
+  AgentTurnSnapshot,
+  AgentTurnState,
+  PauseReason,
+} from '@/types/kernelEvents'
 
 type ActiveTurn = {
   sessionId: string
@@ -97,6 +102,7 @@ export async function buildTurnConfig(options: {
   instructions: string
   /** The preset's `agentOwnsPrompt`. */
   ownsPrompt?: boolean
+  harness?: 'pi' | 'hermes'
   capabilities: string[]
   unsandboxed: boolean
   /** An Agent Run's folder overrides; absent inherits the Session's folders. */
@@ -154,6 +160,7 @@ export async function buildTurnConfig(options: {
       presetName: options.presetName,
       instructions: options.instructions,
       ...(options.ownsPrompt ? { ownsPrompt: true } : {}),
+      ...(options.harness === 'hermes' ? { harness: 'hermes' as const } : {}),
       capabilities: options.capabilities,
       unsandboxed: options.unsandboxed,
       ...folderOverridesOf(options.folderOverrides),
@@ -198,6 +205,7 @@ export async function buildTurnConfig(options: {
     presetName: options.presetName,
     instructions: options.instructions,
     ...(options.ownsPrompt ? { ownsPrompt: true } : {}),
+    ...(options.harness === 'hermes' ? { harness: 'hermes' as const } : {}),
     capabilities: options.capabilities,
     unsandboxed: options.unsandboxed,
     ...folderOverridesOf(options.folderOverrides),
@@ -249,7 +257,7 @@ export function latestTurnMetadata<K extends keyof TurnMetadata>(
 }
 
 /** Sent as `chat.regenerate`'s body: the harness turn main rewinds to just before. */
-export type RegenerateBody = { rewindTurnId: string }
+export type RegenerateBody = { rewindTurnId: string; editedPrompt?: boolean }
 
 type StoreTool = (input: Record<string, unknown>, sessionId: string) => Promise<unknown>
 
@@ -282,6 +290,7 @@ type SessionRuntime = AgentSessionRuntime & {
   onTurnDone: (turnId: string) => void
   onQueuePosition: (turnId: string, position: number | undefined) => void
   resume: (turn: AgentTurnSnapshot) => void
+  observe: (turnId: string, origin: AgentTurnOrigin) => void
   dispose: () => void
 }
 
@@ -317,6 +326,9 @@ function createSessionRuntime(options: {
   // resumed stream has been consumed.
   let pendingResume: { turn: AgentTurnSnapshot; chunks: unknown[] } | null = null
   let adoptedTurnId: string | null = null
+  // A turn another window started, followed live from its first event. The window that
+  // started it saves the transcript, so this one only shows it.
+  let observedTurnId: string | null = null
 
   const transport: ChatTransport<UIMessage> = {
     sendMessages: async ({ messages, abortSignal, body }) => {
@@ -326,8 +338,14 @@ function createSessionRuntime(options: {
       const turnId = crypto.randomUUID()
       // Frozen here: settings edited after Send apply to the next turn.
       const built = await options.buildTurnConfig(sessionId)
-      const rewindTurnId = (body as RegenerateBody | undefined)?.rewindTurnId
-      const config = rewindTurnId ? { ...built, rewindTurnId } : built
+      const rewindBody = body as RegenerateBody | undefined
+      const rewindTurnId = rewindBody?.rewindTurnId
+      const config = {
+        ...built,
+        ...(rewindTurnId ? { rewindTurnId } : {}),
+        ...(rewindTurnId && rewindBody?.editedPrompt === true ? { editedPrompt: true } : {}),
+        ...(lastUserMessage ? { userMessageId: lastUserMessage.id } : {}),
+      }
 
       return new ReadableStream<UIMessageChunk>({
         start: (controller) => {
@@ -526,6 +544,7 @@ function createSessionRuntime(options: {
           adoptedTurnId = null
           processing.value = false
         }
+        if (observedTurnId === turn.turnId) observedTurnId = null
         options.errors.report(error, {
           category: 'inference',
           code: 'agent/resume-failed',
@@ -541,9 +560,27 @@ function createSessionRuntime(options: {
         // The stream is fully consumed here, so the transcript is complete; it
         // is saved before the turn counts as settled.
         adoptedTurnId = null
-        options.onAdoptedTurnDone?.(sessionId)
+        if (observedTurnId === turn.turnId) observedTurnId = null
+        else options.onAdoptedTurnDone?.(sessionId)
         processing.value = false
       })
+  }
+
+  /**
+   * Follow a turn another window started (the remote kernel's other device). Called with
+   * its first event, ahead of every chunk, so nothing is missed. The asking message goes in
+   * first: a resumed stream otherwise continues whatever assistant message came last.
+   */
+  function observe(turnId: string, origin: AgentTurnOrigin): void {
+    if (activeTurn || pendingResume || finishedTurns.has(turnId)) return
+    if (!chat.messages.some((message) => message.id === origin.userMessageId)) {
+      chat.messages = [
+        ...chat.messages,
+        { id: origin.userMessageId, role: 'user', parts: [{ type: 'text', text: origin.prompt }] },
+      ]
+    }
+    observedTurnId = turnId
+    resume({ sessionId, turnId, state: 'queued', chunks: [], toolProgress: {}, toolImages: {} })
   }
 
   async function cancel(): Promise<void> {
@@ -572,6 +609,7 @@ function createSessionRuntime(options: {
     onTurnDone,
     onQueuePosition,
     resume,
+    observe,
     dispose: () => scope.stop(),
   })
 }
@@ -668,7 +706,9 @@ export function createAgentTurnRuntimes(options: {
     onToolImage: (image) => {
       runtimes.value[image.sessionId]?.onToolImage(image)
     },
-    onTurnState: ({ sessionId, turnId, state, pauseReason }) => {
+    onTurnState: ({ sessionId, turnId, state, pauseReason, origin }) => {
+      // A turn's first event names what asked it; a window that did not start it follows it.
+      if (origin && !finishedTurns.has(turnId)) ensureRuntime(sessionId).observe(turnId, origin)
       runtimes.value[sessionId]?.onTurnState(turnId, state, pauseReason)
     },
     onTurnDone: ({ sessionId, turnId }) => {

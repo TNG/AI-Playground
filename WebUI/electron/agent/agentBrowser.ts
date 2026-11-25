@@ -5,6 +5,7 @@ import { appLoggerInstance } from '../observability/logger.ts'
 import { freeName } from '../persist/fileOps.ts'
 import { isInGamesLibrary } from '../session/sessionWorkspace.ts'
 import { formatProbeReport, PROBE_CALL, type ProbeReport } from './previewProbe.ts'
+import { recordWorkspaceWrite } from './workspaceJournal.ts'
 
 // ── Agent browser (Electron-native) ──────────────────────────────────────────
 //
@@ -170,12 +171,18 @@ async function captureScreenshotPng(
  * in the games library, under a collision-safe timestamped name. Returns the
  * workspace-relative path.
  */
-async function saveScreenshotPng(workspaceDir: string, png: Buffer): Promise<string> {
+async function saveScreenshotPng(
+  sessionId: string,
+  workspaceDir: string,
+  png: Buffer,
+): Promise<string> {
   const inGame = isInGamesLibrary(workspaceDir)
   const dir = inGame ? path.join(workspaceDir, 'generated') : workspaceDir
   fs.mkdirSync(dir, { recursive: true })
   const filename = await freeName(dir, `screenshot-${Date.now()}.png`)
-  fs.writeFileSync(path.join(dir, filename), png)
+  const target = path.join(dir, filename)
+  recordWorkspaceWrite(sessionId, target)
+  fs.writeFileSync(target, png)
   return inGame ? path.posix.join('generated', filename) : filename
 }
 
@@ -311,7 +318,7 @@ export async function runBrowserAction(
             'action "open" and try the screenshot again.',
         }
       }
-      const relativePath = await saveScreenshotPng(workspaceDir, png)
+      const relativePath = await saveScreenshotPng(sessionId, workspaceDir, png)
       return { text: savedScreenshotText(relativePath), screenshotPath: relativePath }
     }
     default:
@@ -518,7 +525,7 @@ export async function captureWebsite(
           (input.text ? ' — maybe without the text, to capture the whole page.' : '.'),
       }
     }
-    const relativePath = await saveScreenshotPng(workspaceDir, png)
+    const relativePath = await saveScreenshotPng(sessionId, workspaceDir, png)
     return { text: savedScreenshotText(relativePath), screenshotPath: relativePath }
   } finally {
     if (overrideSet) {

@@ -11,6 +11,7 @@ import { OpenVINOBackendService } from './openVINOBackendService.ts'
 import { HomeAgentBackendService } from './homeAgentBackendService.ts'
 import { Qwen3TtsBackendService } from './qwen3TtsBackendService.ts'
 import { WhisperBackendService } from './whisperBackendService.ts'
+import { HermesBackendService } from './hermesBackendService.ts'
 import type { LocalSettings } from '../../kernel/localSettings.ts'
 import { setLlmServiceLookup } from '../llmServerSnapshot.ts'
 
@@ -22,6 +23,7 @@ export type backend =
   | 'home-agent-backend'
   | 'qwen3-tts-backend'
   | 'whisper-backend'
+  | 'hermes-backend'
 
 export interface ApiServiceRegistry {
   register(apiService: ApiService): void
@@ -258,6 +260,9 @@ export function peekApiServiceRegistry(): ApiServiceRegistryImpl | null {
 export async function aiplaygroundApiServiceRegistry(
   win: BrowserWindow,
   settings: LocalSettings,
+  // A remote-kernel thin client renders another machine's backends; on a shared
+  // box the orphan reap would also kill that machine's live processes.
+  options: { startBackends: boolean } = { startBackends: true },
 ): Promise<ApiServiceRegistryImpl> {
   if (!instance) {
     instance = new ApiServiceRegistryImpl()
@@ -297,6 +302,14 @@ export async function aiplaygroundApiServiceRegistry(
       ),
     )
     instance.register(
+      new HermesBackendService(
+        'hermes-backend',
+        await getPort({ port: portNumbers(55000, 55999) }),
+        win,
+        settings,
+      ),
+    )
+    instance.register(
       new OpenVINOBackendService(
         'openvino-backend',
         await getPort({ port: portNumbers(29000, 29999) }),
@@ -321,14 +334,16 @@ export async function aiplaygroundApiServiceRegistry(
       ),
     )
 
-    // Before anything of ours is spawned, so every match is genuinely a leftover
-    // from an earlier session rather than a backend we just started.
-    await instance.reapOrphansFromPreviousSession()
-
-    // Automatically start all set-up services in the background
-    // This happens regardless of frontend state, making it more reliable
     instance.setDisabledBackends(settings.disabledBackends ?? [])
-    instance.startAllSetUpServices()
+    if (options.startBackends) {
+      // Before anything of ours is spawned, so every match is genuinely a leftover
+      // from an earlier session rather than a backend we just started.
+      await instance.reapOrphansFromPreviousSession()
+
+      // Automatically start all set-up services in the background
+      // This happens regardless of frontend state, making it more reliable
+      instance.startAllSetUpServices()
+    }
   }
   return instance
 }

@@ -76,6 +76,8 @@ export type StreamTranslatorOptions = {
   model?: string
   /** Stamped on the answer, so Delete can find this turn in the Harness Session. */
   turnId?: string
+  /** Stamped on a host-shell turn's answer, so the renderer withholds delete/regenerate. */
+  hostShell?: boolean
 }
 
 export type StreamTranslator = {
@@ -176,12 +178,16 @@ export function createStreamTranslator(options: StreamTranslatorOptions): Stream
     const metadata = {
       ...(options.model ? { model: options.model } : {}),
       ...(options.turnId ? { harnessTurnId: options.turnId } : {}),
+      ...(options.hostShell ? { hostShell: true } : {}),
     }
-    emit(
-      Object.keys(metadata).length > 0
-        ? { type: 'start', messageMetadata: metadata }
-        : { type: 'start' },
-    )
+    // Named by main, so every window following the turn builds the same message and a
+    // second window's save replaces the reply instead of adding it again.
+    const messageId = options.turnId ? `${options.turnId}-reply` : undefined
+    emit({
+      type: 'start',
+      ...(messageId ? { messageId } : {}),
+      ...(Object.keys(metadata).length > 0 ? { messageMetadata: metadata } : {}),
+    })
   }
 
   function ensureStep(): void {

@@ -10,6 +10,11 @@ A group of presets the user picks between in the prompt bar: Assistant, Audio, I
 Edit or Video. Picking a Mode selects the preset last used in it.
 _Avoid_: tab, view
 
+**Hardware Mode**:
+The hardware profile the whole app runs as: essentials, studio, or studio for NVIDIA CUDA. It
+decides which Components are offered and which presets exist.
+_Avoid_: Product Mode, Mode, installation mode
+
 **Assistant**:
 The Mode holding the conversational presets, the Agent presets and the saved Agents.
 _Avoid_: Chat mode, Agent mode
@@ -96,6 +101,11 @@ and neither the Agent Library nor App Settings is over it, a Trial Run when the 
 shows that Agent's Trial Run. What a Paused Session asks waits until it is In View, and the user is
 alerted meanwhile.
 _Avoid_: visible, active, focused, on screen
+
+**In-flight Work**:
+Work the user started that has not finished: a turn, a queued or running media run, or an Agent
+Run. It is what stops the app from closing silently.
+_Avoid_: busy, active session, running process
 
 **Session Update**:
 A short templated digest of the History Entries a chat preset missed since its own last turn in
@@ -266,15 +276,33 @@ A preset's saved settings, copied into a Session the first time that preset is u
 _Avoid_: preset settings, global settings
 
 **Machine Settings**:
-Settings that apply to every Session on this machine at once — device, backend install, speech
-engine and voice. Changing one changes it for every Session.
+Settings that apply to every Session on this machine at once — Hardware Mode, device, Component
+install, speech engine and voice. Changing one changes it for every Session.
 _Avoid_: global settings
 
 **App Settings**:
-Preferences about the app itself rather than about how any preset runs — language, prompt bar
-style, HuggingFace access, Permissions, developer toggles. Opened from the header, never from
-inside a Session.
+The dialog holding app-wide preferences: language, prompt bar style, HuggingFace access,
+Permissions, developer toggles, the Component Manager and the Model Library. Opened from the
+header, never from inside a Session.
 _Avoid_: global settings, preferences
+
+## Components
+
+**Component**:
+An installable piece of the app, enabled or disabled as a unit: a backend service (the core
+services, llama.cpp, OpenVINO, ComfyUI, a speech sidecar, Channels) or a built-in feature set up
+beside them (Hybrid Cloud).
+_Avoid_: backend (for Hybrid Cloud), dependency, package
+
+**Component Manager**:
+The tab of App Settings where Components are installed, enabled, repaired and updated, and where
+the Hardware Mode and the default GPU are set. The Setup Wizard shows the same panel on first run.
+_Avoid_: Installation Manager, component settings, setup
+
+**Setup Wizard**:
+The first-run screen that picks the Hardware Mode, the default GPU and which Components to
+install. Afterwards it is opened only to run setup again.
+_Avoid_: installer, setup, Component Manager
 
 ## Themes
 

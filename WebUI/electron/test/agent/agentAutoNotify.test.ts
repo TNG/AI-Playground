@@ -442,11 +442,13 @@ describe('a Background Session pausing for the user', () => {
       await settle()
       userWait.setAwaitingUser('aipg-agent-fresh', false)
     })
-    expect(sent.map((s) => s.text)).toEqual([
-      '💬 Assistant · "Untitled Session"\n⏸ Waiting for you: a question (Which colour?). ' +
-        'Open AI Playground to continue.' +
-        REPLY_HINT,
-    ])
+    await vi.waitFor(() =>
+      expect(sent.map((s) => s.text)).toEqual([
+        '💬 Assistant · "Untitled Session"\n⏸ Waiting for you: a question (Which colour?). ' +
+          'Open AI Playground to continue.' +
+          REPLY_HINT,
+      ]),
+    )
   }, 30000)
 
   it('names its Session, not the Harness Session', async () => {
@@ -457,11 +459,13 @@ describe('a Background Session pausing for the user', () => {
     } finally {
       await sessions.mutateSession(newsSessionRef, (file) => ({ ...file, title: '' }))
     }
-    expect(sent.map((s) => s.text)).toEqual([
-      '💬 Assistant · "Breakfast briefing"\n⏸ Waiting for you: a question (Which colour?). ' +
-        'Open AI Playground to continue.' +
-        REPLY_HINT,
-    ])
+    await vi.waitFor(() =>
+      expect(sent.map((s) => s.text)).toEqual([
+        '💬 Assistant · "Breakfast briefing"\n⏸ Waiting for you: a question (Which colour?). ' +
+          'Open AI Playground to continue.' +
+          REPLY_HINT,
+      ]),
+    )
   }, 30000)
 
   it('notifies every enabled, verified Channel, recording each message', async () => {

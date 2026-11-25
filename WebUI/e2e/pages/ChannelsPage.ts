@@ -23,14 +23,40 @@ export class ChannelsPage {
 
   /** Reach the Channel setup page — either it's already showing (we were
    *  routed here straight after installing the backend) or we open it from the
-   *  title-bar gear. */
+   *  title-bar gear, which now lands on the Component Manager's sub-view. */
   async open(): Promise<void> {
     await test.step('Open Channel setup', async () => {
       if (await this.heading.isVisible().catch(() => false)) return
+      await this.closeSettingsIfOpen()
       await expect(this.setupCog).toBeEnabled({ timeout: 120_000 })
       await this.setupCog.click()
       await expect(this.heading).toBeVisible({ timeout: 30_000 })
     })
+  }
+
+  /**
+   * Leave the setup page via the footer primary button ("Continue" / "Done").
+   * In the wizard that returns to the running app; in the Component Manager tab
+   * Done returns to the Component list and App Settings stays open, so close it
+   * to leave the main view as this page object's callers expect.
+   */
+  async finishSetup(): Promise<void> {
+    await test.step('Finish Channel setup', async () => {
+      const primary = this.window.getByRole('button', { name: /^(Continue|Done)$/ })
+      if (await primary.isVisible().catch(() => false)) await primary.click()
+      await expect(this.heading).toBeHidden({ timeout: 30_000 })
+      await this.closeSettingsIfOpen()
+    })
+  }
+
+  private get settingsDialog(): Locator {
+    return this.window.getByRole('dialog', { name: 'App Settings' })
+  }
+
+  private async closeSettingsIfOpen(): Promise<void> {
+    if (!(await this.settingsDialog.isVisible().catch(() => false))) return
+    await this.settingsDialog.getByRole('button', { name: 'Close', exact: true }).click()
+    await expect(this.settingsDialog).toBeHidden({ timeout: 30_000 })
   }
 
   /**
@@ -75,15 +101,6 @@ export class ChannelsPage {
       // Verification (re)starts the Python HTTP server and, on success, emits
       // `verified` → the panel collapses to the connected summary.
       await expect(this.window.getByText('Connected & verified')).toBeVisible({ timeout: 60_000 })
-    })
-  }
-
-  /** Leave the setup page via the footer primary button ("Continue" / "Done"). */
-  async finishSetup(): Promise<void> {
-    await test.step('Finish Channel setup', async () => {
-      const primary = this.window.getByRole('button', { name: /^(Continue|Done)$/ })
-      if (await primary.isVisible().catch(() => false)) await primary.click()
-      await expect(this.heading).toBeHidden({ timeout: 30_000 })
     })
   }
 

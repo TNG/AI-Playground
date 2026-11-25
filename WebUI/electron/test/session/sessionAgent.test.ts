@@ -38,7 +38,8 @@ const { createSession, deleteSession, onSessionDeleted, openSession } =
 const { sessionWorkspaceDir } = await import('../../session/sessionWorkspace')
 const { resetSessionsForTest, setSessionDeps } = await import('../../session/sessions')
 const { harnessSessionFor } = await import('../../session/sessionHarness')
-const { upsertTimelineMessages } = await import('../../session/sessionTimeline')
+const { removeTimelineMessages, upsertTimelineMessages } =
+  await import('../../session/sessionTimeline')
 
 beforeAll(async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'aipg-session-agent-'))
@@ -122,5 +123,17 @@ describe('display timeline', () => {
 
     const last = announced.filter((document) => document.id === session.id).at(-1)
     expect(last?.timeline).toEqual([reply])
+  })
+
+  it('announces a removal too, so a window that did not delete the turn drops it', async () => {
+    const session = await createSession()
+    const user = { id: 'u1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }
+    const reply = { id: 'a1', role: 'assistant', parts: [{ type: 'text', text: 'hello' }] }
+
+    await upsertTimelineMessages(session.id, [user, reply])
+    await removeTimelineMessages(session.id, ['a1'])
+
+    const last = announced.filter((document) => document.id === session.id).at(-1)
+    expect(last?.timeline).toEqual([user])
   })
 })

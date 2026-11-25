@@ -1,7 +1,8 @@
-/** Dedicated TTS/STT sidecars: installed they stay stopped until first use. */
+/** Sidecars that stay stopped once installed until first use: TTS/STT and Hermes Agent. */
 export const ON_DEMAND_BACKENDS = [
   'qwen3-tts-backend',
   'whisper-backend',
+  'hermes-backend',
 ] as const satisfies readonly BackendServiceName[]
 
 export function isOnDemandBackend(name: string): boolean {

@@ -7,6 +7,9 @@ export type AgentLibraryView = { agentId?: string; sessionRef?: string; showTria
 
 export type AppSettingsTab = 'app' | 'components' | 'models'
 
+/** The setup screens the Component Manager shows in place of its list. */
+export type ComponentManagerSubView = 'channels' | 'cloud'
+
 /** The surface over the Session whose title-bar button shows pressed. */
 export type FrontmostSurface = 'settings' | 'models' | 'agent'
 
@@ -22,12 +25,16 @@ export const useUIStore = defineStore('ui', () => {
   const agentLibraryView = ref<AgentLibraryView | null>(null)
   const appSettingsOpen = ref(false)
   const appSettingsTab = ref<AppSettingsTab>('app')
+  const componentManagerSubView = ref<ComponentManagerSubView | null>(null)
   // The theme panel docks beside everything above rather than covering it.
   const themePanelOpen = ref(false)
   // Registered by the panel, so this store stays free of the theme store's dependencies.
   let themePanelLeaveGuard: LeaveGuard = (leave) => leave()
 
   const agentLibrary = computed(() => agentLibraryView.value)
+  const componentManagerShowing = computed(
+    () => appSettingsOpen.value && appSettingsTab.value === 'components',
+  )
   const frontmost = computed<FrontmostSurface | null>(() => {
     if (appSettingsOpen.value) return appSettingsTab.value === 'models' ? 'models' : 'settings'
     return agentLibraryView.value ? 'agent' : null
@@ -38,11 +45,13 @@ export const useUIStore = defineStore('ui', () => {
 
   function openAppSettings(tab: AppSettingsTab = 'app') {
     appSettingsTab.value = tab
+    if (tab !== 'components') componentManagerSubView.value = null
     appSettingsOpen.value = true
   }
 
   function setAppSettingsTab(tab: AppSettingsTab) {
     appSettingsTab.value = tab
+    if (tab !== 'components') componentManagerSubView.value = null
   }
 
   /** The gear's toggle: pressed only while App Settings shows a tab other than the Model Library. */
@@ -75,6 +84,29 @@ export const useUIStore = defineStore('ui', () => {
   function toggleModelLibrary() {
     if (frontmost.value === 'models') closeAppSettings()
     else openModelLibrary()
+  }
+
+  function openComponentManager(subView: ComponentManagerSubView | null = null) {
+    appSettingsOpen.value = true
+    appSettingsTab.value = 'components'
+    componentManagerSubView.value = subView
+  }
+
+  function openComponentManagerChannels() {
+    openComponentManager('channels')
+  }
+
+  function openComponentManagerCloud() {
+    openComponentManager('cloud')
+  }
+
+  function closeComponentManagerSubView() {
+    componentManagerSubView.value = null
+  }
+
+  function toggleComponentManager() {
+    if (componentManagerShowing.value) closeAppSettings()
+    else openComponentManager()
   }
 
   function setAgentLibraryView(view: AgentLibraryView) {
@@ -124,8 +156,15 @@ export const useUIStore = defineStore('ui', () => {
     closeThemePanel,
     setThemePanelLeaveGuard,
     frontmost,
+    componentManagerShowing,
+    componentManagerSubView,
     openModelLibrary,
     toggleModelLibrary,
+    openComponentManager,
+    openComponentManagerChannels,
+    openComponentManagerCloud,
+    closeComponentManagerSubView,
+    toggleComponentManager,
     agentLibrary,
     openAgentLibrary,
     selectLibraryAgent,

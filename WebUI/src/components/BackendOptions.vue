@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { BackendVersionSchema, useBackendServices } from '@/assets/js/store/backendServices'
 import { useSetupWizard } from '@/assets/js/store/setupWizard'
+import { useGlobalSetup } from '@/assets/js/store/globalSetup'
+import { useUIStore } from '@/assets/js/store/ui'
 import { useI18N } from '@/assets/js/store/i18n'
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import {
@@ -34,7 +36,6 @@ import { Input } from '@/components/ui/input'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Button } from '@/components/ui/button'
 import { mapServiceNameToDisplayName, compareVersions } from '@/lib/utils'
-import { isOnDemandBackend } from '@/lib/onDemandBackends'
 import { z } from 'zod'
 import SettingsMenu from '@/components/SettingsMenu.vue'
 
@@ -44,6 +45,8 @@ const props = defineProps<{
 
 const backendServices = useBackendServices()
 const setupWizard = useSetupWizard()
+const globalSetup = useGlobalSetup()
+const ui = useUIStore()
 const i18nState = useI18N().state
 const backendStatus = computed(
   () => backendServices.info.find((s) => s.serviceName === props.backend)?.status ?? 'notInstalled',
@@ -113,9 +116,10 @@ const showChannelsSetup = computed(() => {
   return props.backend === 'home-agent-backend' && isSetUp.value
 })
 
-const handleChannelsSetup = () => {
+function handleChannelsSetup() {
   menuOpen.value = false
-  void setupWizard.openChannelsSetup()
+  if (globalSetup.loadingState === 'setupWizard') void setupWizard.openChannelsSetup()
+  else ui.openComponentManagerChannels()
 }
 
 // Get backend-specific placeholders and descriptions
@@ -179,43 +183,9 @@ const getInitialFormValues = () => {
   }
   return values
 }
-// Handler for reinstalling a service with enhanced error handling
-const handleReinstall = async (versionToInstall?: { version?: string; releaseTag?: string }) => {
-  try {
-    await backendServices.uninstallService(props.backend)
-    const setupResult = await backendServices.setUpService(
-      props.backend,
-      versionToInstall?.version
-        ? { version: versionToInstall.version, releaseTag: versionToInstall.releaseTag }
-        : undefined,
-    )
-
-    if (setupResult.success) {
-      if (isOnDemandBackend(props.backend)) {
-        return
-      }
-      try {
-        const startStatus = await backendServices.startService(props.backend)
-        if (startStatus !== 'running') {
-          // Service failed to start after reinstall
-          const errorDetails = backendServices.getServiceErrorDetails(props.backend)
-          if (errorDetails) {
-            console.error(
-              `Service ${props.backend} failed to start after reinstall. Error details available.`,
-            )
-          } else {
-            console.error(`Service ${props.backend} failed to start after reinstall.`)
-          }
-        }
-      } catch (startError) {
-        console.error(`Service ${props.backend} startup failed after reinstall:`, startError)
-      }
-    } else {
-      console.error(`Service ${props.backend} reinstallation failed.`)
-    }
-  } catch (error) {
-    console.error(`Service ${props.backend} reinstall process failed:`, error)
-  }
+const handleReinstall = async () => {
+  reinstallDialogOpen.value = false
+  await setupWizard.reinstallBackend(props.backend)
 }
 
 // Get the effective target version (what will be installed)
@@ -340,11 +310,10 @@ const versionActionClass = computed(() => {
   return 'text-blue-500'
 })
 
-// Handler for version action - clears override and reinstalls
+// Handler for version action - installs the version the button advertises (uiOverride ?? target)
 const handleVersionAction = async () => {
   menuOpen.value = false
-  // Install the version the button advertises (uiOverride ?? target), not the one already installed.
-  await handleReinstall(getEffectiveTarget(props.backend))
+  await setupWizard.updateBackend(props.backend)
 }
 
 // Check if user has set a custom override

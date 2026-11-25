@@ -81,9 +81,9 @@
             </TabsContent>
             <TabsContent
               value="components"
-              class="flex-1 min-h-0 overflow-y-auto p-6 text-sm text-muted-foreground outline-none"
+              class="flex-1 min-h-0 overflow-y-auto px-6 py-4 text-sm outline-none"
             >
-              {{ languages.SETTINGS_WORK_IN_PROGRESS }}
+              <ComponentManager />
             </TabsContent>
             <TabsContent value="models" class="flex flex-1 min-h-0 flex-col outline-none">
               <ModelLibrary />
@@ -114,24 +114,26 @@ import {
 } from '@heroicons/vue/24/outline'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useDemoMode } from '@/assets/js/store/demoMode'
+import { developerMode } from '@/assets/js/store/debugSettings'
 import { useI18N } from '@/assets/js/store/i18n'
 import { useModelLibrary } from '@/assets/js/store/modelLibrary'
 import { useUIStore, type AppSettingsTab } from '@/assets/js/store/ui'
 import AppSettingsLanguage from '@/components/AppSettingsLanguage.vue'
 import AppSettingsPromptBarStyle from '@/components/AppSettingsPromptBarStyle.vue'
 import AppSettingsHuggingFace from '@/components/AppSettingsHuggingFace.vue'
-import AppSettingsBackendStatus from '@/components/AppSettingsBackendStatus.vue'
 import AppSettingsSpeech from '@/components/AppSettingsSpeech.vue'
 import AppSettingsTheme from '@/components/AppSettingsTheme.vue'
 import AppSettingsMediaModes from '@/components/AppSettingsMediaModes.vue'
 import AppSettingsMcp from '@/components/AppSettingsMcp.vue'
 import AppSettingsPermissions from '@/components/AppSettingsPermissions.vue'
 import AppSettingsHide from '@/components/AppSettingsHide.vue'
+import AppSettingsRemoteKernel from '@/components/AppSettingsRemoteKernel.vue'
 import AppSettingsDeveloper from '@/components/AppSettingsDeveloper.vue'
 import DemoModeBlocker from '@/components/DemoModeBlocker.vue'
 import DemoModeSettings from '@/components/DemoModeSettings.vue'
 import SettingsHeading from '@/components/SettingsHeading.vue'
 import ModelLibrary from '@/components/models/ModelLibrary.vue'
+import ComponentManager from '@/components/ComponentManager.vue'
 import { Spinner } from '@/components/ui/spinner'
 import { Button } from '@/components/ui/button'
 import {
@@ -150,7 +152,7 @@ const partComponents: Record<AppSettingsPartId, Component> = {
   mcp: AppSettingsMcp,
   permissions: AppSettingsPermissions,
   hideMessages: AppSettingsHide,
-  backendStatus: AppSettingsBackendStatus,
+  remoteKernel: AppSettingsRemoteKernel,
   developer: AppSettingsDeveloper,
   demoMode: DemoModeSettings,
 }
@@ -170,7 +172,11 @@ const library = useModelLibrary()
 const ui = useUIStore()
 
 const sections = computed(() =>
-  appSettingsSections({ demoMode: demoMode.enabled, hasDemoPasscode: demoMode.hasPasscode }),
+  appSettingsSections({
+    demoMode: demoMode.enabled,
+    hasDemoPasscode: demoMode.hasPasscode,
+    developerMode: developerMode(),
+  }),
 )
 const sectionLabels = computed<Record<AppSettingsSectionId, string>>(() => ({
   language: languages.SETTINGS_BASIC_LANGUAGE,
@@ -182,6 +188,7 @@ const sectionLabels = computed<Record<AppSettingsSectionId, string>>(() => ({
   mcp: languages.SETTINGS_MCP_SERVERS,
   permissions: languages.SETTINGS_PERMISSIONS,
   hide: languages.SETTINGS_HIDE_MESSAGES,
+  remoteKernel: languages.SETTINGS_REMOTE_KERNEL,
   advanced: languages.SETTINGS_ADVANCED,
 }))
 

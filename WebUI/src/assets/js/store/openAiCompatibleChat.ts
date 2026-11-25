@@ -91,6 +91,8 @@ export type AipgMetadata = {
   /** In a Session's chat transcript; the Session Update main put ahead of this prompt. */
   chatTurn?: boolean
   sessionUpdate?: string
+  /** A host-shell turn: its workspace cannot be rolled back, so Delete/Regenerate are withheld. */
+  hostShell?: boolean
 }
 
 export type AipgUiMessage = UIMessage<AipgMetadata, UIDataTypes, AipgTools>

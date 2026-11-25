@@ -8,6 +8,7 @@ declare type BackendServiceName =
   | 'home-agent-backend'
   | 'qwen3-tts-backend'
   | 'whisper-backend'
+  | 'hermes-backend'
 
 // Declare BackendStatus type
 declare type BackendStatus =
@@ -78,6 +79,7 @@ declare interface ApiServiceInformation {
   llamaCppPhisonArtifactReady?: boolean
   llamaCppStandardInstalledVersion?: { version: string; releaseTag?: string }
   llamaCppPhisonInstalledVersion?: { version: string; releaseTag?: string }
+  comfyUiInstalledVariant?: 'xpu' | 'cuda' | 'cpu'
   /** OpenVINO LLM was launched with `--draft_model_path`. Absent means not armed. */
   ovmsMtpArmed?: boolean
   /** OpenVINO repo whose snapshot is missing `openvino_mtp_model.xml`. */

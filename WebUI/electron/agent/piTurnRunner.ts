@@ -24,8 +24,9 @@ import {
   type StreamChunk,
   type TurnSummary,
 } from './piStreamTranslate.ts'
-import type { AgentModeTurnConfig } from '@/types/agentIpc'
+import { HARNESS_TURN_REFUSALS, type AgentModeTurnConfig } from '@/types/agentIpc'
 import type { HistoryEntry } from '@/types/sessionIpc'
+import type { BackendServiceName } from '@/assets/js/store/backendServices'
 import type { IpcMutationResult } from '@/types/ipcChannels'
 import { clearPointer, readSessionStore, savePointer } from './piSessionStore.ts'
 import { briefly, LOG_SOURCE, verboseLogging } from './piAgentLog.ts'
@@ -37,6 +38,7 @@ import {
   type AgentTurn,
 } from './piAgentState.ts'
 import {
+  effectiveHostShell,
   endActiveSession,
   ensureSession,
   reapplySession,
@@ -81,6 +83,15 @@ import {
 import { turnAttachments, withAttachmentReferences } from './workspaceAttachments.ts'
 import { collectAgentCallTimings, turnTimings } from './piCallTiming.ts'
 import { markHarnessTurn, rewindHarnessTurn } from './harnessTurns.ts'
+import { removeHistoryEntries } from '../session/sessionHistory.ts'
+import {
+  beginTurnJournal,
+  deleteSessionJournals,
+  deleteTurnJournal,
+  endTurnJournal,
+  restoreTurnJournal,
+  turnJournalHostShell,
+} from './workspaceJournal.ts'
 import { computeWindowSince } from '../adapters/hardware/computeMetrics.ts'
 import type { LlamaCppTimings } from '../chat/turnEngine.ts'
 import { documentsLine } from './sessionDocuments.ts'
@@ -462,18 +473,28 @@ export async function startAgentTurn(
     )
   } else if (config.taskRun?.notifiesResult) noteResultTurn(sessionId, turnId, config.workspaceDir)
   beginAgentTurnSnapshot(sessionId, turnId)
-  emitAgentTurnState(sessionId, turnId, 'queued')
+  emitAgentTurnState(
+    sessionId,
+    turnId,
+    'queued',
+    undefined,
+    config.userMessageId ? { prompt, userMessageId: config.userMessageId } : undefined,
+  )
   const verbose = verboseLogging()
+  // The journal and the answer stamp record the shell the turn really runs
+  // with, after developer mode has had its say on the persisted opt-in.
+  const hostShell = effectiveHostShell(config)
   const inSession = config.sessionRef
     ? trackAgentTurnInSession({
         sessionRef: config.sessionRef,
         presetName: config.presetName ?? '',
         workspaceDir: config.workspaceDir,
         prompt,
+        harnessSessionId: sessionId,
+        turnId,
         ...(config.taskRun
           ? { taskRun: { taskName: config.taskRun.taskName, input: config.taskRun.input } }
           : {}),
-        harnessSessionId: sessionId,
         ...(config.followUp ? { followUp: config.followUp } : {}),
       })
     : null
@@ -481,6 +502,7 @@ export async function startAgentTurn(
     emit: (chunk: StreamChunk) => emitAgentChunk(sessionId, turnId, chunk),
     model: config.readiness?.llmModelName ?? config.modelConfig.model,
     turnId,
+    hostShell,
     onToolProgress: ({ toolCallId, toolName, text }) => {
       emitAgentToolProgress(sessionId, turnId, toolCallId, toolName, text)
     },
@@ -551,6 +573,9 @@ export async function startAgentTurn(
         joinsTurnQueue: true,
         work: 'agent',
         pause,
+        ...(config.readiness
+          ? { component: config.readiness.serviceName as BackendServiceName }
+          : {}),
       },
       abortController.signal,
     )
@@ -573,9 +598,39 @@ export async function startAgentTurn(
       lastSample = fingerprint
       translator.update(summary)
     }
-    const rewound = config.rewindTurnId
-      ? rewindHarnessTurn(current.session, config.rewindTurnId)
-      : undefined
+    const rewindId = config.rewindTurnId
+    // A replaced turn that ran with the host shell cannot be rolled back
+    // safely, so the regenerate is refused before anything is touched.
+    if (rewindId && turnJournalHostShell(sessionId, rewindId)) {
+      throw new Error(HARNESS_TURN_REFUSALS.hostShell)
+    }
+    const rewound = rewindId ? rewindHarnessTurn(current.session, rewindId) : undefined
+    // The replaced turn's diary is spent here: the workspace goes back as that
+    // turn found it before the re-run writes over it.
+    if (rewindId) {
+      const report = await restoreTurnJournal(sessionId, rewindId)
+      deleteTurnJournal(sessionId, rewindId)
+      if (config.sessionRef) {
+        await removeHistoryEntries(config.sessionRef, sessionId, new Set([rewindId]))
+      }
+      if (report?.unrestorable.length) {
+        translator.notice(
+          'The replaced turn could not be fully rolled back; these files stay as it left them: ' +
+            `${report.unrestorable.join(', ')}.`,
+        )
+      }
+    }
+    // The turn's workspace diary (workspaceJournal.ts): every workspace write
+    // from here on is recorded so a later regenerate/delete of this turn can
+    // restore what it found. Its writable roots are the session's own mounts,
+    // so Session-side copies and app files stay out.
+    beginTurnJournal({
+      sessionId,
+      turnId,
+      workspaceDir: current.workspaceDir,
+      mountedFolders: current.mountedFolders,
+      unsandboxed: hostShell,
+    })
     const planning = watchPlanningPhase(current)
     markHarnessTurn(current.session, turnId)
     const calls: LlamaCppTimings[] = []
@@ -600,14 +655,17 @@ export async function startAgentTurn(
       }
       await collectAgentCallTimings(calls, async () => {
         const note = current.mountedFoldersNote
-        // A regenerated turn resends what the replaced one was sent, so its request is the same.
-        const sent = rewound?.text ?? withAttachmentReferences(prompt, current.attachments)
+        // A plain regenerate replays what the replaced turn was sent, so its request is the
+        // same; an edited one sends the new prompt the renderer shipped instead.
+        const replay = rewound !== undefined && config.editedPrompt !== true ? rewound : null
+        const sent = replay ? replay.text : withAttachmentReferences(prompt, current.attachments)
         const withUpdate = await withSessionUpdate(sent, config, current)
-        const images =
-          rewound?.images ??
-          turnAttachments(current.files, prompt, config.modelConfig.supportsVision === true).images
+        const images = replay
+          ? replay.images
+          : turnAttachments(current.files, prompt, config.modelConfig.supportsVision === true)
+              .images
         const documents =
-          current.documentSearch && !rewound ? documentsLine(current.attachments) : ''
+          current.documentSearch && !replay ? documentsLine(current.attachments) : ''
         const text = [note, withUpdate, documents].filter(Boolean).join('\n\n')
         await current.session.prompt(text, { images, expandPromptTemplates: !rewound })
         if (current.mountedFoldersNote === note) current.mountedFoldersNote = undefined
@@ -665,6 +723,7 @@ export async function startAgentTurn(
     if (turnQueueHolder() === turnId) setTurnChatBackendLoad(null)
     finishTextRequest(turnId)
     if (agentTurns.get(sessionId) === turn) agentTurns.delete(sessionId)
+    endTurnJournal(sessionId)
     // Decided by the abort, not the thrown error: a stop or shutdown is never a failure.
     const end: AgentTurnEnd =
       failedWith !== undefined
@@ -716,7 +775,11 @@ export async function resetAgentSession(): Promise<void> {
   const sessionId = active?.sessionId ?? lastSessionId
   if (sessionId) cancelAgentTurn(sessionId)
   await endActiveSession()
-  if (sessionId) clearPointer(sessionId)
+  if (sessionId) {
+    clearPointer(sessionId)
+    // The conversation is gone, so its turns can never be deleted or redone.
+    deleteSessionJournals(sessionId)
+  }
   closeWorkspaceRuntime()
 }
 
@@ -758,6 +821,7 @@ export async function deleteAgentSession(
     }
     closeBrowserSession(sessionId)
     forgetHarnessSession(sessionId)
+    deleteSessionJournals(sessionId)
     logger.info(`deleted agent session ${sessionId}`, LOG_SOURCE)
     return { success: true }
   } catch (error) {

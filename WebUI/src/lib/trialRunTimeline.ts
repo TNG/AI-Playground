@@ -14,6 +14,26 @@ export type TrialRunView = {
   inFlight?: boolean
 }
 
+/**
+ * A Trial Run is the Agent Library's, not a Session's: its turns are a
+ * transcript to read, so none of them is re-runnable, editable or deletable.
+ */
+function asTranscript<M extends PendingMedia, A extends PendingAudio>(
+  items: SessionTimelineItem<M, A>[],
+): SessionTimelineItem<M, A>[] {
+  for (const item of items) {
+    if (item.kind !== 'agent') continue
+    const { harnessTurn: _harnessTurn, ...footer } = item.footer
+    item.footer = {
+      ...footer,
+      actions: footer.actions.filter(
+        (action) => action !== 'regenerate' && action !== 'edit' && action !== 'delete',
+      ),
+    }
+  }
+  return items
+}
+
 /** A Trial Run as the Session timeline shows an Agent Run: its start bubble, then ordinary Turns. */
 export function trialRunItems<
   M extends PendingMedia = PendingMedia,
@@ -33,5 +53,5 @@ export function trialRunItems<
     ...(view.inFlight ? { agentRunsInFlight: [view.harnessSessionId] } : {}),
   })
   // A Trial Run is the Agent Library's, not a Session's: none of it is hidden.
-  return withoutMessageHiding(items)
+  return asTranscript(withoutMessageHiding(items))
 }

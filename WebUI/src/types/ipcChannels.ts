@@ -28,6 +28,7 @@ import type { DemoConfigSaveResult, DemoConfigUpdate } from './demoModeIpc'
 import type { ChannelInboundMessage } from './channelIpc'
 import type { KernelEvent, KernelSnapshot, PauseReason } from './kernelEvents'
 import type { CloseAnswerPayload, CloseAskPayload, InFlightWorkItem } from './lifecycleIpc'
+import type { ComponentChangeRefusal, HeldComponent } from './componentChange'
 import type { MediaItemsBootstrap } from './mediaItemIpc'
 import type { MediaRequestPayload, MediaResponsePayload } from './mediaRequests'
 import type {
@@ -37,6 +38,14 @@ import type {
   PermissionsPromptResponse,
 } from './permissionsIpc'
 import type { RagDocumentSection } from './ragDocumentIpc'
+import type {
+  DiscoveredHost,
+  PairedDeviceInfo,
+  PairingWindowInfo,
+  RemoteKernelConfigUpdate,
+  RemoteKernelPairRequest,
+  RemoteKernelStatus,
+} from './remoteKernelIpc'
 import type { MountedFolderRefusal } from '../lib/mountedFolders'
 import type { BackendLaunchSettings, BackendVersionWire } from './preferencesIpc'
 import type {
@@ -119,6 +128,8 @@ export type IpcOkWith<Fields> = ({ success: true } & Fields) | IpcFail
 /** Like `IpcOkWith`, but a refused Session Group name says which rule it broke. */
 export type IpcGroupNameResult<Fields> =
   ({ success: true } & Fields) | (IpcFail & { nameProblem?: GroupNameProblem })
+/** A Component change: done, or refused because work holds the Component, or failed. */
+export type ComponentChangeResult = IpcOk | (IpcFail & { refusal?: ComponentChangeRefusal })
 export type IpcStatusError = { status: 'error'; error: string }
 /** `GET /v1/models` from main. A failure keeps the provider status and body. */
 export type CloudModelListResult =
@@ -633,7 +644,7 @@ export const CHANNELS = {
     kind: 'invoke',
     owner: 'main',
     args: [] as unknown as readonly [DeleteAgentTurnsRequest],
-    result: null as unknown as IpcMutationResult,
+    result: null as unknown as IpcOkWith<{ unrestorable: string[] }>,
   },
   /** Hydrate the session-panel records once before mount: session files plus the active id. */
   'agentMode:bootstrapSessions': {
@@ -1021,12 +1032,12 @@ export const CHANNELS = {
     args: [] as unknown as readonly [ServiceSettings],
     result: null as unknown as void,
   },
-  /** Remove a service's installed files; ignored when the service is unknown. */
+  /** Remove a service's installed files; refused while work holds it. */
   uninstall: {
     kind: 'invoke',
     owner: 'main',
     args: [] as unknown as readonly [string],
-    result: null as unknown as void,
+    result: null as unknown as ComponentChangeResult,
   },
   /** Persist and apply the selected inference device for a service. */
   selectDevice: {
@@ -1063,12 +1074,19 @@ export const CHANNELS = {
     args: [] as unknown as readonly [string],
     result: null as unknown as BackendStatus,
   },
-  /** Install/update a service; progress streams as `serviceSetUpProgress` events. */
+  /** Install/update a service; progress streams as `serviceSetUpProgress` events. Refused while work holds it. */
   setUpService: {
     kind: 'invoke',
     owner: 'main',
     args: [] as unknown as readonly [BackendServiceName],
-    result: null as unknown as void,
+    result: null as unknown as ComponentChangeResult,
+  },
+  /** Whether a Component may be changed now; a refusal names the work, so a caller can ask before stopping it. */
+  componentChangeAdmission: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [BackendServiceName],
+    result: null as unknown as ComponentChangeResult,
   },
   /** The pinned release for a service: remote versions file, local fallback. */
   resolveBackendVersion: {
@@ -1700,6 +1718,14 @@ export const CHANNELS = {
     flat: true as const,
     member: 'reportInFlightWork' as const,
   },
+  /** Components only the window knows are in use (speech turns, model downloads); replaces the last report. */
+  'lifecycle:reportComponentHolds': {
+    kind: 'send',
+    owner: 'main',
+    args: [] as unknown as readonly [HeldComponent[]],
+    flat: true as const,
+    member: 'reportComponentHolds' as const,
+  },
   /** The in-app close button: main's close coordinator decides whether to quit or ask. */
   'lifecycle:requestClose': {
     kind: 'send',
@@ -1862,6 +1888,13 @@ export const CHANNELS = {
   },
   /** Open ComfyUI in the OS browser via the loopback launch token. */
   'comfyui:openInBrowser': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Open the Hermes Agent dashboard in the OS browser, starting it on first use. */
+  'hermes:openDashboard': {
     kind: 'invoke',
     owner: 'main',
     args: [] as const,
@@ -2344,6 +2377,79 @@ export const CHANNELS = {
     // already calls `electronAPI.getKernelSnapshot()`.
     flat: true as const,
     member: 'getKernelSnapshot' as const,
+  },
+
+  // ── Remote kernel (thin client ↔ workstation over the LAN) ──
+
+  /** This launch's remote-kernel mode, the saved config, and the live connection. */
+  'remoteKernel:getStatus': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as RemoteKernelStatus,
+  },
+  /** Save the mode and host port; applies on the next start. */
+  'remoteKernel:saveConfig': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [null as unknown as RemoteKernelConfigUpdate] as const,
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Workstation: open a two-minute pairing window and return its 4-digit code. */
+  'remoteKernel:openPairing': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as IpcOkWith<{ pairing: PairingWindowInfo }>,
+  },
+  /** Workstation: end the pairing window early. */
+  'remoteKernel:closePairing': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as void,
+  },
+  /** Workstation: the paired devices, without their token hashes. */
+  'remoteKernel:listDevices': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as PairedDeviceInfo[],
+  },
+  /** Workstation: forget a device and end its connection. */
+  'remoteKernel:revokeDevice': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [null as unknown as string] as const,
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Workstation: new certificate, no paired devices; every client pairs again. */
+  'remoteKernel:resetPairing': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Thin client: browse mDNS for workstations for a few seconds. */
+  'remoteKernel:discover': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as IpcDataResult<DiscoveredHost[]>,
+  },
+  /** Thin client: pair with a workstation using the code it shows (SPAKE2; the code stays local). */
+  'remoteKernel:pair': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [null as unknown as RemoteKernelPairRequest] as const,
+    result: null as unknown as IpcOkWith<{ hostname: string }>,
+  },
+  /** Thin client: drop the paired workstation, its pinned certificate and token. */
+  'remoteKernel:forgetHost': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as IpcMutationResult,
   },
 } satisfies Record<string, IpcRow>
 

@@ -117,6 +117,27 @@ describe('an Agent Run working in its override folder', () => {
     )
   })
 
+  it('numbers a ComfyUI series ascending as the Agent keeps generating', async () => {
+    const { id, override } = await sessionWithOverride()
+    const target = sessionMediaOf(id, override)
+
+    const first = (await saveGeneratedMediaToWorkspace(
+      await generate('AIPG_Image_00001_.png', 'one'),
+      override,
+      target,
+    )) as { savedFiles: string[] }
+    const second = (await saveGeneratedMediaToWorkspace(
+      await generate('AIPG_Image_00001_.png', 'two'),
+      override,
+      target,
+    )) as { savedFiles: string[] }
+
+    expect(first.savedFiles).toEqual(['AIPG_Image_00001_.png'])
+    expect(second.savedFiles).toEqual(['AIPG_Image_00002_.png'])
+    expect(await fs.readdir(override)).toEqual(['AIPG_Image_00001_.png', 'AIPG_Image_00002_.png'])
+    expect(await fs.readFile(path.join(override, 'AIPG_Image_00002_.png'), 'utf8')).toBe('two')
+  })
+
   it('records the Artifacts in the History as the Agent-owned entry plus a path', async () => {
     const { id, override } = await sessionWithOverride()
     const turn = trackAgentTurnInSession({
@@ -125,6 +146,7 @@ describe('an Agent Run working in its override folder', () => {
       workspaceDir: override,
       prompt: 'chart it',
       harnessSessionId: 'aipg-agent-1',
+      turnId: 't1',
       taskRun: { taskName: 'Reporter' },
     })
 
@@ -166,6 +188,7 @@ describe('session_history read by the Assistant after an overriding Agent Run', 
       workspaceDir: session.override,
       prompt: 'make things',
       harnessSessionId: 'aipg-agent-1',
+      turnId: 't1',
     })
     for (const [name, bytes] of Object.entries(files)) {
       await saveGeneratedMediaToWorkspace(

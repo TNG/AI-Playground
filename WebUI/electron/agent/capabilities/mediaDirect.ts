@@ -84,7 +84,12 @@ export async function buildDirectMediaTools(
               signal ?? undefined,
             )
             return mediaToolResult(
-              await saveGeneratedMediaToWorkspace(result, workspaceDir, host.sessionMedia),
+              await saveGeneratedMediaToWorkspace(
+                result,
+                workspaceDir,
+                host.sessionMedia,
+                host.sessionId,
+              ),
             )
           },
         }) as ToolDefinition,

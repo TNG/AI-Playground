@@ -18,6 +18,7 @@ export const allBackendServiceNames = [
   'llamacpp-backend',
   'openvino-backend',
   'comfyui-backend',
+  'hermes-backend',
 ] as const
 
 export type BackendServiceName = (typeof allBackendServiceNames)[number]
@@ -50,6 +51,7 @@ export const useBackendServices = defineStore('backendServices', () => {
     'comfyui-backend': null,
     'llamacpp-backend': null,
     'openvino-backend': null,
+    'hermes-backend': null,
   })
 
   // User's version overrides (persisted)
@@ -138,6 +140,7 @@ export const useBackendServices = defineStore('backendServices', () => {
     'comfyui-backend': {},
     'llamacpp-backend': {},
     'openvino-backend': {},
+    'hermes-backend': {},
   })
 
   function applyInstalledVersionFromService(service: ApiServiceInformation): void {
@@ -478,11 +481,18 @@ export const useBackendServices = defineStore('backendServices', () => {
     return serverStartupsCompleted
   }
 
+  /** Ask the kernel before stopping anything: a held Component must not lose its work. */
+  async function admitComponentChange(serviceName: BackendServiceName): Promise<void> {
+    const result = await window.electronAPI.componentChangeAdmission(serviceName)
+    if (!result.success) throw new Error(result.error)
+  }
+
   async function uninstallService(serviceName: BackendServiceName): Promise<void> {
     const listener = serviceListeners.get(serviceName)
     if (!listener) {
       throw new Error(`service name ${serviceName} not found.`)
     }
+    await admitComponentChange(serviceName)
     listener.isActive = true
     try {
       try {
@@ -492,7 +502,8 @@ export const useBackendServices = defineStore('backendServices', () => {
       }
       // Clear error details when uninstalling
       listener.clearErrorDetails()
-      await window.electronAPI.uninstall(serviceName)
+      const result = await window.electronAPI.uninstall(serviceName)
+      if (!result.success) throw new Error(result.error)
     } finally {
       // A failed uninstall used to leave the listener active, so the next setup
       // for this service started with dirty listener state (stale collected
@@ -539,6 +550,8 @@ export const useBackendServices = defineStore('backendServices', () => {
       throw new Error(`service name ${serviceName} not found.`)
     }
 
+    await admitComponentChange(serviceName)
+
     listener.clearErrorDetails()
     const runToken = listener.beginRun()
 
@@ -571,7 +584,7 @@ export const useBackendServices = defineStore('backendServices', () => {
     // never be a floating promise: if it rejects (or returns without a terminal
     // update) the listener has to be released, or the install hangs forever.
     window.electronAPI.setUpService(serviceName).then(
-      () => listener.onInvocationSettled(runToken),
+      (result) => listener.onInvocationSettled(runToken, result.success ? undefined : result.error),
       (error: unknown) =>
         listener.onInvocationSettled(
           runToken,

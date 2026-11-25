@@ -4,6 +4,8 @@ import type { ArtifactRunResult } from './runner.ts'
 import { resolveComfyEntry, type PresetCatalog } from './catalog.ts'
 import type { ComfyInput, ComfyUiPreset, Preset } from '@/lib/presetSchemas'
 import { OPTIONAL_MODEL_NONE } from '@/lib/comfyWorkflow'
+import { FALLBACK_PARAMS, presetDefault, presetDefaultResolution } from '@/lib/comfyParamDefaults'
+import { isDeviceInput, isPromptSelectableInput } from '@/lib/comfyPromptInputs'
 import {
   DEFAULT_RESOLUTION_CONFIG,
   findClosestResolutionInConfig,
@@ -48,10 +50,17 @@ function getDefaultMegapixelLabel(config: ResolutionConfig): string {
   return labels[Math.floor(labels.length / 2)] ?? '0.5'
 }
 
+type ResolvedSize = {
+  width?: number
+  height?: number
+  /** Label of the size request no supported resolution matched exactly. */
+  snapped?: string
+}
+
 function resolveSize(
   preset: ComfyUiPreset,
   args: { aspectRatio?: unknown; megapixels?: unknown; resolution?: unknown },
-): { width?: number; height?: number } {
+): ResolvedSize {
   const config = preset.resolutionConfig ?? DEFAULT_RESOLUTION_CONFIG
   const aspectRatio = typeof args.aspectRatio === 'string' ? args.aspectRatio : undefined
   const megapixels = typeof args.megapixels === 'string' ? args.megapixels : undefined
@@ -62,8 +71,16 @@ function resolveSize(
     const mp = megapixels ?? getDefaultMegapixelLabel(config)
     const exact = getResolutionForConfig(config, mp, ar)
     if (exact) return { width: exact.width, height: exact.height }
+    // The request leaves the preset's size vocabulary — remember what was
+    // asked for so the caller can tell the model (and the user) about it.
+    const snapped =
+      megapixels && aspectRatio
+        ? `${mp} megapixels at ${ar}`
+        : megapixels
+          ? `${mp} megapixels`
+          : `aspect ratio ${ar}`
     const matchingAR = getResolutionsFromConfig(config).filter((r) => r.aspectRatio === ar)
-    if (matchingAR.length === 0) return {}
+    if (matchingAR.length === 0) return { snapped }
     const target = parseFloat(mp)
     const closest = matchingAR.reduce((prev, curr) =>
       Math.abs(parseFloat(curr.megapixels) - target) <
@@ -71,37 +88,127 @@ function resolveSize(
         ? curr
         : prev,
     )
-    return { width: closest.width, height: closest.height }
+    return { width: closest.width, height: closest.height, snapped }
   }
   if (resolution) {
     const [w, h] = resolution.split('x').map(Number)
     if (w && h) {
       const match = findClosestResolutionInConfig(config, w, h)
-      return match ? { width: match.width, height: match.height } : { width: w, height: h }
+      if (!match || (match.width === w && match.height === h)) return { width: w, height: h }
+      return { width: match.width, height: match.height, snapped: `${w}x${h}` }
     }
   }
   return {}
 }
 
+type ResolvedComfyInput = ComfyInput & { current: unknown }
+
+/**
+ * A value the prompt picked for one workflow input, normalized to the input's
+ * vocabulary — or `undefined` when no valid value can be derived. `adjusted`
+ * names the value actually used when a numeric request left the allowed range.
+ */
+function normalizeDynamicInputValue(
+  input: ComfyInput,
+  value: unknown,
+): { value: string | number | boolean; adjusted?: string } | undefined {
+  if (input.options && input.options.length > 0) {
+    const wanted = String(value).trim().toLowerCase()
+    const match = input.options.find((option) => String(option).trim().toLowerCase() === wanted)
+    return match === undefined ? undefined : { value: match }
+  }
+  if (input.type === 'number') {
+    const parsed =
+      typeof value === 'number'
+        ? value
+        : typeof value === 'string' && value.trim() !== ''
+          ? Number(value)
+          : NaN
+    if (!Number.isFinite(parsed)) return undefined
+    const clamped = Math.min(Math.max(parsed, input.min ?? -Infinity), input.max ?? Infinity)
+    return { value: clamped, ...(clamped !== parsed ? { adjusted: String(clamped) } : {}) }
+  }
+  if (input.type === 'boolean') {
+    if (typeof value === 'boolean') return { value }
+    const lower = typeof value === 'string' ? value.trim().toLowerCase() : ''
+    if (lower === 'true') return { value: true }
+    if (lower === 'false') return { value: false }
+    return undefined
+  }
+  // string / model / stringList inputs take free-form text.
+  if (typeof value === 'string') return { value }
+  if (typeof value === 'number' || typeof value === 'boolean') return { value: String(value) }
+  return undefined
+}
+
+/**
+ * Merges the prompt's label-keyed `dynamicInputs` into the resolved inputs and
+ * reports everything that was refused, so the model can tell the user instead
+ * of assuming the request took effect.
+ */
+function applyDynamicInputOverrides(
+  inputs: ResolvedComfyInput[],
+  dynamicInputs: unknown,
+): string[] {
+  if (dynamicInputs === null || typeof dynamicInputs !== 'object' || Array.isArray(dynamicInputs)) {
+    return []
+  }
+  const notices: string[] = []
+  for (const [rawLabel, value] of Object.entries(dynamicInputs as Record<string, unknown>)) {
+    const label = rawLabel.trim()
+    if (label === '') continue
+    const input = inputs.find((i) => i.label.trim().toLowerCase() === label.toLowerCase())
+    if (!input) {
+      notices.push(`"${label}" is not an input of this workflow`)
+      continue
+    }
+    if (!isPromptSelectableInput(input)) {
+      notices.push(
+        isDeviceInput(input)
+          ? `"${input.label}" is the inference device, which the prompt cannot choose`
+          : `"${input.label}" cannot be set via the prompt`,
+      )
+      continue
+    }
+    const normalized = normalizeDynamicInputValue(input, value)
+    if (!normalized) {
+      const allowed =
+        input.options && input.options.length > 0
+          ? `; allowed values: ${input.options.join(', ')}`
+          : ''
+      notices.push(
+        `"${label}" was ignored because the requested value is not valid for it${allowed}`,
+      )
+      continue
+    }
+    input.current = normalized.value
+    if (normalized.adjusted !== undefined) {
+      notices.push(`"${label}" was adjusted to ${normalized.adjusted} to fit its allowed range`)
+    }
+  }
+  return notices
+}
+
 function resolveInputs(
   preset: ComfyUiPreset,
   source?: string,
-): Array<ComfyInput & { current: unknown }> {
-  const inputs = preset.settings.filter(
-    (s): s is ComfyInput => 'nodeTitle' in s && 'nodeInput' in s,
-  )
-  const resolved = inputs.map((input) => {
-    const raw = input.defaultValue
-    const current =
-      input.type === 'model' &&
-      input.optional === true &&
-      (raw === undefined || raw === '' || raw === OPTIONAL_MODEL_NONE)
-        ? OPTIONAL_MODEL_NONE
-        : raw
-    return { ...input, current }
-  })
+  dynamicInputs?: unknown,
+): { inputs: ResolvedComfyInput[]; notices: string[] } {
+  const inputs = preset.settings
+    .filter((s): s is ComfyInput => 'nodeTitle' in s && 'nodeInput' in s)
+    .map((input) => {
+      const raw = input.defaultValue
+      const current =
+        input.type === 'model' &&
+        input.optional === true &&
+        (raw === undefined || raw === '' || raw === OPTIONAL_MODEL_NONE)
+          ? OPTIONAL_MODEL_NONE
+          : raw
+      return { ...input, current }
+    })
+  const notices = applyDynamicInputOverrides(inputs, dynamicInputs)
   if (source) {
-    const imageInput = resolved.find(
+    const imageInput = inputs.find(
       (input) =>
         (input.type === 'image' ||
           input.type === 'inpaintMask' ||
@@ -112,14 +219,25 @@ function resolveInputs(
     )
     if (imageInput) imageInput.current = source
   }
-  return resolved
+  return { inputs, notices }
 }
 
 function toolOutput(result: ArtifactRunResult): Record<string, unknown> {
   const images = result.items.map((item) => {
     const settings = item.settings || {}
+    // The per-workflow inputs the run used: the UI's info overlay lists them,
+    // so they must survive the tool boundary even though the model never reads them.
+    const dynamicSettings =
+      item.dynamicSettings === undefined ? {} : { dynamicSettings: item.dynamicSettings }
     if (item.type === 'video') {
-      return { id: item.id, type: 'video', videoUrl: item.videoUrl, mode: 'imageGen', settings }
+      return {
+        id: item.id,
+        type: 'video',
+        videoUrl: item.videoUrl,
+        mode: 'imageGen',
+        settings,
+        ...dynamicSettings,
+      }
     }
     if (item.type === 'model3d') {
       return {
@@ -128,9 +246,17 @@ function toolOutput(result: ArtifactRunResult): Record<string, unknown> {
         model3dUrl: item.model3dUrl,
         mode: 'imageGen',
         settings,
+        ...dynamicSettings,
       }
     }
-    return { id: item.id, type: 'image', imageUrl: item.imageUrl, mode: 'imageGen', settings }
+    return {
+      id: item.id,
+      type: 'image',
+      imageUrl: item.imageUrl,
+      mode: 'imageGen',
+      settings,
+      ...dynamicSettings,
+    }
   })
   const unfinished = (result.unfinished ?? []).map((item) => ({
     id: item.id,
@@ -173,6 +299,8 @@ export type InProcessComfyArgs = {
   inferenceSteps?: unknown
   seed?: unknown
   batchSize?: unknown
+  /** Label-keyed overrides of the workflow's ComfyUI inputs, validated against the preset. */
+  dynamicInputs?: unknown
   defaultWorkflow?: string
 }
 
@@ -240,8 +368,28 @@ export async function runInProcessComfyTool(
   }
 
   const isEdit = request.kind === 'edit'
-  const { width, height } = isEdit ? {} : resolveSize(preset, request.args)
-  const prompt = typeof request.args.prompt === 'string' ? request.args.prompt : ''
+  // Size resolution runs for edits too: a size passed by the model reaches
+  // workflows that have width/height settings and is a no-op on the rest.
+  const size = resolveSize(preset, request.args)
+  const { width, height } = size
+  const prompt =
+    typeof request.args.prompt === 'string'
+      ? request.args.prompt
+      : ((presetDefault(preset, 'prompt') as string | undefined) ?? '')
+  const [defaultWidth, defaultHeight] = presetDefaultResolution(preset)
+  const mediaType = preset.mediaType ?? 'image'
+  // Same chain as the panel path (runArtifact.resolveParams): model-passed
+  // value → preset-declared default → last-resort fallback, so an agent run of
+  // a preset runs with the settings the preset itself declares.
+  const requestedBatch =
+    (typeof request.args.batchSize === 'number' ? request.args.batchSize : undefined) ??
+    (presetDefault(preset, 'batchSize') as number | undefined)
+
+  const { inputs, notices } = resolveInputs(
+    preset,
+    isEdit ? request.source : undefined,
+    request.args.dynamicInputs,
+  )
 
   const payload = {
     runId: randomUUID(),
@@ -250,19 +398,27 @@ export async function runInProcessComfyTool(
     params: {
       prompt,
       negativePrompt:
-        typeof request.args.negativePrompt === 'string' ? request.args.negativePrompt : 'nsfw',
-      seed: typeof request.args.seed === 'number' ? request.args.seed : -1,
+        typeof request.args.negativePrompt === 'string'
+          ? request.args.negativePrompt
+          : ((presetDefault(preset, 'negativePrompt') as string | undefined) ??
+            FALLBACK_PARAMS.negativePrompt),
+      seed:
+        typeof request.args.seed === 'number'
+          ? request.args.seed
+          : ((presetDefault(preset, 'seed') as number | undefined) ?? FALLBACK_PARAMS.seed),
       inferenceSteps:
-        typeof request.args.inferenceSteps === 'number' ? request.args.inferenceSteps : 6,
-      width: width ?? 512,
-      height: height ?? 512,
-      batchSize: isEdit
-        ? 1
-        : typeof request.args.batchSize === 'number'
-          ? request.args.batchSize
-          : 1,
+        typeof request.args.inferenceSteps === 'number'
+          ? request.args.inferenceSteps
+          : ((presetDefault(preset, 'inferenceSteps') as number | undefined) ??
+            FALLBACK_PARAMS.inferenceSteps),
+      width: width ?? defaultWidth ?? FALLBACK_PARAMS.width,
+      height: height ?? defaultHeight ?? FALLBACK_PARAMS.height,
+      // Batching only makes sense for image creates; video and 3D are
+      // expensive and a single result is expected, so batch is forced to 1.
+      batchSize:
+        isEdit || mediaType !== 'image' ? 1 : Number(requestedBatch ?? FALLBACK_PARAMS.batchSize),
     },
-    inputs: resolveInputs(preset, isEdit ? request.source : undefined),
+    inputs,
     source: isEdit ? request.source : undefined,
     keepModelsLoaded: request.keepModelsLoaded,
     variant,
@@ -287,7 +443,29 @@ export async function runInProcessComfyTool(
     request.declinedWorkflows?.add(workflowName)
     return declined
   }
-  return toolOutput(result)
+  const output = toolOutput(result)
+  if (result.state === 'completed') {
+    // The runner stamps the size the workflow actually produced on each item;
+    // the requested params only stand in when it could not.
+    const first = result.items[0]
+    const usedSize =
+      (typeof first?.settings?.resolution === 'string' ? first.settings.resolution : undefined) ??
+      `${payload.params.width}x${payload.params.height}`
+    output.size = usedSize
+    // The requested size left the preset's supported vocabulary: say what was
+    // actually used so the model tells the user instead of a silent swap.
+    if (size.snapped) {
+      output.sizeNotice = `Requested ${size.snapped}, but the "${workflowName}" workflow supports a fixed set of sizes and used ${usedSize}. Tell the user which size was actually used.`
+    }
+    // Same honesty for refused workflow-input requests: the model must not
+    // report settings as applied that the run dropped.
+    if (notices.length > 0) {
+      output.inputsNotice =
+        'Some requested workflow inputs were not applied: ' +
+        `${notices.join('; ')}. Tell the user which of their requested settings did not take effect.`
+    }
+  }
+  return output
 }
 
 function declinedOutput(workflowName: string, toolName = 'this tool'): Record<string, unknown> {

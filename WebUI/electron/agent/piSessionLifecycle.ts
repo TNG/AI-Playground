@@ -28,6 +28,7 @@ import {
 } from './mountedFolderTurn.ts'
 import { buildWorkspaceInstructions, ensureWorkspaceRuntime } from './piWorkspaceRuntime.ts'
 import { createSamplingExtension } from './piSampling.ts'
+import { createOutputBudgetExtension } from './piOutputBudget.ts'
 import { laminarPiExtensionPath } from '../observability/laminar.ts'
 import { llmServerMtpArmed } from '../adapters/llmServerSnapshot.ts'
 import { withLiveEndpoint } from './piLocalEndpoint.ts'
@@ -61,6 +62,7 @@ import {
   copySamplingParams,
   ensureModelRuntime,
   modelContextWindow,
+  modelMaxTokens,
   registerModel,
   traceContext,
 } from './piModelRuntime.ts'
@@ -310,6 +312,7 @@ async function createSession(
   const access = await createAgentToolAccess({
     workspaceDir,
     unsandboxed,
+    sessionId,
     skillsDir,
     skills,
     mountedFolders,
@@ -418,6 +421,10 @@ async function createSession(
     extensionFactories: [
       ...capabilities.extensionFactories,
       reclaimBeforeModelCall(sessionId),
+      ...(config.modelConfig.source === 'local' &&
+      (config.modelConfig.backend ?? 'llamaCPP') === 'llamaCPP'
+        ? [createOutputBudgetExtension(modelMaxTokens(config.modelConfig))]
+        : []),
       // Pi's agent path ignores `Model.samplingParams`, so the turn's sampling
       // is merged into each request here instead (piSampling.ts).
       createSamplingExtension(
@@ -648,6 +655,11 @@ function withShellPolicy(config: AgentModeTurnConfig): AgentModeTurnConfig {
   if (!config.unsandboxed || isDeveloperMode()) return config
   logger.warn('agent tools: host shell requested but developer mode is off — sandboxed', LOG_SOURCE)
   return { ...config, unsandboxed: false }
+}
+
+/** The shell a turn actually runs with: the opt-in only counts in developer mode. */
+export function effectiveHostShell(config: AgentModeTurnConfig): boolean {
+  return withShellPolicy(config).unsandboxed === true
 }
 
 export async function ensureSession(requested: AgentModeTurnConfig): Promise<ActiveSession> {

@@ -120,6 +120,7 @@ describe('mediaDelegation (in-process media tool)', () => {
       }),
       workspaceDir,
       undefined,
+      'session-1',
     )
   })
 
@@ -258,6 +259,58 @@ describe('mediaDelegation (in-process media tool)', () => {
     )
     expect(first).toBeInstanceOf(Set)
     expect(second).toBe(first)
+  })
+
+  it('keeps the full generation settings in the transcript items but out of the model content', async () => {
+    const dynamicSettings = [
+      {
+        type: 'number',
+        label: 'Guidance Scale',
+        nodeTitle: 'Node',
+        nodeInput: 'guidance',
+        displayed: true,
+        modifiable: true,
+        defaultValue: 7,
+        current: 7.5,
+      },
+    ]
+    runMediaAgentInMainMock.mockResolvedValueOnce(
+      specialistResult([
+        {
+          id: '1',
+          type: 'image',
+          imageUrl: 'aipg-media://castle.png',
+          mode: 'imageGen',
+          settings: { preset: 'Draft Image', prompt: 'a castle', inferenceSteps: 20, seed: 42 },
+          dynamicSettings,
+        },
+      ]),
+    )
+    const tool = (await buildDelegatedMediaTool(hostWith(), MEDIA_SPEC)) as unknown as {
+      execute: (id: string, params: unknown, signal: AbortSignal) => Promise<unknown>
+    }
+
+    const result = (await tool.execute(
+      'call-1',
+      { request: 'a castle, 20 steps' },
+      new AbortController().signal,
+    )) as {
+      content: { type: string; text: string }[]
+      details: { items: Record<string, unknown>[] }
+    }
+
+    // The parent model's context keeps only the prompt and workflow name per item.
+    const content = JSON.parse(result.content[0].text) as { images: Record<string, unknown>[] }
+    expect(content.images[0].settings).toEqual({ prompt: 'a castle', preset: 'Draft Image' })
+    expect(content.images[0].dynamicSettings).toBeUndefined()
+    // The transcript's items carry the full generation settings and dynamic inputs.
+    expect(result.details.items[0].settings).toEqual({
+      preset: 'Draft Image',
+      prompt: 'a castle',
+      inferenceSteps: 20,
+      seed: 42,
+    })
+    expect(result.details.items[0].dynamicSettings).toEqual(dynamicSettings)
   })
 
   it('resolves a workspace source path to a data URI before the specialist run', async () => {

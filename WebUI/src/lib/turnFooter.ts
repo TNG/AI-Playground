@@ -31,24 +31,41 @@ export function harnessTurnIds(answers: UIMessage[]): string[] {
   })
 }
 
-/** An agent Turn's Copy takes its answer, not the text it wrote between tool calls. */
+/**
+ * An agent Turn's Copy takes its answer, not the text it wrote between tool
+ * calls. Regenerate, Edit and Delete reach only the newest turn; Speak stays
+ * with the chat-affordance presets. An Agent Run's Edit rebuilds its prompt
+ * from the edited Start Prompt over the same Steps. A turn that ran with the
+ * host shell keeps only Copy and Speak: its workspace cannot be rolled back.
+ */
 export function agentFooter(
   answerText: string,
-  assistant?: { answer: UIMessage | undefined; harnessTurn?: HarnessTurnRef; latest?: boolean },
+  assistant?: {
+    answer: UIMessage | undefined
+    harnessTurn?: HarnessTurnRef
+    latest?: boolean
+    canSpeak?: boolean
+  },
 ): TurnFooter {
   if (!assistant) return { actions: answerText ? ['copy'] : [], text: answerText }
   const messageId = assistant.answer?.id
   const turn = assistant.harnessTurn
-  const regenerate = !!assistant.latest && !!turn?.promptId && turn.turnIds.length > 0
+  const latest = !!assistant.latest
+  const hostShell =
+    (assistant.answer?.metadata as { hostShell?: unknown } | undefined)?.hostShell === true
+  const regenerate = latest && !hostShell && !!turn?.promptId && turn.turnIds.length > 0
   // Without a turn marker the answer cannot be taken out of what the model sees.
-  const deletable = !!turn && (turn.turnIds.length > 0 || turn.messageIds.length <= 1)
+  const deletable =
+    latest && !hostShell && !!turn && (turn.turnIds.length > 0 || turn.messageIds.length <= 1)
   const actions: TurnFooterAction[] = [
     ...(answerText ? (['copy'] as const) : []),
-    ...(answerText && messageId ? (['speak'] as const) : []),
+    ...(answerText && messageId && assistant.canSpeak ? (['speak'] as const) : []),
     ...(regenerate ? (['regenerate', 'edit'] as const) : []),
     ...(deletable ? (['delete'] as const) : []),
   ]
-  const metrics = answerMetrics(assistant.answer)
+  // The affordance presets carry the answer's metrics too; the agent footer
+  // of the games presets stays lean.
+  const metrics = assistant.canSpeak ? answerMetrics(assistant.answer) : undefined
   return {
     actions,
     text: answerText,

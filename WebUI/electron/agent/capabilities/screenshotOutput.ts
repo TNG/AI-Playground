@@ -9,6 +9,7 @@ import {
   workspaceFileToDataUri,
 } from '../piCustomTools.ts'
 import { noteGeneratedMedia } from '../generatedMedia.ts'
+import { recordJournalMedia } from '../workspaceJournal.ts'
 import { freeName } from '../../persist/fileOps.ts'
 import { isInGamesLibrary } from '../../session/sessionWorkspace.ts'
 import { appLoggerInstance } from '../../observability/logger.ts'
@@ -49,6 +50,9 @@ async function screenshotMediaUrl(
   fs.mkdirSync(filesDir, { recursive: true })
   const served = await freeName(filesDir, path.basename(relativePath))
   fs.copyFileSync(path.join(host.workspaceDir, relativePath), path.join(filesDir, served))
+  // The copy is apart from the turn's workspace, so a restore only finds it
+  // through the journal's media notes.
+  recordJournalMedia(host.sessionId, [path.join(filesDir, served)])
   return target.workspace === 'trial'
     ? trialMediaUrl(target.agentId, `files/${served}`)
     : sessionFolderMediaUrl(target.sessionRef, target.folderId, served)

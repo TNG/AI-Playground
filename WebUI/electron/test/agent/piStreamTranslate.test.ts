@@ -61,6 +61,22 @@ describe('the model an agent answer was written by', () => {
       messageMetadata: { model: 'Qwen3.8-27B-Q4_K_M.gguf' },
     })
   })
+
+  it('names the reply after its turn, so every window following it builds the same message', () => {
+    const chunks: StreamChunk[] = []
+    const translator = createStreamTranslator({
+      emit: (chunk) => chunks.push(chunk),
+      turnId: 't-1',
+    })
+    translator.handle(turnStart)
+    translator.handle(message({ type: 'text_start', contentIndex: 0 }))
+
+    expect(chunks[0]).toEqual({
+      type: 'start',
+      messageId: 't-1-reply',
+      messageMetadata: { harnessTurnId: 't-1' },
+    })
+  })
 })
 
 describe('createStreamTranslator', () => {

@@ -263,6 +263,16 @@ export const CHANNELS = {
       lastPreset: SessionLastPreset | null
     }>,
   },
+  /**
+   * The open Session's artifact URLs whose file is gone, re-read after a Session change: a
+   * later turn may have re-created a file that was missing when the Session was opened.
+   */
+  'sessions:missingArtifacts': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as IpcOkWith<{ missingFiles: string[] }>,
+  },
   /** Give a Session a user-chosen title. */
   'sessions:rename': {
     kind: 'invoke',
@@ -636,7 +646,7 @@ export const CHANNELS = {
     kind: 'invoke',
     owner: 'main',
     args: [] as unknown as readonly [DeleteAgentTurnsRequest],
-    result: null as unknown as IpcMutationResult,
+    result: null as unknown as IpcOkWith<{ unrestorable: string[] }>,
   },
   /** Hydrate the session-panel records once before mount: session files plus the active id. */
   'agentMode:bootstrapSessions': {

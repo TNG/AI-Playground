@@ -245,4 +245,47 @@ describe('condenseMediaAgentRun', () => {
       },
     ])
   })
+
+  it('keeps the savedFiles paths beside the URLs in the slim copy', () => {
+    const result = condenseMediaAgentRun({
+      text: 'Made a castle.',
+      steps: [
+        {
+          toolName: 'comfyUI',
+          input: { workflow: 'Draft Image', prompt: 'a castle' },
+          output: {
+            images: [
+              {
+                id: '1',
+                type: 'image',
+                imageUrl: 'aipg-media://folders/s1/folder-x/castle.png',
+                mode: 'imageGen',
+                settings: { preset: 'Draft Image', prompt: 'a castle' },
+              },
+            ],
+          },
+        },
+      ],
+    })
+    const saved = {
+      ...result,
+      savedFiles: ['generated/castle.png'],
+      savedFilesNote: 'The generated media files were saved into the workspace.',
+    }
+
+    // The slim copy keeps the URLs (the delegated tool hides them at its call site) and
+    // carries the friendly savedFiles paths, so the model can name where each file landed.
+    expect(slimCondensedMedia(saved)).toMatchObject({
+      savedFiles: ['generated/castle.png'],
+      savedFilesNote: 'The generated media files were saved into the workspace.',
+    })
+    expect(slimCondensedMedia(saved).images).toEqual([
+      {
+        id: '1',
+        type: 'image',
+        imageUrl: 'aipg-media://folders/s1/folder-x/castle.png',
+        settings: { preset: 'Draft Image', prompt: 'a castle' },
+      },
+    ])
+  })
 })

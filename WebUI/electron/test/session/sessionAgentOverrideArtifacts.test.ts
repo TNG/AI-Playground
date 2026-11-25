@@ -146,6 +146,7 @@ describe('an Agent Run working in its override folder', () => {
       workspaceDir: override,
       prompt: 'chart it',
       harnessSessionId: 'aipg-agent-1',
+      turnId: 't1',
       taskRun: { taskName: 'Reporter' },
     })
 
@@ -169,6 +170,42 @@ describe('an Agent Run working in its override folder', () => {
     )
   })
 
+  it('never re-takes a name the History still records, once its file was moved away', async () => {
+    const { id, override } = await sessionWithOverride()
+    const turn = trackAgentTurnInSession({
+      sessionRef: id,
+      presetName: 'Reporter',
+      workspaceDir: override,
+      prompt: 'chart it',
+      harnessSessionId: 'aipg-agent-1',
+      turnId: 't1',
+      taskRun: { taskName: 'Reporter' },
+    })
+
+    await saveGeneratedMediaToWorkspace(
+      await generate('chart.png', 'first'),
+      override,
+      sessionMediaOf(id, override),
+    )
+    await turn.settle(completed)
+
+    // The agent moved the file away: the record stays, the folder is empty again.
+    await fs.rm(path.join(override, 'chart.png'))
+
+    const second = (await saveGeneratedMediaToWorkspace(
+      await generate('chart.png', 'second'),
+      override,
+      sessionMediaOf(id, override),
+    )) as { savedFiles: string[] }
+
+    expect(second.savedFiles).toEqual(['chart-1.png'])
+    expect(await fs.readdir(override)).toEqual(['chart-1.png'])
+    expect(await fs.readFile(path.join(override, 'chart-1.png'), 'utf8')).toBe('second')
+    expect(await missingArtifactUrls(id)).toEqual([
+      sessionFolderMediaUrl(id, OVERRIDE_ID, 'chart.png'),
+    ])
+  })
+
   it('keeps its attachments in the Session’s storage, out of the override folder', async () => {
     const { id, override } = await sessionWithOverride()
 
@@ -187,6 +224,7 @@ describe('session_history read by the Assistant after an overriding Agent Run', 
       workspaceDir: session.override,
       prompt: 'make things',
       harnessSessionId: 'aipg-agent-1',
+      turnId: 't1',
     })
     for (const [name, bytes] of Object.entries(files)) {
       await saveGeneratedMediaToWorkspace(

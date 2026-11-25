@@ -1142,6 +1142,8 @@
   "AGENT_REGENERATE_NOT_LATEST": "只能重新生成最新的回复。",
   "AGENT_REGENERATE_NO_PROMPT": "要重新生成的回复没有提示词。",
   "AGENT_DELETE_TURN_FAILED": "无法删除该消息。",
+  "AGENT_TURN_EDIT_HOST_SHELL": "此回复使用了真实系统 Shell 运行，因此无法删除或重新生成。",
+  "AGENT_TURN_RESTORE_UNRESTORABLE": "该轮已删除，但以下文件无法恢复：{files}",
   "AGENT_ATTACH_FAILED": "无法附加 {file}。",
   "AGENT_DOCUMENT_REMOVE": "移除 {file}",
   "AGENT_DOCUMENT_REMOVE_FAILED": "无法移除 {file}。",

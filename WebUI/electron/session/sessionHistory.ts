@@ -101,6 +101,72 @@ export async function removeHistoryEntry(sessionId: string, entryId: string): Pr
 }
 
 /**
+ * Removes every History Entry of the given Harness turns — those stamped with
+ * their `turnId` — so deleted or regenerated work stays out of later Session
+ * Updates and `session_history`. Entries from before `turnId` was recorded
+ * cannot be matched and stay. Returns how many went.
+ */
+export async function removeHistoryEntries(
+  sessionId: string,
+  harnessSessionId: string,
+  turnIds: ReadonlySet<string>,
+): Promise<number> {
+  assertSessionId(sessionId)
+  return serializeSession(sessionId, async () => {
+    const lines = (await readHistoryFile(sessionId))
+      .split('\n')
+      .filter((line) => line.trim() !== '')
+    const slots: { entry: HistoryEntry; removed: boolean }[] = []
+    let removedAny = false
+    const keep = lines.map((line) => {
+      let entry: HistoryEntry | undefined
+      try {
+        const parsed = HistoryEntrySchema.safeParse(JSON.parse(line))
+        if (parsed.success) entry = parsed.data
+        else appLoggerInstance.warn(`history entry failed schema (${sessionId})`, LOG_SCOPE)
+      } catch {
+        appLoggerInstance.warn(`unreadable history line (${sessionId})`, LOG_SCOPE)
+      }
+      const removed =
+        entry !== undefined &&
+        entry.harnessSessionId === harnessSessionId &&
+        entry.turnId !== undefined &&
+        turnIds.has(entry.turnId)
+      if (entry) slots.push({ entry, removed })
+      removedAny ||= removed
+      return !removed
+    })
+    if (!removedAny) return 0
+    await writeHistoryLines(
+      sessionId,
+      lines.filter((_, index) => keep[index]),
+    )
+    const removedIds = new Set(slots.filter((slot) => slot.removed).map((slot) => slot.entry.id))
+    const read = await readSessionFile(sessionId)
+    if (read.status !== 'ok') return removedIds.size
+    const stale = Object.entries(read.file.updateCursors).filter(([, id]) => removedIds.has(id))
+    if (stale.length === 0) return removedIds.size
+    // A cursor on a removed entry moves back to the nearest surviving one
+    // before it, or is dropped when nothing precedes it.
+    const cursors = { ...read.file.updateCursors }
+    for (const [key, id] of stale) {
+      const at = slots.findIndex((slot) => slot.entry.id === id)
+      let previous: string | undefined
+      for (let index = at - 1; index >= 0; index--) {
+        if (!slots[index].removed) {
+          previous = slots[index].entry.id
+          break
+        }
+      }
+      if (previous) cursors[key] = previous
+      else delete cursors[key]
+    }
+    await writeSessionFile({ ...read.file, updateCursors: cursors })
+    return removedIds.size
+  })
+}
+
+/**
  * Rewrites every Artifact reference through `change`, in one write; a line that does not parse
  * stays as it was. Call it on the Session's write chain: it does not take the chain itself.
  */

@@ -104,6 +104,7 @@ export const HARNESS_TURN_REFUSALS = {
   running: 'AGENT_TURN_EDIT_RUNNING',
   notLatest: 'AGENT_REGENERATE_NOT_LATEST',
   noPrompt: 'AGENT_REGENERATE_NO_PROMPT',
+  hostShell: 'AGENT_TURN_EDIT_HOST_SHELL',
 } as const
 
 export type HarnessTurnRefusal = (typeof HARNESS_TURN_REFUSALS)[keyof typeof HARNESS_TURN_REFUSALS]
@@ -167,6 +168,8 @@ export const AgentModeTurnConfigSchema = z.object({
   followedRun: AgentRunTagSchema.pick({ taskName: true, startedAt: true }).optional(),
   /** Regenerate: the latest harness turn, which this one replaces from just before it. */
   rewindTurnId: z.string().optional(),
+  /** The rewind carries an edited prompt: send it instead of replaying the stored one. */
+  editedPrompt: z.boolean().optional(),
 })
 
 export type AgentModeModelConfig = z.infer<typeof AgentModeModelConfigSchema>

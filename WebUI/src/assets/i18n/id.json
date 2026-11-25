@@ -1142,6 +1142,8 @@
   "AGENT_REGENERATE_NOT_LATEST": "Hanya balasan terbaru yang dapat dibuat ulang.",
   "AGENT_REGENERATE_NO_PROMPT": "Balasan yang akan dibuat ulang tidak memiliki prompt.",
   "AGENT_DELETE_TURN_FAILED": "Gagal menghapus pesan.",
+  "AGENT_TURN_EDIT_HOST_SHELL": "Balasan ini dijalankan dengan shell sistem yang sebenarnya, sehingga tidak dapat dihapus atau dibuat ulang.",
+  "AGENT_TURN_RESTORE_UNRESTORABLE": "Giliran tersebut dihapus, tetapi berkas-berkas ini tidak dapat dipulihkan: {files}",
   "AGENT_ATTACH_FAILED": "Tidak dapat melampirkan {file}.",
   "AGENT_DOCUMENT_REMOVE": "Hapus {file}",
   "AGENT_DOCUMENT_REMOVE_FAILED": "Tidak dapat menghapus {file}.",

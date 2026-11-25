@@ -7,22 +7,31 @@ import {
   moveEntry,
   nextNumberedName,
   sameContent,
+  type ReservedNames,
 } from './fileOps'
 import { discardPath } from './sessionFiles'
 
 const READER_COPIES_DIR = 'generated'
 
 /** Moves generated media into `dir` at the next number in its series; that name, or null. */
-export async function moveGeneratedIntoFolder(dir: string, source: string): Promise<string | null> {
+export async function moveGeneratedIntoFolder(
+  dir: string,
+  source: string,
+  reserved?: ReservedNames,
+): Promise<string | null> {
   if (!(await fs.stat(source)).isFile()) return null
-  const name = await nextNumberedName(dir, path.basename(source))
+  const name = await nextNumberedName(dir, path.basename(source), reserved)
   await moveEntry(source, path.join(dir, name))
   return name
 }
 
-export async function copyIntoFolder(dir: string, source: string): Promise<string | null> {
+export async function copyIntoFolder(
+  dir: string,
+  source: string,
+  reserved?: ReservedNames,
+): Promise<string | null> {
   if (!(await fs.stat(source)).isFile()) return null
-  const name = await freeName(dir, path.basename(source))
+  const name = await freeName(dir, path.basename(source), reserved)
   await fs.copyFile(source, path.join(dir, name))
   return name
 }
@@ -32,8 +41,9 @@ export async function writeNewFile(
   dir: string,
   preferredName: string,
   bytes: Buffer,
+  reserved?: ReservedNames,
 ): Promise<string> {
-  const name = await freeName(dir, preferredName)
+  const name = await freeName(dir, preferredName, reserved)
   await fs.writeFile(path.join(dir, name), bytes, { flag: 'wx' })
   return name
 }

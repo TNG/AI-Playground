@@ -249,7 +249,7 @@ export function latestTurnMetadata<K extends keyof TurnMetadata>(
 }
 
 /** Sent as `chat.regenerate`'s body: the harness turn main rewinds to just before. */
-export type RegenerateBody = { rewindTurnId: string }
+export type RegenerateBody = { rewindTurnId: string; editedPrompt?: boolean }
 
 type StoreTool = (input: Record<string, unknown>, sessionId: string) => Promise<unknown>
 
@@ -326,8 +326,10 @@ function createSessionRuntime(options: {
       const turnId = crypto.randomUUID()
       // Frozen here: settings edited after Send apply to the next turn.
       const built = await options.buildTurnConfig(sessionId)
-      const rewindTurnId = (body as RegenerateBody | undefined)?.rewindTurnId
-      const config = rewindTurnId ? { ...built, rewindTurnId } : built
+      const rewindBody = body as RegenerateBody | undefined
+      const rewindTurnId = rewindBody?.rewindTurnId
+      const editedPrompt = rewindBody?.editedPrompt === true ? { editedPrompt: true } : {}
+      const config = rewindTurnId ? { ...built, rewindTurnId, ...editedPrompt } : built
 
       return new ReadableStream<UIMessageChunk>({
         start: (controller) => {

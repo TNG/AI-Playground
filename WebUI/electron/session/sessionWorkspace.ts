@@ -2,9 +2,11 @@ import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { readSessionFileSync, sessionFolderPaths } from '../persist/sessionFiles'
+import type { ReservedNames } from '../persist/fileOps'
 import { copyIntoFolder, moveGeneratedIntoFolder, writeNewFile } from '../persist/sessionMediaFiles'
 import { getGamesDir } from '../persist/userDataPaths'
 import { sessionFolderListOf } from './sessionFolderList'
+import { recordedArtifactNamesIn } from './historyArtifacts'
 import { ensureWorkspaceEntry } from './appWorkspace'
 import { sessionFolderMediaUrl } from '@/lib/comfyWorkflow'
 import { workspaceEntryOf } from '@/lib/mountedFolders'
@@ -161,13 +163,13 @@ export type WorkspaceFile = { artifact: { folderId: string; path: string }; url:
 
 async function intoWorkspace(
   sessionId: string,
-  place: (dir: string) => Promise<string | null>,
+  place: (dir: string, reserved: ReservedNames | undefined) => Promise<string | null>,
 ): Promise<WorkspaceFile | null> {
   const entry = await ensureWorkspaceEntry(sessionId)
   if (!entry.appCreated && !(await isFolder(entry.hostPath))) {
     throw new Error(missingWorkspaceMessage(missingOf(entry)))
   }
-  const name = await place(entry.hostPath)
+  const name = await place(entry.hostPath, await recordedArtifactNamesIn(sessionId, entry.hostPath))
   if (name === null) return null
   return {
     artifact: { folderId: entry.id, path: name },
@@ -180,14 +182,14 @@ export function moveGeneratedIntoWorkspace(
   sessionId: string,
   source: string,
 ): Promise<WorkspaceFile | null> {
-  return intoWorkspace(sessionId, (dir) => moveGeneratedIntoFolder(dir, source))
+  return intoWorkspace(sessionId, (dir, reserved) => moveGeneratedIntoFolder(dir, source, reserved))
 }
 
 export function copyIntoWorkspace(
   sessionId: string,
   source: string,
 ): Promise<WorkspaceFile | null> {
-  return intoWorkspace(sessionId, (dir) => copyIntoFolder(dir, source))
+  return intoWorkspace(sessionId, (dir, reserved) => copyIntoFolder(dir, source, reserved))
 }
 
 /** Writes new bytes into the Workspace under a free name. */
@@ -196,7 +198,9 @@ export async function writeIntoWorkspace(
   preferredName: string,
   bytes: Buffer,
 ): Promise<WorkspaceFile> {
-  const file = await intoWorkspace(sessionId, (dir) => writeNewFile(dir, preferredName, bytes))
+  const file = await intoWorkspace(sessionId, (dir, reserved) =>
+    writeNewFile(dir, preferredName, bytes, reserved),
+  )
   if (!file) throw new Error('could not write into the Workspace')
   return file
 }

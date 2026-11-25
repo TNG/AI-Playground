@@ -310,6 +310,7 @@ async function createSession(
   const access = await createAgentToolAccess({
     workspaceDir,
     unsandboxed,
+    sessionId,
     skillsDir,
     skills,
     mountedFolders,
@@ -648,6 +649,11 @@ function withShellPolicy(config: AgentModeTurnConfig): AgentModeTurnConfig {
   if (!config.unsandboxed || isDeveloperMode()) return config
   logger.warn('agent tools: host shell requested but developer mode is off — sandboxed', LOG_SOURCE)
   return { ...config, unsandboxed: false }
+}
+
+/** The shell a turn actually runs with: the opt-in only counts in developer mode. */
+export function effectiveHostShell(config: AgentModeTurnConfig): boolean {
+  return withShellPolicy(config).unsandboxed === true
 }
 
 export async function ensureSession(requested: AgentModeTurnConfig): Promise<ActiveSession> {

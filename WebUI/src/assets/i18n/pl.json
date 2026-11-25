@@ -1142,6 +1142,8 @@
   "AGENT_REGENERATE_NOT_LATEST": "Ponownie wygenerować można tylko najnowszą odpowiedź.",
   "AGENT_REGENERATE_NO_PROMPT": "Odpowiedź do ponownego wygenerowania nie ma promptu.",
   "AGENT_DELETE_TURN_FAILED": "Nie udało się usunąć wiadomości.",
+  "AGENT_TURN_EDIT_HOST_SHELL": "Ta odpowiedź została uruchomiona z prawdziwą powłoką systemową, więc nie można jej usunąć ani wygenerować ponownie.",
+  "AGENT_TURN_RESTORE_UNRESTORABLE": "Tura została usunięta, ale nie udało się przywrócić tych plików: {files}",
   "AGENT_ATTACH_FAILED": "Nie udało się dołączyć pliku {file}.",
   "AGENT_DOCUMENT_REMOVE": "Usuń {file}",
   "AGENT_DOCUMENT_REMOVE_FAILED": "Nie udało się usunąć pliku {file}.",

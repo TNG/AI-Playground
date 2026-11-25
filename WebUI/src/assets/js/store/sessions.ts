@@ -106,6 +106,7 @@ export const useSessions = defineStore('sessions', () => {
     openTimeline.value = forgottenTimelineIds.size
       ? timelineWithout(timeline, forgottenTimelineIds)
       : timeline
+    refreshDeletedFiles(document.id)
   }
 
   function applyGroups(state: SessionGroupsState): void {
@@ -209,6 +210,26 @@ export const useSessions = defineStore('sessions', () => {
   function markFileDeleted(sessionId: string, url: string): void {
     if (openSessionId.value !== sessionId || isFileDeleted(url)) return
     openDeletedFiles.value = [...openDeletedFiles.value, url]
+  }
+
+  /**
+   * The deleted-files list says which of the open Session's recorded artifacts are gone; it
+   * was read when the Session opened. A turn may have re-created one of those files since
+   * (a new generation can take a freed name), so every Session change re-reads main's list
+   * instead of leaving the new card claiming its file was deleted.
+   */
+  async function refreshDeletedFiles(sessionId: string): Promise<void> {
+    try {
+      const result = await window.electronAPI.sessions.missingArtifacts(sessionId)
+      if (openSessionId.value !== sessionId || !result.success) return
+      openDeletedFiles.value = result.missingFiles
+    } catch (error) {
+      errors.report(error, {
+        code: 'sessions/missing-artifacts-failed',
+        category: 'backend',
+        surface: 'silent',
+      })
+    }
   }
 
   function beginMediaTurn(sessionId: string, turn: PendingMediaTurn): void {

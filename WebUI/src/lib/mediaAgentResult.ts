@@ -22,6 +22,9 @@ export type CondensedMediaAgentResult = {
   message?: string
   /** A step's model download was declined by the user; the message says not to retry. */
   declined?: true
+  /** The workspace-relative paths a save put the finished items at (see piCustomTools). */
+  savedFiles?: string[]
+  savedFilesNote?: string
 }
 
 const MEDIA_TYPES = new Set(['image', 'video', 'model3d'])
@@ -127,7 +130,13 @@ export function slimItemSettings(
   return slim
 }
 
-/** Drop bulky per-item settings before the result enters the parent model context. */
+/**
+ * Drop what the parent model does not need before the result enters its context: the bulky
+ * per-item settings, and for an agent turn the folder-served URLs, which the model would
+ * otherwise quote to the user instead of the file's name (the delegated media tool strips
+ * those at its call site). The friendly `savedFiles` paths stay, so the model can tell the
+ * user where each file landed; the transcript's items come from the full record.
+ */
 export function slimCondensedMedia(result: CondensedMediaAgentResult): Record<string, unknown> {
   const slim: Record<string, unknown> = {
     summary: result.summary,
@@ -145,5 +154,7 @@ export function slimCondensedMedia(result: CondensedMediaAgentResult): Record<st
   if (result.success !== undefined) slim.success = result.success
   if (result.message !== undefined) slim.message = result.message
   if (result.declined) slim.declined = true
+  if (result.savedFiles) slim.savedFiles = result.savedFiles
+  if (result.savedFilesNote) slim.savedFilesNote = result.savedFilesNote
   return slim
 }

@@ -595,6 +595,67 @@ describe('running a Task', () => {
     expect(agentMode.sessions[sentConfig(1).sessionId].taskRun).not.toHaveProperty('input')
   })
 
+  it('regenerates the run turn under its own taskRun tag', async () => {
+    const { agentMode, tasks } = await readyStores(task('t1', ['one']))
+    await tasks.runTask('t1')
+    const sessionId = sentConfig(0).sessionId
+    await turnIdOf(0)
+    await finishTurn(0)
+    await settledOutcome(tasks, 't1')
+    const messages = agentMode.sessions[sessionId]?.messages ?? []
+    const promptId = messages.find((message) => message.role === 'user')?.id
+    const answerIds = messages
+      .filter((message) => message.role === 'assistant')
+      .map((message) => message.id)
+
+    await agentMode.regenerateTurn({
+      harnessSessionId: sessionId,
+      promptId: promptId!,
+      messageIds: [promptId!, ...answerIds],
+      turnIds: ['t1'],
+    })
+    await turnIdOf(1)
+
+    expect(sentConfig(1).taskRun).toMatchObject({
+      taskId: 't1',
+      taskName: 'Task t1',
+      trigger: 'manual',
+    })
+    expect(sentConfig(1).editedPrompt).toBeUndefined()
+    // The turn config crosses IPC: it must survive Electron's structured clone.
+    expect(() => structuredClone(sentConfig(1))).not.toThrow()
+  })
+
+  it('rebuilds an edited run turn around its Steps, carrying the new Start Prompt', async () => {
+    const { agentMode, tasks } = await readyStores(task('t1', ['one', 'two']))
+    await tasks.runTask('t1', 'only news from Germany')
+    const sessionId = sentConfig(0).sessionId
+    await turnIdOf(0)
+    await finishTurn(0)
+    await settledOutcome(tasks, 't1')
+    const messages = agentMode.sessions[sessionId]?.messages ?? []
+    const promptId = messages.find((message) => message.role === 'user')?.id
+    const answerIds = messages
+      .filter((message) => message.role === 'assistant')
+      .map((message) => message.id)
+
+    await agentMode.regenerateTurnWithPrompt(
+      {
+        harnessSessionId: sessionId,
+        promptId: promptId!,
+        messageIds: [promptId!, ...answerIds],
+        turnIds: ['t1'],
+      },
+      'only news from Austria',
+    )
+    await turnIdOf(1)
+
+    expect(sentPrompts()[1]).toBe(runPrompt('only news from Austria', ['one', 'two']))
+    expect(sentConfig(1).editedPrompt).toBe(true)
+    expect(sentConfig(1).taskRun?.input).toBe('only news from Austria')
+    expect(agentMode.sessions[sessionId].taskRun?.input).toBe('only news from Austria')
+  })
+
   it('files the Agent Run under Assistant', async () => {
     const { agentMode } = await readyStores(task('t-news', ['one']))
     const tasks = useAgentTasks(pinia)
@@ -1984,6 +2045,65 @@ describe('following up on a picked Agent’s run', () => {
       SESSION,
       expect.stringMatching(/^agent:/),
     )
+  })
+
+  /** The Follow-up turn's ref: its prompt is the record's newest user message. */
+  function followUpRef(agentMode: ReturnType<typeof useAgentMode>, run: string) {
+    const messages = agentMode.sessions[run]?.messages ?? []
+    const index = messages.findLastIndex((message) => message.role === 'user')
+    const prompt = messages[index]
+    const answers = messages.slice(index + 1).map((message) => message.id)
+    return {
+      harnessSessionId: run,
+      promptId: prompt.id,
+      messageIds: [prompt.id, ...answers],
+      turnIds: ['follow-up'],
+    }
+  }
+
+  it('regenerates a Follow-up without the run tag, on the Agent’s Settings Template', async () => {
+    const { agentMode, tasks } = await readyStores(task('t1', ['one']))
+    await tasks.pickAgent('t1')
+    await tasks.runPickedAgent('')
+    const run = await runToEnd(0)
+    await tasks.followUpPickedAgent('why that image?')
+    await runToEnd(1)
+
+    await agentMode.regenerateTurn(followUpRef(agentMode, run))
+    await turnIdOf(2)
+
+    expect(sentPrompts()[2]).toBe('why that image?')
+    const config = sentConfig(2)
+    expect(config.followUp).toEqual(FOLLOW_UP)
+    expect(config.taskRun).toBeUndefined()
+    expect(config.modelConfig.model).toBe('Template-27B')
+    // Only the Follow-up's own turn rewinds; the run's stays.
+    expect(config.rewindTurnId).toBe('follow-up')
+    // The turn config crosses IPC: it must survive Electron's structured clone.
+    expect(() => structuredClone(config)).not.toThrow()
+  })
+
+  it('re-sends an edited Follow-up as the plain text it is, leaving the run alone', async () => {
+    const { agentMode, tasks } = await readyStores(task('t1', ['one', 'two']))
+    await tasks.pickAgent('t1')
+    await tasks.runPickedAgent('only news from Germany')
+    const run = await runToEnd(0)
+    await tasks.followUpPickedAgent('why that image?')
+    await runToEnd(1)
+
+    await agentMode.regenerateTurnWithPrompt(followUpRef(agentMode, run), 'and the other one?')
+    await turnIdOf(2)
+
+    expect(sentPrompts()[2]).toBe('and the other one?')
+    expect(sentPrompts()[2]).not.toContain('Carry out these steps')
+    const config = sentConfig(2)
+    expect(config.followUp).toEqual(FOLLOW_UP)
+    expect(config.taskRun).toBeUndefined()
+    expect(config.rewindTurnId).toBe('follow-up')
+    // The run's Start Prompt keeps the input it was run with.
+    expect(agentMode.sessions[run].taskRun?.input).toBe('only news from Germany')
+    // The turn config crosses IPC: it must survive Electron's structured clone.
+    expect(() => structuredClone(config)).not.toThrow()
   })
 
   it('keeps continuing the same run until the Agent is run again', async () => {

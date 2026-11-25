@@ -54,6 +54,7 @@ import {
 } from '@/lib/agentSessionSettings'
 import { HARNESS_CHAT_PRESET } from '@/lib/harnessChatPreset'
 import { hasChatAffordances } from '@/lib/chatAffordances'
+import { runPrompt, stepPrompts } from '@/lib/taskSteps'
 import { harnessInstructions } from '@/lib/presetPrompt'
 import {
   describeSettingsProblems,
@@ -1836,6 +1837,18 @@ export const useAgentMode = defineStore(
         })
         return
       }
+      if (result.unrestorable.length > 0) {
+        errors.report(new Error(result.unrestorable.join(', ')), {
+          category: 'unknown',
+          code: 'agent/delete-turn-unrestorable',
+          severity: 'warning',
+          userMessage: i18n.state.AGENT_TURN_RESTORE_UNRESTORABLE.replace(
+            '{files}',
+            result.unrestorable.join(', '),
+          ),
+          surface: 'toast',
+        })
+      }
       const removed = new Set(ref.messageIds)
       const runtime = turns.runtimeOf(id)
       if (runtime) {
@@ -2153,6 +2166,28 @@ export const useAgentMode = defineStore(
       taskLockOf = lookup
     }
 
+    let taskStepsOf: (taskId: string) => readonly AgentTaskStep[] | undefined = () => undefined
+
+    /** The Tasks store owns the Agents, so an Agent Run's Edit reads its Steps through here. */
+    function setTaskStepsLookup(
+      lookup: (taskId: string) => readonly AgentTaskStep[] | undefined,
+    ): void {
+      taskStepsOf = lookup
+    }
+
+    let taskSettingsOf: (harnessSessionId: string) => AgentSessionSettings | undefined = () =>
+      undefined
+
+    /**
+     * A Task Run's Regenerate re-runs on its Agent's saved Settings Template, as a Follow-up
+     * would; the Tasks store resolves the run's Agent here because it cannot be imported (cycle).
+     */
+    function setTaskSettingsLookup(
+      lookup: (harnessSessionId: string) => AgentSessionSettings | undefined,
+    ): void {
+      taskSettingsOf = lookup
+    }
+
     function taskLockRefusal(
       sessionId: string,
       signal: AbortSignal | undefined,
@@ -2186,6 +2221,8 @@ export const useAgentMode = defineStore(
         followUp?: AgentFollowUpTag
         /** Regenerate this latest Turn: its prompt is sent again and `prompt` is unused. */
         regenerate?: HarnessTurnRef
+        /** The regeneration carries an edited prompt: main sends it, not the stored one. */
+        editedPrompt?: boolean
       } = {},
     ): Promise<SendToSessionResult> {
       const record = sessions.value[sessionId]
@@ -2306,7 +2343,7 @@ export const useAgentMode = defineStore(
       const redo = options.regenerate
       runTurn(sessionId, context, (chat) =>
         redo?.promptId
-          ? regenerateIn(chat, redo.promptId, redo)
+          ? regenerateIn(chat, redo.promptId, redo, options.editedPrompt === true)
           : chat.sendMessage({ text: prompt, metadata }),
       ).catch((error) =>
         errors.report(error, {
@@ -2342,6 +2379,7 @@ export const useAgentMode = defineStore(
       chat: AgentSessionRuntime['chat'],
       promptId: string,
       redo: HarnessTurnRef,
+      edited = false,
     ): Promise<void> {
       const before = chat.messages
       const known = new Set(before.map((message) => message.id))
@@ -2362,7 +2400,10 @@ export const useAgentMode = defineStore(
       try {
         await chat.regenerate({
           messageId: promptId,
-          body: { rewindTurnId: redo.turnIds[0] } satisfies RegenerateBody,
+          body: {
+            rewindTurnId: redo.turnIds[0],
+            ...(edited ? { editedPrompt: true } : {}),
+          } satisfies RegenerateBody,
         })
       } finally {
         stop()
@@ -2407,10 +2448,42 @@ export const useAgentMode = defineStore(
       return !!turns.runtimeOf(id)?.processing.value
     }
 
+    /**
+     * The Follow-up tag a prompt message carries: the marker that its turn is a Follow-up to a
+     * run, not the run's own turn. The timeline groups turns by the same marker. Cloned: the
+     * message lives in reactive state, and the tag crosses IPC in the turn config.
+     */
+    function followUpOfPrompt(ref: HarnessTurnRef): AgentFollowUpTag | undefined {
+      const prompt = turns
+        .runtimeFor(ref.harnessSessionId)
+        .chat.messages.find((m) => m.id === ref.promptId && m.role === 'user')
+      const followUp = (prompt?.metadata as AgentMessageMetadata | undefined)?.followUp
+      return followUp ? cloneForIpc(followUp) : undefined
+    }
+
     /** Regenerate the latest Assistant Turn from its Harness Session as it was before it. */
-    async function regenerateTurn(ref: HarnessTurnRef): Promise<void> {
+    async function regenerateTurn(ref: HarnessTurnRef, edited = false): Promise<void> {
       if (!ref.promptId || ref.turnIds.length === 0) return
-      const result = await sendToSession(ref.harnessSessionId, '', { regenerate: ref })
+      const record = sessions.value[ref.harnessSessionId]
+      const followUp = followUpOfPrompt(ref)
+      // An Agent Run re-runs on its Agent's saved Settings Template, as a Follow-up would; its
+      // own run tag already carries the workspace and folders, so only the settings are taken.
+      const agentSettings = record?.taskRun ? taskSettingsOf(ref.harnessSessionId) : undefined
+      // A Follow-up that started with no recorded settings (a Trial Run, a deleted Agent)
+      // keeps the Settings snapshot its record carries. Cloned: the record is reactive, and
+      // the settings cross IPC in the turn config.
+      const fallbackSettings = record?.settings ? cloneForIpc(record.settings) : undefined
+      const settings = followUp ? (agentSettings ?? fallbackSettings) : agentSettings
+      const result = await sendToSession(ref.harnessSessionId, '', {
+        regenerate: ref,
+        ...(edited ? { editedPrompt: true } : {}),
+        // The run's own turn re-runs in the Agent's own workspace, under its own run tag; a
+        // Follow-up turn re-runs as the Follow-up it is, without the run's tag. The run tag
+        // is cloned: its record is reactive, and it too crosses IPC.
+        ...(record?.taskRun && !followUp ? { taskRun: cloneForIpc(record.taskRun) } : {}),
+        ...(followUp ? { followUp } : {}),
+        ...(settings ? { settings } : {}),
+      })
       if (result.ok) return
       errors.report(new Error(result.message), {
         category: 'inference',
@@ -2424,8 +2497,26 @@ export const useAgentMode = defineStore(
       if (!ref.promptId || ref.turnIds.length === 0) return
       const chat = turns.runtimeFor(ref.harnessSessionId).chat
       const prompt = chat.messages.find((m) => m.id === ref.promptId && m.role === 'user')
-      if (prompt) applyEditedPrompt(prompt, edited)
-      await regenerateTurn(ref)
+      if (!prompt) return
+      const record = sessions.value[ref.harnessSessionId]
+      // A Follow-up's edit re-sends it as the plain text it is. An Agent Run's prompt is its
+      // Start Prompt over its Steps: that edit is the new Start Prompt, which its run tag
+      // carries from here on.
+      const followUp = (prompt.metadata as AgentMessageMetadata | undefined)?.followUp
+      if (record?.taskRun && !followUp) {
+        const steps =
+          record.taskRun.taskId !== undefined ? taskStepsOf(record.taskRun.taskId) : undefined
+        const { input: _replaced, ...withoutInput } = record.taskRun
+        const input = edited.trim()
+        rewriteSession(ref.harnessSessionId, {
+          ...record,
+          taskRun: input ? { ...record.taskRun, input } : withoutInput,
+        })
+        applyEditedPrompt(prompt, steps ? runPrompt(edited, stepPrompts(steps)) : edited)
+      } else {
+        applyEditedPrompt(prompt, edited)
+      }
+      await regenerateTurn(ref, true)
     }
 
     /**
@@ -2550,6 +2641,8 @@ export const useAgentMode = defineStore(
       endAgentRun,
       sendToSession,
       setTaskLockLookup,
+      setTaskStepsLookup,
+      setTaskSettingsLookup,
       quietSessionErrors,
       onTurnSettled,
       stopSession,

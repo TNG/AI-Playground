@@ -114,6 +114,25 @@ describe('a media turn in a Session', () => {
     )
   })
 
+  it('never re-takes a number the History still records after its file was moved away', async () => {
+    const { id } = await createSession()
+
+    await recordMediaTurn(turn(id, [doneImage(await comfyOutput('AIPG_Image_00001_.png'))]))
+    // The agent moved the file away: the History record stays, the folder is empty again.
+    await fs.rm(path.join(sessionWorkspaceDir(id), 'AIPG_Image_00001_.png'))
+
+    const [item] = await recordMediaTurn(
+      turn(id, [doneImage(await comfyOutput('AIPG_Image_00001_.png'))], { runId: 'run-2' }),
+    )
+
+    expect(await fs.readdir(sessionWorkspaceDir(id))).toEqual(['AIPG_Image_00002_.png'])
+    expect(item.type === 'image' && item.imageUrl).toBe(
+      `aipg-media://folders/${id}/${await workspaceId(id)}/AIPG_Image_00002_.png`,
+    )
+    const [entry] = await readHistoryEntries(id)
+    expect(entry.artifacts.map((artifact) => artifact.path)).toEqual(['AIPG_Image_00001_.png'])
+  })
+
   it('moves a video and only a real thumbnail file with it', async () => {
     const { id } = await createSession()
     const video = {

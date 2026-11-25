@@ -37,6 +37,8 @@ export type AgentTurnInSession = {
   workspaceDir: string
   prompt: string
   harnessSessionId: string
+  /** The harness turn, stamped on the entry so delete/regenerate can remove it. */
+  turnId: string
   taskRun?: { taskName: string; input?: string }
   followUp?: AgentFollowUpTag
 }
@@ -87,6 +89,7 @@ export function trackAgentTurnInSession(turn: AgentTurnInSession): {
           artifacts,
           ...(end.outcome === 'completed' && end.reply ? { response: end.reply } : {}),
           harnessSessionId: turn.harnessSessionId,
+          turnId: turn.turnId,
           ...(turn.taskRun ? { taskName: turn.taskRun.taskName } : {}),
           ...(turn.followUp ? { ...turn.followUp, followUp: true } : {}),
         })

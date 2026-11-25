@@ -1142,6 +1142,8 @@
   "AGENT_REGENERATE_NOT_LATEST": "Only the latest reply can be regenerated.",
   "AGENT_REGENERATE_NO_PROMPT": "The reply to regenerate has no prompt.",
   "AGENT_DELETE_TURN_FAILED": "Failed to delete the message.",
+  "AGENT_TURN_EDIT_HOST_SHELL": "This reply ran with the real system shell, so it cannot be deleted or regenerated.",
+  "AGENT_TURN_RESTORE_UNRESTORABLE": "The turn was deleted, but these files could not be restored: {files}",
   "AGENT_ATTACH_FAILED": "Could not attach {file}.",
   "AGENT_DOCUMENT_REMOVE": "Remove {file}",
   "AGENT_DOCUMENT_REMOVE_FAILED": "Could not remove {file}.",

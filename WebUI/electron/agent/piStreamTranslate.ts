@@ -76,6 +76,8 @@ export type StreamTranslatorOptions = {
   model?: string
   /** Stamped on the answer, so Delete can find this turn in the Harness Session. */
   turnId?: string
+  /** Stamped on a host-shell turn's answer, so the renderer withholds delete/regenerate. */
+  hostShell?: boolean
 }
 
 export type StreamTranslator = {
@@ -176,6 +178,7 @@ export function createStreamTranslator(options: StreamTranslatorOptions): Stream
     const metadata = {
       ...(options.model ? { model: options.model } : {}),
       ...(options.turnId ? { harnessTurnId: options.turnId } : {}),
+      ...(options.hostShell ? { hostShell: true } : {}),
     }
     emit(
       Object.keys(metadata).length > 0

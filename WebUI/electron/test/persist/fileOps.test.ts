@@ -79,6 +79,25 @@ describe('the next number in a series', () => {
 
     expect(await nextNumberedName(root, 'fox.png')).toBe('fox-1.png')
   })
+
+  it('skips a reserved name even with nothing on disk at it', async () => {
+    await write(path.join(root, 'fox-1.png'), 'a')
+
+    expect(await freeName(root, 'fox.png', new Set(['fox.png']))).toBe('fox-2.png')
+    expect(await nextNumberedName(root, 'fox.png', new Set(['fox.png']))).toBe('fox-2.png')
+  })
+
+  it('counts a reserved series number as still taken', async () => {
+    await write(path.join(root, 'AIPG_Image_00003_.png'), 'a')
+
+    // 00005's file was moved away, but a record still claims the name.
+    const reserved = new Set(['AIPG_Image_00005_.png'])
+
+    expect(await nextNumberedName(root, 'AIPG_Image_00001_.png', reserved)).toBe(
+      'AIPG_Image_00006_.png',
+    )
+    expect(await nextNumberedName(root, 'AIPG_Image_00001_.png')).toBe('AIPG_Image_00004_.png')
+  })
 })
 
 describe('merging a folder into another', () => {

@@ -1142,6 +1142,8 @@
   "AGENT_REGENERATE_NOT_LATEST": "สร้างใหม่ได้เฉพาะคำตอบล่าสุดเท่านั้น",
   "AGENT_REGENERATE_NO_PROMPT": "คำตอบที่จะสร้างใหม่ไม่มีพรอมต์",
   "AGENT_DELETE_TURN_FAILED": "ลบข้อความไม่สำเร็จ",
+  "AGENT_TURN_EDIT_HOST_SHELL": "คำตอบนี้รันด้วยเชลล์ของระบบจริง จึงลบหรือสร้างใหม่ไม่ได้",
+  "AGENT_TURN_RESTORE_UNRESTORABLE": "ลบรอบดังกล่าวแล้ว แต่กู้คืนไฟล์เหล่านี้ไม่ได้: {files}",
   "AGENT_ATTACH_FAILED": "แนบ {file} ไม่ได้",
   "AGENT_DOCUMENT_REMOVE": "นำ {file} ออก",
   "AGENT_DOCUMENT_REMOVE_FAILED": "นำ {file} ออกไม่ได้",

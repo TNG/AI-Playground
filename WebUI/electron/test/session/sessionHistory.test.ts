@@ -20,8 +20,13 @@ vi.mock('../../observability/logger', () => ({
 
 const { createSession, mutateSession, readSession, resetSessionsForTest, setSessionDeps } =
   await import('../../session/sessions')
-const { appendHistoryEntry, lastTurnPreset, readHistoryEntries, removeHistoryEntry } =
-  await import('../../session/sessionHistory')
+const {
+  appendHistoryEntry,
+  lastTurnPreset,
+  readHistoryEntries,
+  removeHistoryEntries,
+  removeHistoryEntry,
+} = await import('../../session/sessionHistory')
 
 beforeAll(async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'aipg-session-history-'))
@@ -155,6 +160,51 @@ describe('removing an entry', () => {
 
     await removeHistoryEntry(id, first.id)
     expect((await readSession(id)).updateCursors).toEqual({})
+  })
+})
+
+describe("removing a harness turn's entries", () => {
+  const agentTurn = (turnId: string) => ({
+    preset: 'Agent',
+    kind: 'agent' as const,
+    prompt: `turn ${turnId}`,
+    status: 'completed' as const,
+    artifacts: [],
+    harnessSessionId: 'aipg-agent-1',
+    turnId,
+  })
+
+  it('drops the turn’s stamped entries, and moves a cursor to the entry before them', async () => {
+    const { id } = await createSession()
+    const fox = await appendHistoryEntry(id, imageTurn)
+    await appendHistoryEntry(id, agentTurn('t1'))
+    const last = await appendHistoryEntry(id, agentTurn('t2'))
+    await mutateSession(id, (file) => ({
+      ...file,
+      updateCursors: { reading: last.id },
+    }))
+
+    expect(await removeHistoryEntries(id, 'aipg-agent-1', new Set(['t1']))).toBe(1)
+    expect((await readHistoryEntries(id)).map((entry) => entry.prompt)).toEqual([
+      'a red fox',
+      'turn t2',
+    ])
+    expect((await readSession(id)).updateCursors).toEqual({ reading: last.id })
+
+    expect(await removeHistoryEntries(id, 'aipg-agent-1', new Set(['t2']))).toBe(1)
+    expect((await readHistoryEntries(id)).map((entry) => entry.prompt)).toEqual(['a red fox'])
+    expect((await readSession(id)).updateCursors).toEqual({ reading: fox.id })
+  })
+
+  it('leaves what it cannot match: another harness session’s, or an unstamped entry', async () => {
+    const { id } = await createSession()
+    await appendHistoryEntry(id, imageTurn)
+    await appendHistoryEntry(id, { ...agentTurn('t1'), harnessSessionId: 'aipg-agent-2' })
+    await appendHistoryEntry(id, { ...agentTurn('t1'), harnessSessionId: undefined })
+
+    expect(await removeHistoryEntries(id, 'aipg-agent-1', new Set(['t1']))).toBe(0)
+    expect(await removeHistoryEntries(id, 'aipg-agent-1', new Set(['no-such-turn']))).toBe(0)
+    expect(await readHistoryEntries(id)).toHaveLength(3)
   })
 })
 

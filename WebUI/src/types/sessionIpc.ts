@@ -187,6 +187,8 @@ export const HistoryEntrySchema = z.object({
   followUp: z.boolean().optional(),
   /** The Harness Session the turn ran in; absent on entries from before it was recorded. */
   harnessSessionId: z.string().optional(),
+  /** The harness turn that wrote this entry; delete/regenerate removes it with the turn. */
+  turnId: z.string().optional(),
 })
 
 export type HistoryEntry = z.infer<typeof HistoryEntrySchema>

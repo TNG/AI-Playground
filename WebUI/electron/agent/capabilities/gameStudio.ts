@@ -9,6 +9,7 @@ import {
 import { loadPi } from '../piRuntime.ts'
 import { readGame, setGameIcon, updateGame } from '../games/gameLibrary.ts'
 import { isGeneratedMedia, normalizeWorkspacePath } from '../generatedMedia.ts'
+import { recordWorkspaceWrite } from '../workspaceJournal.ts'
 import { mediaToolNames } from './media.ts'
 import type { AgentCapability, CapabilityHost } from './types.ts'
 import {
@@ -221,6 +222,9 @@ async function buildGameTool(host: CapabilityHost): Promise<ToolDefinition[]> {
       parameters: jsonSchemaParameters(GAME_INPUT_SCHEMA),
       execute: async (_toolCallId, params) => {
         const { action, name, description, path: iconPath } = params as GameToolParams
+        // Card writes are direct fs writes, so the turn's workspace journal is
+        // told about them here rather than at the tool seam (workspaceJournal.ts).
+        const journal = (file: string): void => recordWorkspaceWrite(host.sessionId, file)
         // The workspace IS the game folder for the Game Agent preset. Any other
         // workspace has no card to write, and saying so is more useful than a
         // filesystem error.
@@ -235,10 +239,14 @@ async function buildGameTool(host: CapabilityHost): Promise<ToolDefinition[]> {
             if (!name?.trim() && description === undefined) {
               return textResult('Provide a name and/or a description.')
             }
-            const game = updateGame(host.workspaceDir, {
-              ...(name?.trim() ? { name: name.trim() } : {}),
-              ...(description !== undefined ? { description } : {}),
-            })
+            const game = updateGame(
+              host.workspaceDir,
+              {
+                ...(name?.trim() ? { name: name.trim() } : {}),
+                ...(description !== undefined ? { description } : {}),
+              },
+              journal,
+            )
             return textResult(`Library card updated: ${game.name} — ${game.description}`)
           }
           case 'set_icon': {
@@ -246,7 +254,7 @@ async function buildGameTool(host: CapabilityHost): Promise<ToolDefinition[]> {
             const refusal = coverRefusal(host, iconPath)
             if (refusal) return textResult(refusal)
             try {
-              const game = setGameIcon(host.workspaceDir, iconPath)
+              const game = setGameIcon(host.workspaceDir, iconPath, journal)
               return textResult(`Cover image set to ${game.icon}.`)
             } catch (error) {
               return textResult(error instanceof Error ? error.message : String(error))

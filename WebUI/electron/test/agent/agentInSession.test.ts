@@ -928,6 +928,15 @@ describe('the Assistant preset in a Session', () => {
       )
     }
 
+    it('stamps a host-shell turn so the renderer can withhold delete and regenerate', async () => {
+      const session = await sessions.createSession()
+      const config = await assistantConfig(session.id)
+
+      await manager.startAgentTurn('t1', 'why is the sky blue?', { ...config, unsandboxed: true })
+
+      expect(answerMetadata('t1')).toMatchObject({ harnessTurnId: 't1', hostShell: true })
+    }, 30000)
+
     it("stamps the answer with llama.cpp's own timings for that turn", async () => {
       const session = await sessions.createSession()
       finalChunkExtra = {
@@ -980,20 +989,40 @@ describe('the Assistant preset in a Session', () => {
       await manager.deleteAgentTurns({
         sessionRef: session.id,
         harnessSessionId: config.sessionId,
-        turnIds: ['t1'],
-        messageIds: ['u1', 'a1'],
+        turnIds: ['t2'],
+        messageIds: ['u2', 'a2'],
       })
       await manager.startAgentTurn('t3', 'which words?', config)
 
       const lastRequest = transcriptText(bodies.at(-1))
-      expect(lastRequest).not.toContain('plum')
-      expect(lastRequest).not.toContain('reply 1')
-      expect(lastRequest).toContain('and the word pear')
-      expect(lastRequest).toContain('reply 2')
+      expect(lastRequest).toContain('remember the word plum')
+      expect(lastRequest).toContain('reply 1')
+      expect(lastRequest).not.toContain('and the word pear')
+      expect(lastRequest).not.toContain('reply 2')
       const ids = (await sessions.readSession(session.id)).timeline.map(
         (message) => (message as { id: string }).id,
       )
-      expect(ids).toEqual(['u2', 'a2'])
+      expect(ids).toEqual(['u1', 'a1'])
+    }, 30000)
+
+    it('refuses to delete a turn that is not the latest one', async () => {
+      const session = await sessions.createSession()
+      const config = await assistantConfig(session.id)
+      await manager.startAgentTurn('t1', 'remember the word plum', config)
+      await manager.startAgentTurn('t2', 'and the word pear', config)
+
+      await expect(
+        manager.deleteAgentTurns({
+          sessionRef: session.id,
+          harnessSessionId: config.sessionId,
+          turnIds: ['t1'],
+          messageIds: ['u1', 'a1'],
+        }),
+      ).rejects.toThrow('AGENT_REGENERATE_NOT_LATEST')
+
+      await manager.startAgentTurn('t3', 'which words?', config)
+      expect(transcriptText(bodies.at(-1))).toContain('plum')
+      expect(transcriptText(bodies.at(-1))).toContain('pear')
     }, 30000)
 
     it('regenerates the latest turn from the Harness Session as it was before it', async () => {
@@ -1013,6 +1042,27 @@ describe('the Assistant preset in a Session', () => {
       expect(next).not.toContain('reply 2')
       expect(next).toContain('reply 3')
       expect(next.match(/and the word pear/g)).toHaveLength(1)
+    }, 30000)
+
+    it('sends the edited prompt of a rewind, not the one the replaced turn was sent', async () => {
+      const session = await sessions.createSession()
+      const config = await assistantConfig(session.id)
+      await manager.startAgentTurn('t1', 'remember the word plum', config)
+      await manager.startAgentTurn('t2', 'and the word pear', config)
+
+      expect(
+        await manager.startAgentTurn('t3', 'remember the word cherry', {
+          ...config,
+          rewindTurnId: 't2',
+          editedPrompt: true,
+        }),
+      ).toEqual({ success: true })
+
+      const edited = transcriptText(bodies[2])
+      expect(edited).toContain('plum')
+      expect(edited).toContain('cherry')
+      expect(edited).not.toContain('pear')
+      expect(edited).not.toContain('reply 2')
     }, 30000)
 
     it('regenerates a turn with the image that was attached to it', async () => {
@@ -1061,6 +1111,92 @@ describe('the Assistant preset in a Session', () => {
       await manager.startAgentTurn('t2', 'which word?', config)
 
       expect(transcriptText(bodies.at(-1))).not.toContain('plum')
+    }, 30000)
+  })
+
+  describe('workspace rollback of a deleted or regenerated turn', () => {
+    const journalDir = (sessionId: string, turnId: string) =>
+      path.join(tempRoot, 'agent-workspace-journal', sessionId, turnId)
+
+    it('puts the workspace back as a deleted turn found it', async () => {
+      const session = await sessions.createSession()
+      const config = await agentConfig(session.id)
+      fs.writeFileSync(path.join(config.workspaceDir, 'game.js'), 'the scaffold')
+      toolCall = { name: 'write', args: { path: 'game.js', content: 'the rewrite' } }
+
+      await manager.startAgentTurn('t1', 'rewrite game.js', config)
+      expect(fs.readFileSync(path.join(config.workspaceDir, 'game.js'), 'utf-8')).toBe(
+        'the rewrite',
+      )
+
+      await manager.deleteAgentTurns({
+        harnessSessionId: config.sessionId,
+        turnIds: ['t1'],
+        messageIds: [],
+      })
+
+      expect(fs.readFileSync(path.join(config.workspaceDir, 'game.js'), 'utf-8')).toBe(
+        'the scaffold',
+      )
+      expect(fs.existsSync(journalDir(config.sessionId, 't1'))).toBe(false)
+    }, 30000)
+
+    it('puts the workspace back as a regenerated turn found it, before the re-run writes', async () => {
+      const session = await sessions.createSession()
+      const config = await agentConfig(session.id)
+      fs.writeFileSync(path.join(config.workspaceDir, 'game.js'), 'the scaffold')
+      toolCall = { name: 'write', args: { path: 'game.js', content: 'the rewrite' } }
+      await manager.startAgentTurn('t1', 'rewrite game.js', config)
+      toolCall = null
+
+      await manager.startAgentTurn('t2', 'rewrite game.js', { ...config, rewindTurnId: 't1' })
+
+      expect(fs.readFileSync(path.join(config.workspaceDir, 'game.js'), 'utf-8')).toBe(
+        'the scaffold',
+      )
+      expect(fs.existsSync(journalDir(config.sessionId, 't1'))).toBe(false)
+    }, 30000)
+
+    it('rolls a multi-turn delete back newest first, so each turn unwinds onto the one before it', async () => {
+      const session = await sessions.createSession()
+      const config = await agentConfig(session.id)
+      toolCall = { name: 'write', args: { path: 'notes.md', content: 'first' } }
+      await manager.startAgentTurn('t1', 'write notes', config)
+      toolCall = { name: 'write', args: { path: 'notes.md', content: 'second' } }
+      await manager.startAgentTurn('t2', 'extend notes', config)
+      toolCall = null
+
+      await manager.deleteAgentTurns({
+        harnessSessionId: config.sessionId,
+        turnIds: ['t2', 't1'],
+        messageIds: [],
+      })
+
+      expect(fs.existsSync(path.join(config.workspaceDir, 'notes.md'))).toBe(false)
+    }, 30000)
+
+    it('refuses to delete or regenerate a turn that ran with the host shell', async () => {
+      const session = await sessions.createSession()
+      const config = await agentConfig(session.id)
+      await manager.startAgentTurn('t1', 'remember the word plum', { ...config, unsandboxed: true })
+
+      await expect(
+        manager.deleteAgentTurns({
+          harnessSessionId: config.sessionId,
+          turnIds: ['t1'],
+          messageIds: [],
+        }),
+      ).rejects.toThrow('AGENT_TURN_EDIT_HOST_SHELL')
+
+      const result = await manager.startAgentTurn('t2', 'remember the word plum', {
+        ...config,
+        rewindTurnId: 't1',
+      })
+      expect(result).toEqual({ success: false, error: 'AGENT_TURN_EDIT_HOST_SHELL' })
+
+      // The refused turn is still there, in the transcript and on disk.
+      await manager.startAgentTurn('t3', 'which word?', config)
+      expect(transcriptText(bodies.at(-1))).toContain('plum')
     }, 30000)
   })
 

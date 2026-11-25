@@ -1142,6 +1142,8 @@
   "AGENT_REGENERATE_NOT_LATEST": "Yalnızca en son yanıt yeniden oluşturulabilir.",
   "AGENT_REGENERATE_NO_PROMPT": "Yeniden oluşturulacak yanıtın istemi yok.",
   "AGENT_DELETE_TURN_FAILED": "Mesaj silinemedi.",
+  "AGENT_TURN_EDIT_HOST_SHELL": "Bu yanıt gerçek sistem kabuğuyla çalıştırıldığı için silinemez veya yeniden oluşturulamaz.",
+  "AGENT_TURN_RESTORE_UNRESTORABLE": "Tur silindi ancak bu dosyalar geri yüklenemedi: {files}",
   "AGENT_ATTACH_FAILED": "{file} eklenemedi.",
   "AGENT_DOCUMENT_REMOVE": "{file} öğesini kaldır",
   "AGENT_DOCUMENT_REMOVE_FAILED": "{file} kaldırılamadı.",

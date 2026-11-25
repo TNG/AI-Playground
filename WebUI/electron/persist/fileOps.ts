@@ -83,11 +83,23 @@ function parenNumbered(name: string): (n: number) => string {
   return (n) => (n === 1 ? name : `${name} (${n})`)
 }
 
-const notTakenIn = (dir: string) => async (name: string) => !(await exists(path.join(dir, name)))
+/**
+ * Names the caller's records still claim even where no file sits at them: a recorded
+ * artifact holds its name after the file behind it was moved away or deleted, so a
+ * new arrival taking it would show up as the old record's file.
+ */
+export type ReservedNames = ReadonlySet<string>
+
+const notTakenIn = (dir: string, reserved?: ReservedNames) => async (name: string) =>
+  !reserved?.has(name) && !(await exists(path.join(dir, name)))
 
 /** `name`, or `name-1`, `name-2`, … — the first that is not taken in `dir`. */
-export async function freeName(dir: string, name: string): Promise<string> {
-  return firstFree(dashNumbered(name), notTakenIn(dir))
+export async function freeName(
+  dir: string,
+  name: string,
+  reserved?: ReservedNames,
+): Promise<string> {
+  return firstFree(dashNumbered(name), notTakenIn(dir, reserved))
 }
 
 /** A ComfyUI output stem, `<prefix>_<NNNNN>_`; null when `stem` is not that shape. */
@@ -99,19 +111,28 @@ export function parseNumberedStem(stem: string): { prefix: string; n: number } |
 /**
  * The next number in `dir`'s series for a ComfyUI output, `<prefix>_<max + 1>_.<ext>` from 1 —
  * session adoption moves earlier outputs away, so ComfyUI's own counter keeps restarting and
- * would otherwise collide. A name of another shape falls back to `freeName`.
+ * would otherwise collide. A reserved name counts in the series like one on disk. A name of
+ * another shape falls back to `freeName`.
  */
-export async function nextNumberedName(dir: string, name: string): Promise<string> {
+export async function nextNumberedName(
+  dir: string,
+  name: string,
+  reserved?: ReservedNames,
+): Promise<string> {
   const { name: stem, ext } = path.parse(name)
   const series = parseNumberedStem(stem)
-  if (!series) return freeName(dir, name)
+  if (!series) return freeName(dir, name, reserved)
   let highest = 0
   for (const entry of await entriesOf(dir)) {
     const parsed = parseNumberedStem(path.parse(entry.name).name)
     if (parsed?.prefix === series.prefix) highest = Math.max(highest, parsed.n)
   }
+  for (const taken of reserved ?? []) {
+    const parsed = parseNumberedStem(path.parse(taken).name)
+    if (parsed?.prefix === series.prefix) highest = Math.max(highest, parsed.n)
+  }
   const next = `${series.prefix}_${String(highest + 1).padStart(5, '0')}_${ext}`
-  return firstFree(dashNumbered(next), notTakenIn(dir))
+  return firstFree(dashNumbered(next), notTakenIn(dir, reserved))
 }
 
 /** Where `name` or `name (n)` is free in `parent`; nothing is made there. */

@@ -98,7 +98,6 @@ const emit = defineEmits<{
   showError: [row: ComponentPanelOptionsRow]
   install: [row: ComponentPanelOptionsRow]
   update: [row: ComponentPanelOptionsRow]
-  uninstall: [row: ComponentPanelOptionsRow]
   togglePhison: [value: boolean]
   'update:coreServicesOpen': [value: boolean]
 }>()
@@ -386,7 +385,6 @@ function onSelectMode(mode: ProductMode) {
               @show-error="emit('showError', backendOptionsRow(coreRow!))"
               @install="emit('install', backendOptionsRow(coreRow!))"
               @update="emit('update', backendOptionsRow(coreRow!))"
-              @uninstall="emit('uninstall', backendOptionsRow(coreRow!))"
             >
               <template v-if="coreDependentRows.length > 0" #disclosure>
                 <CollapsibleTrigger
@@ -416,7 +414,6 @@ function onSelectMode(mode: ProductMode) {
                 @show-error="emit('showError', backendOptionsRow(row))"
                 @install="emit('install', backendOptionsRow(row))"
                 @update="emit('update', backendOptionsRow(row))"
-                @uninstall="emit('uninstall', backendOptionsRow(row))"
               >
                 <template #options>
                   <slot name="options" :row="backendOptionsRow(row)" />
@@ -435,7 +432,6 @@ function onSelectMode(mode: ProductMode) {
             @show-error="emit('showError', backendOptionsRow(row))"
             @install="emit('install', backendOptionsRow(row))"
             @update="emit('update', backendOptionsRow(row))"
-            @uninstall="emit('uninstall', backendOptionsRow(row))"
           >
             <template #options>
               <slot name="options" :row="backendOptionsRow(row)" />
@@ -473,7 +469,6 @@ function onSelectMode(mode: ProductMode) {
           @show-error="emit('showError', backendOptionsRow(row))"
           @install="emit('install', backendOptionsRow(row))"
           @update="emit('update', backendOptionsRow(row))"
-          @uninstall="emit('uninstall', backendOptionsRow(row))"
         >
           <template #options>
             <slot name="options" :row="backendOptionsRow(row)" />

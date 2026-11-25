@@ -91,12 +91,6 @@ function toRowView(row: ComponentRow): SetupWizardRowView {
     updateAriaLabel: fillTemplate(languages.COM_UPDATE_COMPONENT, { name: row.displayName }),
     showRepair: row.canRepair,
     repairDisabled: wizard.isBusy || row.inUseWork !== null,
-    showUninstall: row.canUninstall,
-    uninstallLabel: languages.COMPONENT_MANAGER_UNINSTALL,
-    uninstallAriaLabel: fillTemplate(languages.COMPONENT_MANAGER_UNINSTALL_ACTION, {
-      name: row.displayName,
-    }),
-    uninstallDisabled: row.inUseWork !== null || row.isInstalling || wizard.isBusy,
     showError: row.failed,
     inUseReason: row.inUseReason ?? undefined,
     installDisabled: row.inUseWork !== null,
@@ -194,9 +188,22 @@ function onUpdate(row: ComponentPanelOptionsRow) {
   if (row.kind === 'backend') void manager.update(row.serviceName)
 }
 
+function rowFor(serviceName: BackendServiceName): ComponentRow | undefined {
+  return manager.rows.find((entry) => entry.serviceName === serviceName)
+}
+
+function uninstallAllowed(serviceName: BackendServiceName): boolean {
+  return rowFor(serviceName)?.canUninstall ?? false
+}
+
+function uninstallBlocked(serviceName: BackendServiceName): boolean {
+  const row = rowFor(serviceName)
+  return row === undefined || row.inUseWork !== null || row.isInstalling || wizard.isBusy
+}
+
 function onUninstall(row: ComponentPanelOptionsRow) {
   if (row.kind !== 'backend') return
-  const target = manager.rows.find((entry) => entry.serviceName === row.serviceName)
+  const target = rowFor(row.serviceName)
   if (!target?.canUninstall) return
   uninstallTarget.value = target
   uninstallDialogOpen.value = true
@@ -275,13 +282,18 @@ function openCloudSetup() {
         @show-error="onShowError"
         @install="onInstall"
         @update="onUpdate"
-        @uninstall="onUninstall"
         @save-device="onSaveDevice"
         @toggle-phison="wizard.togglePhisonAidaptiv"
         @update:core-services-open="(value: boolean) => (coreServicesOpen = value)"
       >
         <template #options="{ row }">
-          <BackendOptions v-if="row.kind === 'backend'" :backend="row.serviceName" />
+          <BackendOptions
+            v-if="row.kind === 'backend'"
+            :backend="row.serviceName"
+            :allow-uninstall="uninstallAllowed(row.serviceName)"
+            :uninstall-disabled="uninstallBlocked(row.serviceName)"
+            @uninstall="onUninstall(row)"
+          />
           <SettingsMenu
             v-else-if="row.kind === 'cloud'"
             v-model:open="cloudMenuOpen"

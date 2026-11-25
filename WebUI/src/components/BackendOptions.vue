@@ -4,7 +4,7 @@ import { useSetupWizard } from '@/assets/js/store/setupWizard'
 import { useGlobalSetup } from '@/assets/js/store/globalSetup'
 import { useUIStore } from '@/assets/js/store/ui'
 import { useI18N } from '@/assets/js/store/i18n'
-import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
+import { DropdownMenuSeparator, DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -36,11 +36,20 @@ import { Input } from '@/components/ui/input'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Button } from '@/components/ui/button'
 import { mapServiceNameToDisplayName, compareVersions } from '@/lib/utils'
+import { fillTemplate } from '@/lib/fillTemplate'
 import { z } from 'zod'
 import SettingsMenu from '@/components/SettingsMenu.vue'
 
 const props = defineProps<{
   backend: BackendServiceName
+  /** Component Manager only: offer Uninstall for an optional installed Component. */
+  allowUninstall?: boolean
+  /** Work holds the Component, so Uninstall is refused. */
+  uninstallDisabled?: boolean
+}>()
+
+const emit = defineEmits<{
+  uninstall: []
 }>()
 
 const backendServices = useBackendServices()
@@ -115,6 +124,17 @@ const showSettings = computed(() => {
 const showChannelsSetup = computed(() => {
   return props.backend === 'home-agent-backend' && isSetUp.value
 })
+const showUninstall = computed(() => props.allowUninstall === true)
+const uninstallAriaLabel = computed(() =>
+  fillTemplate(i18nState.COMPONENT_MANAGER_UNINSTALL_ACTION, {
+    name: mapServiceNameToDisplayName(props.backend),
+  }),
+)
+
+function handleUninstall() {
+  menuOpen.value = false
+  emit('uninstall')
+}
 
 function handleChannelsSetup() {
   menuOpen.value = false
@@ -339,7 +359,11 @@ const clearOverride = () => {
 
 const showMenuButton = computed(
   () =>
-    showReinstall.value || showSettings.value || showVersionAction.value || showChannelsSetup.value,
+    showReinstall.value ||
+    showSettings.value ||
+    showVersionAction.value ||
+    showChannelsSetup.value ||
+    showUninstall.value,
 )
 </script>
 
@@ -370,6 +394,18 @@ const showMenuButton = computed(
     <DropdownMenuItem v-if="showSettings" @select="settingsDialogOpen = true">{{
       i18nState.COM_SETTINGS
     }}</DropdownMenuItem>
+
+    <template v-if="showUninstall">
+      <DropdownMenuSeparator />
+      <DropdownMenuItem
+        @select="handleUninstall"
+        :disabled="uninstallDisabled"
+        :aria-label="uninstallAriaLabel"
+        class="text-destructive focus:text-destructive"
+      >
+        {{ i18nState.COMPONENT_MANAGER_UNINSTALL }}
+      </DropdownMenuItem>
+    </template>
   </SettingsMenu>
 
   <AlertDialog v-if="showReinstall" v-model:open="reinstallDialogOpen">

@@ -62,9 +62,9 @@ export class ComponentManagerPage {
     return this.row(name).getByRole('button', { name: `Update ${name}`, exact: true })
   }
 
-  /** The inline Uninstall action on an optional installed Component. */
-  uninstallButton(name: BackendDisplayName): Locator {
-    return this.row(name).getByRole('button', { name: `Uninstall ${name}`, exact: true })
+  /** The Uninstall item in an optional installed Component's options menu. */
+  uninstallMenuItem(name: BackendDisplayName): Locator {
+    return this.page.getByRole('menuitem', { name: `Uninstall ${name}`, exact: true })
   }
 
   /** The uninstall confirmation dialog, named after the Component it removes. */

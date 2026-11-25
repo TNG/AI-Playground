@@ -114,14 +114,20 @@ test('the Component Manager shows the machine as it is and toggles a Component',
     }
   })
 
-  await test.step('an optional Component offers Uninstall behind a confirmation; a required one never does', async () => {
-    await expect(
-      app.components.row('Core Services').getByRole('button', { name: /^Uninstall/ }),
-    ).toHaveCount(0)
+  await test.step('an optional Component offers Uninstall in its options menu behind a confirmation; a required one never does', async () => {
+    await app.components.optionsButton('Core Services').click()
+    await expect(app.components.uninstallMenuItem('Core Services')).toHaveCount(0)
+    await app.components.closeOptions()
 
     for (const name of ['ComfyUI', 'Llama.cpp - GGUF'] as BackendDisplayName[]) {
-      const uninstall = app.components.uninstallButton(name)
-      if ((await uninstall.count()) === 0) continue
+      if (/Not Installed/i.test(await app.components.row(name).innerText())) continue
+
+      await app.components.optionsButton(name).click()
+      const uninstall = app.components.uninstallMenuItem(name)
+      if ((await uninstall.count()) === 0) {
+        await app.components.closeOptions()
+        continue
+      }
 
       await expect(uninstall).toBeEnabled()
       await uninstall.click()

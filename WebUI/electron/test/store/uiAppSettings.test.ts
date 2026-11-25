@@ -219,3 +219,118 @@ describe('The theme panel', () => {
     expect(unsaved.asking).toBe(false)
   })
 })
+
+describe('The Component Manager tab', () => {
+  beforeEach(() => setActivePinia(createPinia()))
+
+  it('opens App Settings on the Component Manager tab from the header button', () => {
+    const ui = useUIStore()
+
+    ui.toggleComponentManager()
+
+    expect(ui.appSettingsOpen).toBe(true)
+    expect(ui.appSettingsTab).toBe('components')
+    expect(ui.componentManagerShowing).toBe(true)
+  })
+
+  it('closes App Settings when its pressed button is clicked again', () => {
+    const ui = useUIStore()
+    ui.toggleComponentManager()
+
+    ui.toggleComponentManager()
+
+    expect(ui.appSettingsOpen).toBe(false)
+    expect(ui.componentManagerShowing).toBe(false)
+  })
+
+  it('switches to the Component Manager tab when its button is clicked over another tab', () => {
+    const ui = useUIStore()
+    ui.openAppSettings('app')
+
+    ui.toggleComponentManager()
+
+    expect(ui.appSettingsOpen).toBe(true)
+    expect(ui.appSettingsTab).toBe('components')
+    expect(ui.componentManagerShowing).toBe(true)
+  })
+
+  it('is not pressed while another App Settings tab or no dialog shows', () => {
+    const ui = useUIStore()
+
+    expect(ui.componentManagerShowing).toBe(false)
+
+    ui.openAppSettings('app')
+
+    expect(ui.componentManagerShowing).toBe(false)
+
+    ui.openModelLibrary()
+
+    expect(ui.componentManagerShowing).toBe(false)
+  })
+})
+
+describe('The Component Manager sub-views', () => {
+  beforeEach(() => setActivePinia(createPinia()))
+
+  it('opens the Channels setup inside the tab from the title-bar gear', () => {
+    const ui = useUIStore()
+
+    ui.openComponentManagerChannels()
+
+    expect(ui.appSettingsOpen).toBe(true)
+    expect(ui.appSettingsTab).toBe('components')
+    expect(ui.componentManagerSubView).toBe('channels')
+    expect(ui.componentManagerShowing).toBe(true)
+  })
+
+  it('opens the Channels setup inside the tab from the Permissions link over the App tab', () => {
+    const ui = useUIStore()
+    ui.openAppSettings('app')
+
+    ui.openComponentManagerChannels()
+
+    expect(ui.appSettingsTab).toBe('components')
+    expect(ui.componentManagerSubView).toBe('channels')
+  })
+
+  it('opens the Hybrid Cloud provider setup inside the tab', () => {
+    const ui = useUIStore()
+
+    ui.openComponentManagerCloud()
+
+    expect(ui.appSettingsOpen).toBe(true)
+    expect(ui.appSettingsTab).toBe('components')
+    expect(ui.componentManagerSubView).toBe('cloud')
+  })
+
+  it('returns to the Component list when a sub-view closes, leaving the tab open', () => {
+    const ui = useUIStore()
+    ui.openComponentManagerChannels()
+
+    ui.closeComponentManagerSubView()
+
+    expect(ui.appSettingsOpen).toBe(true)
+    expect(ui.appSettingsTab).toBe('components')
+    expect(ui.componentManagerSubView).toBeNull()
+  })
+
+  it('shows the Component list again when the tab is reopened from the header', () => {
+    const ui = useUIStore()
+    ui.openComponentManagerChannels()
+
+    ui.toggleComponentManager()
+    ui.toggleComponentManager()
+
+    expect(ui.appSettingsOpen).toBe(true)
+    expect(ui.componentManagerSubView).toBeNull()
+  })
+
+  it('leaves a sub-view when another App Settings tab is shown', () => {
+    const ui = useUIStore()
+    ui.openComponentManagerChannels()
+
+    ui.setAppSettingsTab('models')
+
+    expect(ui.componentManagerSubView).toBeNull()
+  })
+})

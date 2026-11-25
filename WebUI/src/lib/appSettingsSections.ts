@@ -20,7 +20,6 @@ export type AppSettingsPartId =
   | 'mcp'
   | 'permissions'
   | 'hideMessages'
-  | 'backendStatus'
   | 'developer'
   | 'demoMode'
 
@@ -53,7 +52,6 @@ const SECTIONS: SectionSpec[] = [
     id: 'advanced',
     heading: true,
     parts: [
-      { id: 'backendStatus', demo: 'block' },
       { id: 'developer', demo: 'block' },
       { id: 'demoMode', demo: 'allow', needsPasscode: true },
     ],

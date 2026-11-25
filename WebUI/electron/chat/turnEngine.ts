@@ -72,6 +72,7 @@ import {
 import { saveChatTurnConversation } from '../persist/conversationFiles'
 import { titleFromMessages } from '@/lib/conversationTitle'
 import type { OpenChatTurn } from '@/types/lifecycleIpc'
+import type { BackendServiceName } from '@/assets/js/store/backendServices'
 import {
   beginChatTurnInSession,
   saveChatTranscript,
@@ -908,6 +909,9 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
         joinsTurnQueue: local,
         work: 'chat',
         ...(local ? { pause } : {}),
+        ...(local && config.readiness
+          ? { component: config.readiness.serviceName as BackendServiceName }
+          : {}),
       },
       turn.controller.signal,
     )

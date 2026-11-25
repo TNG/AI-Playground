@@ -21,21 +21,18 @@ import { isOnDemandBackend } from '@/lib/onDemandBackends'
 import { selectDefaultInstalls, type SeedCandidate } from '@/lib/wizardInstallDefaults'
 import * as toast from '@/assets/js/toast'
 import { useErrors } from './errors'
+import { useI18N } from './i18n'
 import { updateLocalSettingsReported } from '@/lib/localSettingsUpdate'
 import { extractMessage } from '../errors/appError'
+import { setupProgressLabel } from '@/lib/setupProgress'
+import { isComponentAvailableInMode } from '@/lib/productModeAvailability'
+import { deriveComponentRows } from '@/lib/componentRows'
+import { preferredDeviceKey, resolvePreferredDevice } from '@/lib/preferredDevice'
 import type { ErrorDetails } from '../../../../electron/adapters/backends/service'
 
 // Derived from the single source of truth rather than restated: a backend added
 // there but forgotten here would silently never appear in the wizard.
 const ALL_BACKENDS: BackendServiceName[] = [...allBackendServiceNames]
-
-function isBackendAvailableInProductMode(
-  mode: ProductMode | null,
-  serviceName: BackendServiceName,
-): boolean {
-  if (mode === 'nvidia' && serviceName === 'openvino-backend') return false
-  return true
-}
 
 export type WizardPage = 'main' | 'channelsSetup' | 'cloudModeSetup' | 'demoModeSetup'
 
@@ -74,51 +71,6 @@ export type PhisonAidaptivRowViewModel = {
   toggleTooltip: string
 }
 
-/**
- * Row labels are the shared ones (`mapServiceNameToDisplayName`) with one wizard-only
- * exception: the core backend sits inside the "AI Playground" group box here, so
- * repeating "AI Playground" on the row inside it says nothing — and would collide
- * with the group's own accessible name. Elsewhere (Installation Management, App
- * Settings) the row stands alone and keeps the product name.
- */
-function wizardDisplayName(serviceName: BackendServiceName): string {
-  if (serviceName === 'ai-backend') return 'Core Services'
-  return mapServiceNameToDisplayName(serviceName)
-}
-
-const knownSteps: Record<BackendServiceName, string[]> = {
-  'ai-backend': ['start', 'install dependencies'],
-  'llamacpp-backend': ['start', 'download', 'extract', 'configure-service'],
-  'openvino-backend': ['start', 'download', 'extract', 'install python'],
-  'comfyui-backend': [
-    'start',
-    // Linux-only step, emitted before the clone. Omitting it made Linux installs
-    // fall back to showing raw debug messages instead of a progress label.
-    'linux dependencies',
-    'install comfyUI',
-    'configure comfyUI',
-    'install builtin custom nodes',
-    'install comfyUI manager',
-  ],
-  'home-agent-backend': ['start', 'install dependencies'],
-  'qwen3-tts-backend': ['start', 'install dependencies'],
-  'whisper-backend': ['start', 'install dependencies'],
-}
-
-const stepDisplayNames: Record<string, string> = {
-  start: 'Preparing...',
-  download: 'Downloading...',
-  extract: 'Extracting...',
-  'configure-service': 'Configuring SSD offload...',
-  'install dependencies': 'Installing dependencies...',
-  'install python': 'Installing Python environment...',
-  'linux dependencies': 'Installing system packages...',
-  'install comfyUI': 'Installing ComfyUI...',
-  'configure comfyUI': 'Configuring...',
-  'install builtin custom nodes': 'Installing custom nodes...',
-  'install comfyUI manager': 'Installing ComfyUI Manager...',
-}
-
 type DemoModeDraft = DemoModeSetup & { passcodeHash?: string }
 
 export const useSetupWizard = defineStore('setupWizard', () => {
@@ -133,6 +85,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   const channelStore = useChannels()
   const cloudMode = useCloudMode()
   const errors = useErrors()
+  const i18nState = useI18N().state
 
   const pendingProductMode = ref<ProductMode | null>(null)
   const pendingPreferredDevice = ref<PreferredDevice | null>(null)
@@ -173,13 +126,6 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     value: PreferredDevice
   }
 
-  // Key by the strongest available identity (UUID → PCI id → name) so two
-  // identically-named GPUs don't collide and the selection stays stable.
-  function preferredDeviceKey(pref: PreferredDevice | null): string | null {
-    if (!pref) return null
-    return `gpu:${pref.uuid ?? pref.instanceId ?? pref.gpuDeviceId ?? pref.name}`
-  }
-
   const preferredDeviceOptions = computed<PreferredDeviceOption[]>(() => {
     const detected = productModeStore.hardwareRecommendation?.detectedDevices ?? []
     const gpuOptions: PreferredDeviceOption[] = detected
@@ -205,11 +151,6 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     // hides the "Default GPU" section entirely (there is nothing to choose).
     return gpuOptions
   })
-
-  /** Best default preference: the highest-category detected device, else CPU. */
-  function defaultPreferredDevice(): PreferredDevice | null {
-    return preferredDeviceOptions.value[0]?.value ?? null
-  }
 
   function setPendingPreferredDevice(pref: PreferredDevice) {
     pendingPreferredDevice.value = pref
@@ -287,19 +228,21 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     }
   }
 
-  async function initPendingPreferredDevice() {
+  async function initPendingPreferredDevice(): Promise<void> {
+    let stored: PreferredDevice | null = null
     try {
-      const s = await window.electronAPI.getLocalSettings()
-      pendingPreferredDevice.value = s.preferredDevice ?? defaultPreferredDevice()
+      stored = (await window.electronAPI.getLocalSettings()).preferredDevice ?? null
     } catch {
-      pendingPreferredDevice.value = defaultPreferredDevice()
+      stored = null
     }
-    // A persisted CPU preference is meaningless once GPUs are offered (CPU is
-    // hidden then), which would leave nothing selected — fall back to the default.
-    const key = preferredDeviceKey(pendingPreferredDevice.value)
-    if (!preferredDeviceOptions.value.some((o) => o.key === key)) {
-      pendingPreferredDevice.value = defaultPreferredDevice()
-    }
+    pendingPreferredDevice.value = resolvePreferredDevice(stored, preferredDeviceOptions.value)
+  }
+
+  /** Seed the picker the wizard shows. A no-op once a value exists, so an open
+   *  draft wins; reading never persists, only an explicit save does. */
+  async function ensurePreferredDeviceSeeded(): Promise<void> {
+    if (pendingPreferredDevice.value) return
+    await initPendingPreferredDevice()
   }
 
   const errorModalOpen = ref(false)
@@ -340,10 +283,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     if (phisonInstallActive) {
       const progress = backendServices.latestSetupProgress.get('llamacpp-backend')
       if (progress) {
-        const steps = knownSteps['llamacpp-backend'] ?? []
-        const stepIdx = steps.indexOf(progress.step)
-        const label = stepDisplayNames[progress.step] ?? progress.debugMessage
-        installProgressText = stepIdx >= 0 ? `${label} (${stepIdx + 1}/${steps.length})` : label
+        installProgressText = setupProgressLabel('llamacpp-backend', progress)
       } else if (activityMessage) {
         installProgressText = activityMessage
       } else if (status === 'stopping') {
@@ -425,168 +365,83 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   })
 
   const backendRows = computed<BackendRowViewModel[]>(() => {
-    return ALL_BACKENDS.map((serviceName) => {
-      const info = backendServices.info.find((s) => s.serviceName === serviceName)
-      const available = isBackendAvailableInProductMode(pendingProductMode.value, serviceName)
-      const isRequired = info?.isRequired ?? serviceName === 'ai-backend'
-      let isSetUp = info?.isSetUp ?? false
-      let status = info?.status ?? ('notInstalled' as BackendStatus)
+    const rows = deriveComponentRows({
+      serviceNames: ALL_BACKENDS,
+      infoFor: (serviceName) => backendServices.info.find((s) => s.serviceName === serviceName),
+      versionState: backendServices.versionState,
+      mode: pendingProductMode.value,
+      enabledFor: (serviceName, info) => {
+        const isRequired = info?.isRequired ?? serviceName === 'ai-backend'
+        if (serviceName === 'llamacpp-backend') {
+          return (
+            isRequired ||
+            (installSelection.value.has('llamacpp-backend') &&
+              backendServices.llamaCppBuildVariant === 'standard')
+          )
+        }
+        return isRequired || installSelection.value.has(serviceName)
+      },
+      activity: wizardActivity.value,
+      progressFor: (serviceName) => backendServices.latestSetupProgress.get(serviceName),
+      phisonVariant: backendServices.llamaCppBuildVariant,
+      comfyVariantSwitch: {
+        needed: comfyUiNeedsVariantSwitch.value,
+        targetMode: pendingProductMode.value,
+      },
+    })
 
-      if (serviceName === 'comfyui-backend' && comfyUiNeedsVariantSwitch.value) {
-        isSetUp = false
-        status = 'notInstalled' as BackendStatus
-      }
-
-      let isInstalling =
-        status === 'installing' ||
-        status === 'starting' ||
-        status === 'stopping' ||
-        wizardActivity.value.has(serviceName)
-      if (
-        serviceName === 'llamacpp-backend' &&
-        backendServices.llamaCppBuildVariant === 'ssd-offload'
-      ) {
-        isInstalling = false
-      }
-      let enabled = isRequired || installSelection.value.has(serviceName)
-      if (serviceName === 'llamacpp-backend') {
-        enabled =
-          isRequired ||
-          (installSelection.value.has('llamacpp-backend') &&
-            backendServices.llamaCppBuildVariant === 'standard')
-      }
+    return rows.map((row) => {
       const phisonVariantLocksLlamaRow =
-        serviceName === 'llamacpp-backend' && backendServices.llamaCppBuildVariant === 'ssd-offload'
-      const toggleDisabled = isRequired || !available || isInstalling || phisonVariantLocksLlamaRow
+        row.serviceName === 'llamacpp-backend' &&
+        backendServices.llamaCppBuildVariant === 'ssd-offload'
+      const toggleDisabled =
+        row.isRequired ||
+        !row.availableInCurrentMode ||
+        row.isInstalling ||
+        phisonVariantLocksLlamaRow
 
       let toggleTooltip = ''
-      if (isRequired) {
+      if (row.isRequired) {
         toggleTooltip = 'Required — cannot be disabled'
-      } else if (!available) {
+      } else if (!row.availableInCurrentMode) {
         toggleTooltip = 'Not available in this product mode'
-      } else if (isInstalling) {
+      } else if (row.isInstalling) {
         toggleTooltip = 'Installation in progress'
       } else if (phisonVariantLocksLlamaRow) {
         toggleTooltip =
           'Disabled while Phison Pascari aiDAPTIV is enabled - use the Llama.cpp with Phison Pascari aiDAPTIV row below'
-      } else if (isSetUp && enabled) {
+      } else if (row.installed && row.enabled) {
         toggleTooltip = 'Toggle off to stop this component'
-      } else if (isSetUp && !enabled) {
+      } else if (row.installed && !row.enabled) {
         toggleTooltip = 'Toggle on to start this component'
-      } else if (!isSetUp && enabled) {
+      } else if (!row.installed && row.enabled) {
         toggleTooltip = 'Toggle off to skip installation'
       } else {
         toggleTooltip = 'Toggle on to install this component'
       }
 
-      let versionDisplay = ''
-      if (serviceName === 'ai-backend') {
-        // Left blank on purpose: the core backend's version is the app version,
-        // and the wizard shows it once under its title (see SetupWizard.vue)
-        // rather than on this row, where it read as one component's version.
-        versionDisplay = ''
-      } else if (
-        serviceName === 'llamacpp-backend' &&
-        backendServices.llamaCppBuildVariant === 'ssd-offload'
-      ) {
-        const rowInfo = backendServices.info.find((s) => s.serviceName === 'llamacpp-backend')
-        const std = rowInfo?.llamaCppStandardInstalledVersion
-        if (std?.version) {
-          versionDisplay = std.releaseTag ? `${std.releaseTag} / ${std.version}` : std.version
-        } else if (!rowInfo?.llamaCppStandardArtifactReady) {
-          versionDisplay = 'Not installed'
-        }
-      } else {
-        const vs = backendServices.versionState[serviceName]
-        if (vs.installed?.version) {
-          versionDisplay = vs.installed.releaseTag
-            ? `${vs.installed.releaseTag} / ${vs.installed.version}`
-            : vs.installed.version
-        } else if (
-          !isSetUp &&
-          !(serviceName === 'comfyui-backend' && comfyUiNeedsVariantSwitch.value)
-        ) {
-          versionDisplay = 'Not installed'
-        }
-      }
-
-      const activityMessage = wizardActivity.value.get(serviceName)
-      let installProgressText: string | null = null
-      const ggufRowShowsLlamaProgress =
-        serviceName !== 'llamacpp-backend' || backendServices.llamaCppBuildVariant === 'standard'
-      if (ggufRowShowsLlamaProgress && (isInstalling || activityMessage)) {
-        const progress = backendServices.latestSetupProgress.get(serviceName)
-        if (progress) {
-          const steps = knownSteps[serviceName] ?? []
-          const stepIdx = steps.indexOf(progress.step)
-          const label = stepDisplayNames[progress.step] ?? progress.debugMessage
-          installProgressText = stepIdx >= 0 ? `${label} (${stepIdx + 1}/${steps.length})` : label
-        } else if (activityMessage) {
-          installProgressText = activityMessage
-        } else if (status === 'stopping') {
-          installProgressText = 'Stopping...'
-        } else if (status === 'starting') {
-          installProgressText = 'Starting...'
-        } else {
-          installProgressText = 'Preparing...'
-        }
-      }
-
-      let statusColor = mapStatusToColor(status)
-      if (serviceName === 'llamacpp-backend') {
-        const rowInfo = backendServices.info.find((s) => s.serviceName === 'llamacpp-backend')
-        const standardReady = rowInfo?.llamaCppStandardArtifactReady ?? false
-        const variantStandard = backendServices.llamaCppBuildVariant === 'standard'
-        const transitional =
-          status === 'failed' ||
-          status === 'installationFailed' ||
-          status === 'installing' ||
-          status === 'starting' ||
-          status === 'stopping'
-        if (
-          !variantStandard &&
-          (status === 'installing' || status === 'starting' || status === 'stopping')
-        ) {
-          statusColor = mapStatusToColor('notInstalled')
-        } else if (!transitional) {
-          if (!standardReady) {
-            statusColor = mapStatusToColor('notInstalled')
-          } else if (variantStandard && (enabled || status === 'running')) {
-            statusColor = mapStatusToColor('running')
-          } else {
-            statusColor = mapStatusToColor('notInstalled')
-          }
-        }
-      }
-
-      let rowStatusText =
-        serviceName === 'comfyui-backend' && comfyUiNeedsVariantSwitch.value
-          ? `Needs reinstall for ${pendingProductMode.value === 'nvidia' ? 'CUDA' : 'XPU'}`
-          : (mapToDisplayStatus(status) ?? status)
-      if (
-        serviceName === 'llamacpp-backend' &&
-        backendServices.llamaCppBuildVariant === 'ssd-offload' &&
-        (status === 'installing' || status === 'starting' || status === 'stopping')
-      ) {
-        rowStatusText = mapToDisplayStatus('notInstalled') ?? rowStatusText
-      }
-
       return {
-        serviceName,
-        displayName: wizardDisplayName(serviceName),
-        isRequired,
-        isSetUp,
-        status,
-        enabled,
-        availableInCurrentMode: available,
+        serviceName: row.serviceName,
+        // The core backend sits in the "AI Playground" group, so its row says
+        // "Core Services" rather than repeating the product name.
+        displayName:
+          row.serviceName === 'ai-backend'
+            ? 'Core Services'
+            : mapServiceNameToDisplayName(row.serviceName),
+        isRequired: row.isRequired,
+        isSetUp: row.installed,
+        status: row.status,
+        enabled: row.enabled,
+        availableInCurrentMode: row.availableInCurrentMode,
         toggleDisabled,
-        isInstalling,
-        statusColor,
-        statusText: rowStatusText,
-        versionDisplay,
-        errorDetails: backendServices.getServiceErrorDetails(serviceName),
+        isInstalling: row.isInstalling,
+        statusColor: row.statusColor,
+        statusText:
+          row.statusOverride ?? mapToDisplayStatus(row.displayStatus) ?? row.displayStatus,
+        versionDisplay: row.versionDisplay,
+        errorDetails: backendServices.getServiceErrorDetails(row.serviceName),
         toggleTooltip,
-        installProgressText,
+        installProgressText: row.installProgressText,
       }
     })
   })
@@ -676,10 +531,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
         serviceName,
         isRequired: info.isRequired,
         isSetUp: info.isSetUp,
-        availableInProductMode: isBackendAvailableInProductMode(
-          pendingProductMode.value,
-          serviceName,
-        ),
+        availableInProductMode: isComponentAvailableInMode(pendingProductMode.value, serviceName),
         userDisabled: disabledBackends.value.has(serviceName),
         phisonOwnsLlamaCpp:
           serviceName === 'llamacpp-backend' &&
@@ -691,6 +543,13 @@ export const useSetupWizard = defineStore('setupWizard', () => {
       })
     }
     installSelection.value = new Set(selectDefaultInstalls(candidates))
+  }
+
+  function setBackendDisabled(serviceName: BackendServiceName, disabled: boolean) {
+    if (disabled) disabledBackends.value.add(serviceName)
+    else disabledBackends.value.delete(serviceName)
+    disabledBackends.value = new Set(disabledBackends.value)
+    persistDisabledBackends()
   }
 
   function isChannelsInstalledAndActive(): boolean {
@@ -749,11 +608,11 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   function setPendingMode(mode: ProductMode) {
     pendingProductMode.value = mode
     for (const sn of ALL_BACKENDS) {
-      const wasAvailable = isBackendAvailableInProductMode(
+      const wasAvailable = isComponentAvailableInMode(
         productModeStore.productMode ?? pendingProductMode.value,
         sn,
       )
-      const nowAvailable = isBackendAvailableInProductMode(mode, sn)
+      const nowAvailable = isComponentAvailableInMode(mode, sn)
       if (nowAvailable && !wasAvailable) {
         const info = backendServices.info.find((s) => s.serviceName === sn)
         if (info && !info.isSetUp && !info.isRequired) {
@@ -1005,14 +864,25 @@ export const useSetupWizard = defineStore('setupWizard', () => {
 
   async function installBackend(name: BackendServiceName) {
     wizardDirty.value = true
-    const result = await backendServices.setUpService(name)
+    let result: Awaited<ReturnType<typeof backendServices.setUpService>>
+    try {
+      result = await backendServices.setUpService(name)
+    } catch (error) {
+      errors.report(error, {
+        category: 'backend',
+        code: 'component/setup-failed',
+        userMessage: i18nState.COMPONENT_REINSTALL_FAILED,
+      })
+      return
+    }
     if (result.success) {
       await restartBackend(name)
     } else {
-      const msg =
-        result.errorDetails?.hint ??
-        (result.errorDetails ? 'Setup failed — see error log for details' : 'Setup failed')
-      toast.error(msg)
+      errors.report(result.errorDetails ?? new Error(`Setup of ${name} failed`), {
+        category: 'backend',
+        code: 'component/setup-failed',
+        userMessage: i18nState.COMPONENT_REINSTALL_FAILED,
+      })
     }
   }
 
@@ -1036,6 +906,77 @@ export const useSetupWizard = defineStore('setupWizard', () => {
       }
     }
     await installBackend(name)
+  }
+
+  /** The one reinstall path: the row's Update and the options menu's Reinstall both use it. */
+  async function reinstallBackend(
+    name: BackendServiceName,
+    versionToInstall?: { version?: string; releaseTag?: string },
+  ) {
+    wizardDirty.value = true
+    try {
+      await backendServices.uninstallService(name)
+    } catch (error) {
+      errors.report(error, {
+        category: 'backend',
+        code: 'component/reinstall-failed',
+        userMessage: i18nState.COMPONENT_REINSTALL_FAILED,
+      })
+      return
+    }
+
+    let result: Awaited<ReturnType<typeof backendServices.setUpService>>
+    try {
+      result = await backendServices.setUpService(
+        name,
+        versionToInstall?.version
+          ? { version: versionToInstall.version, releaseTag: versionToInstall.releaseTag }
+          : undefined,
+      )
+    } catch (error) {
+      errors.report(error, {
+        category: 'backend',
+        code: 'component/setup-failed',
+        userMessage: i18nState.COMPONENT_REINSTALL_FAILED,
+      })
+      return
+    }
+    if (!result.success) {
+      errors.report(result.errorDetails ?? new Error(`Setup of ${name} failed`), {
+        category: 'backend',
+        code: 'component/setup-failed',
+        userMessage: i18nState.COMPONENT_REINSTALL_FAILED,
+      })
+      return
+    }
+
+    if (isOnDemandBackend(name)) return
+    try {
+      const startStatus = await backendServices.startService(name)
+      if (startStatus !== 'running') {
+        errors.report(
+          backendServices.getServiceErrorDetails(name) ?? new Error(`Start of ${name} failed`),
+          {
+            category: 'backend',
+            code: 'component/start-failed',
+            userMessage: i18nState.COMPONENT_START_FAILED,
+          },
+        )
+      }
+    } catch (error) {
+      errors.report(error, {
+        category: 'backend',
+        code: 'component/start-failed',
+        userMessage: i18nState.COMPONENT_START_FAILED,
+      })
+    }
+  }
+
+  /** Update to the version the row advertises: the user's override, else the pinned target. */
+  async function updateBackend(name: BackendServiceName) {
+    const versions = backendServices.versionState[name]
+    const target = versions.uiOverride ?? versions.target
+    await reinstallBackend(name, target)
   }
 
   async function restartBackend(name: BackendServiceName) {
@@ -1152,9 +1093,15 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     pendingPreferredDevice,
     preferredDeviceOptions,
     preferredDeviceKey,
+    ensurePreferredDeviceSeeded,
     setPendingPreferredDevice,
+    applyPreferredDevice,
     overrideExistingDeviceSelection,
     installSelection,
+    disabledBackends,
+    setBackendDisabled,
+    restoreDisabledBackends,
+    comfyUiNeedsVariantSwitch,
     wizardDirty,
     wizardPage,
     channelsSetupOrigin,
@@ -1173,6 +1120,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     openWizard,
     openChannelsSetup,
     setPendingMode,
+    syncPresetsForCurrentProductMode,
     seedInstallSelection,
     toggleBackend,
     togglePhisonAidaptiv,
@@ -1192,6 +1140,8 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     cancelDemoModeSetup,
     installBackend,
     repairBackend,
+    reinstallBackend,
+    updateBackend,
     restartBackend,
     showErrorModal,
     closeErrorModal,

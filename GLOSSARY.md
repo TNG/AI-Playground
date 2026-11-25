@@ -123,22 +123,32 @@ _Avoid_: busy, active session, running process
 
 **Session Update**:
 A short templated digest of the History Entries a chat preset missed since its own last turn in
-the Session, handed to it with the next prompt. Never a model-written summary.
+the Session, handed to it with the next prompt. Never a model-written summary; an Overview Summary
+is the model-written kind, and belongs to Overviews.
 _Avoid_: session summary, recap
 
 ## Overviews
 
 **Overview**:
-A single HTML file saying what the Sessions the user included did in one time range: for each of
-those Sessions, a short written summary of what it did, its Title, and a picture when it has one. It
-is a snapshot taken when it is asked for, not a view that stays current, and it is not an Artifact —
-it is a file an agent's turn wrote into its Workspace. It shows no turns.
+A single HTML file about the Sessions that were active in one time range: for each, its Title, that
+Session's Overview Summary, and a picture when one fits. A snapshot taken when it is asked for, not
+a view that stays current; not an Artifact, and it shows no turns.
 _Avoid_: dashboard, digest, recap, session summary, report
 
+**Overview Summary**:
+The model-written account a Session keeps of its whole work while it is Included in Overviews,
+refreshed as each of its turns finishes. One per Session, not one per turn or time range.
+_Avoid_: session summary, recap, digest, card text
+
+**Overview Summary update**:
+The pass that writes or refreshes a Session's Overview Summary at the end of one of its turns. It
+runs in its own context, belongs to no Agent and has no Session of its own, and is not a Step.
+_Avoid_: summary step, subagent, background summariser
+
 **Included in Overviews**:
-The per-Session switch, off by default, without which an Overview shows nothing of that Session.
-Choosing it is the user's consent to that Session's prompts and results appearing in a file they
-may share.
+The per-Session switch, off by default: consent for the Session to keep an Overview Summary, and for
+that summary and one picture to appear in files the user may share. Turning it off deletes the
+summary.
 _Avoid_: shared, exported, reachable
 
 ## Capabilities

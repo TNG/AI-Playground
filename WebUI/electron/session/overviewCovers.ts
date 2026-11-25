@@ -133,6 +133,80 @@ function gameCoversOf(file: SessionFile, list: SessionFolderList): GameCover[] {
   return covers
 }
 
+type CoverSeed = {
+  time: number
+  /** Append order, so two entries in the same millisecond still pick the later one. */
+  order: number
+  pick: () => Promise<OverviewCover | null>
+}
+
+/**
+ * The newest visual Artifact only, for the stored Overview Summary's picture.
+ * Unlike `collectCovers`, a missing file yields none rather than an older
+ * picture: only the newest candidate is ever considered.
+ */
+export async function newestVisualCover(
+  sessionId: string,
+  file: SessionFile,
+  list: SessionFolderList,
+  entries: readonly HistoryEntry[],
+  recordsOf: RecordsLookup,
+): Promise<OverviewCover | null> {
+  const seeds: CoverSeed[] = []
+  let order = 0
+  for (const entry of entries) {
+    for (const artifact of entry.artifacts) {
+      if (artifact.mediaType !== 'image' && artifact.mediaType !== 'video') continue
+      seeds.push({
+        time: entry.timestamp,
+        order: order++,
+        pick: async () => {
+          if (artifact.mediaType === 'image') {
+            const host = artifactHostPath(sessionId, artifact, list)
+            if (!host || !(await isFile(host))) return null
+            return {
+              path: host,
+              mediaType: 'image',
+              prompt: entry.prompt,
+              time: entry.timestamp,
+              source: 'artifact',
+            }
+          }
+          const host = await videoCoverOf(sessionId, file, artifact, recordsOf)
+          return host
+            ? {
+                path: host,
+                mediaType: 'image',
+                prompt: entry.prompt,
+                time: entry.timestamp,
+                source: 'video-thumbnail',
+              }
+            : null
+        },
+      })
+    }
+  }
+  for (const game of gameCoversOf(file, list)) {
+    seeds.push({
+      time: game.time,
+      order: order++,
+      pick: async () =>
+        (await isFile(game.iconPath))
+          ? {
+              path: game.iconPath,
+              mediaType: 'image',
+              prompt: game.prompt,
+              time: game.time,
+              source: 'game-icon',
+            }
+          : null,
+    })
+  }
+  if (seeds.length === 0) return null
+  seeds.sort((a, b) => b.time - a.time || b.order - a.order)
+  return seeds[0].pick()
+}
+
 export async function collectCovers(
   sessionId: string,
   file: SessionFile,

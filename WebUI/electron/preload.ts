@@ -21,6 +21,7 @@ import type {
   AssistantCapabilityDefaults,
   AudioTurnRequest,
   HarnessGameWorkspace,
+  OverviewSummaryRequest,
   SessionCreateOptions,
   SessionTurn,
   ShowMoreSection,
@@ -316,8 +317,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     migrateHomeAgentThreads: (input: { routingKey: string | null } & AssistantCapabilityDefaults) =>
       invoke('sessions:migrateHomeAgentThreads', cloneForIpc(input)),
     pin: (id: string, pinned: boolean) => invoke('sessions:pin', id, pinned),
-    setIncludedInOverviews: (id: string, included: boolean) =>
-      invoke('sessions:setIncludedInOverviews', id, included),
+    setIncludedInOverviews: (id: string, included: boolean, request?: OverviewSummaryRequest) =>
+      request === undefined
+        ? invoke('sessions:setIncludedInOverviews', id, included)
+        : invoke('sessions:setIncludedInOverviews', id, included, cloneForIpc(request)),
+    refreshOverviewSummary: (id: string, request: OverviewSummaryRequest) =>
+      invoke('sessions:refreshOverviewSummary', id, cloneForIpc(request)),
     addFolder: (id: string, hostPath: string) => invoke('sessions:addFolder', id, hostPath),
     removeFolder: (id: string, folderId: string) => invoke('sessions:removeFolder', id, folderId),
     setFolderAccess: (id: string, folderId: string, access: MountedFolderAccess) =>

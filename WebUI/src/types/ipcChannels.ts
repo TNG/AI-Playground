@@ -62,6 +62,7 @@ import type {
   SessionTurn,
   ShowMore,
   ShowMoreSection,
+  OverviewSummaryRequest,
 } from './sessionIpc'
 import type { PresetSessionSettings, SessionSettingsMap } from './sessionSettings'
 import type { SpeechSynthesisRequest } from './speechIpc'
@@ -320,13 +321,25 @@ export const CHANNELS = {
     result: null as unknown as IpcOkWith<{ session: SessionSummary }>,
   },
   /**
-   * Include a Session in Overviews or not. Setting it only records consent: nothing is read,
-   * summarised or run. Pushes `session-changed`.
+   * Include a Session in Overviews or not. With a request, enabling starts the first Overview
+   * Summary update from the whole history and opting out cancels it and deletes the summary;
+   * without one it only records consent, as before. Pushes `session-changed`.
    */
   'sessions:setIncludedInOverviews': {
     kind: 'invoke',
     owner: 'main',
-    args: [] as unknown as readonly [string, boolean],
+    args: [] as unknown as readonly [string, boolean, OverviewSummaryRequest?],
+    result: null as unknown as IpcOkWith<{ session: SessionSummary }>,
+  },
+  /**
+   * Run the Overview Summary update again without a new turn, after a failure or on a refresh.
+   * The request carries the renderer-resolved local model and the Session's reply language.
+   * Pushes `session-changed` when it settles.
+   */
+  'sessions:refreshOverviewSummary': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, OverviewSummaryRequest],
     result: null as unknown as IpcOkWith<{ session: SessionSummary }>,
   },
   /**

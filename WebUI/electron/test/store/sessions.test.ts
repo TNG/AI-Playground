@@ -32,6 +32,7 @@ vi.mock('@/assets/js/toast', () => ({
 const sessionModule = await import('../../session/sessions')
 const kernelBus = await import('../../kernel/kernelBus')
 const { recordMediaTurn } = await import('../../session/sessionMediaTurn')
+const { appendHistoryEntry } = await import('../../session/sessionHistory')
 const {
   addHiddenMessages,
   clearAllHiddenMessages,
@@ -97,6 +98,11 @@ beforeEach(async () => {
         rename: (id: string, title: string) =>
           ok(async () => ({ session: await sessionModule.renameSession(id, title) }))(),
         delete: (id: string) => ok(async () => sessionModule.deleteSession(id).then(() => ({})))(),
+        setIncludedInOverviews: (
+          id: string,
+          included: boolean,
+          request?: import('@/types/sessionIpc').OverviewSummaryRequest,
+        ) => registry['sessions:setIncludedInOverviews'](noEvent, id, included, request),
         createGroup: (id: string, name: string) =>
           registry['sessions:createGroup'](noEvent, id, name),
         renameGroup: (groupId: string, name: string) =>
@@ -878,5 +884,26 @@ describe('a turn in a Session whose Workspace is missing', () => {
 
     expect(await store.readyWorkspaceForTurn(store.openSessionId!)).toBe(true)
     expect(useDialogStore().missingWorkspaceQuestion).toBeNull()
+  })
+})
+
+describe('Overview inclusion', () => {
+  it('starts the first Overview Summary through main when the toggle is enabled', async () => {
+    const created = await sessionModule.createSession()
+    await appendHistoryEntry(created.id, {
+      preset: 'Assistant',
+      kind: 'chat',
+      prompt: 'set up the project',
+      status: 'completed',
+      artifacts: [],
+    })
+    const store = useSessions()
+    await store.open(created.id)
+
+    const kept = await store.setIncludedInOverviews(created.id, true, { language: 'de' })
+
+    expect(kept).toBe(true)
+    expect(store.sessions[created.id].includedInOverviews).toBe(true)
+    expect(store.sessions[created.id].overviewSummaryState).toBe('pending')
   })
 })

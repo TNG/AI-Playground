@@ -319,6 +319,24 @@ describe('Session module', () => {
     await expect(setSessionIncludedInOverviews('session-missing', true)).rejects.toThrow()
   })
 
+  it('starts with no Overview Summary, and its row carries no summary state', async () => {
+    const session = await createSession()
+
+    expect(session.overviewSummaryState).toBeUndefined()
+    expect((await listSessions())[0].overviewSummaryState).toBeUndefined()
+    expect(await openSession(session.id)).not.toHaveProperty('overviewSummary')
+  })
+
+  it('reads an old Session file as having no Overview Summary', async () => {
+    const session = await createSession()
+    const file = path.join(dirs.real, session.id, 'session.json')
+    const { overviewSummary: _summary, ...legacy } = JSON.parse(await fs.readFile(file, 'utf8'))
+    await fs.writeFile(file, JSON.stringify(legacy))
+
+    expect((await openSession(session.id)).overviewSummaryState).toBeUndefined()
+    expect(await listSessions()).toHaveLength(1)
+  })
+
   it('remembers the Agent picked in a Session across a re-open, and forgets it again', async () => {
     const session = await createSession()
     expect(await openSession(session.id)).not.toHaveProperty('pickedAgentId')

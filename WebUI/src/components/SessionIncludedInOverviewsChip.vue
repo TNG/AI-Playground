@@ -5,16 +5,14 @@
         <button
           type="button"
           class="flex h-6 flex-none items-center gap-1 rounded-md border px-1.5 transition-colors"
-          :class="
-            included
-              ? 'border-primary/60 bg-primary/10 text-primary'
-              : 'border-border text-muted-foreground hover:text-foreground'
-          "
+          :class="chipClass"
           :aria-label="languages.SESSIONS_IN_OVERVIEWS"
           :aria-pressed="included"
           @click="overviews.activate()"
         >
-          <DocumentTextIcon class="size-3.5" aria-hidden="true" />
+          <ArrowPathIcon v-if="pending" class="size-3.5 animate-spin" aria-hidden="true" />
+          <ExclamationTriangleIcon v-else-if="failed" class="size-3.5" aria-hidden="true" />
+          <DocumentTextIcon v-else class="size-3.5" aria-hidden="true" />
           <span>{{ languages.SESSIONS_IN_OVERVIEWS_CHIP }}</span>
         </button>
       </TooltipTrigger>
@@ -25,7 +23,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { DocumentTextIcon } from '@heroicons/vue/24/outline'
+import { ArrowPathIcon, DocumentTextIcon, ExclamationTriangleIcon } from '@heroicons/vue/24/outline'
 import { useI18N } from '@/assets/js/store/i18n'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useSessionOverviews } from '@/lib/useSessionOverviews'
@@ -35,8 +33,21 @@ const overviews = useSessionOverviews()
 const indicator = overviews.indicator
 
 const included = computed(() => indicator.value?.included === true)
+const pending = computed(() => indicator.value?.state === 'pending')
+const failed = computed(() => indicator.value?.state === 'failed')
 
-const hint = computed(() =>
-  included.value ? languages.SESSIONS_IN_OVERVIEWS_ON : languages.SESSIONS_IN_OVERVIEWS_OFF,
-)
+const chipClass = computed(() => {
+  if (pending.value) return 'border-primary/60 bg-primary/10 text-primary'
+  if (failed.value) return 'border-warning/60 bg-warning/10 text-warning'
+  return included.value
+    ? 'border-primary/60 bg-primary/10 text-primary'
+    : 'border-border text-muted-foreground hover:text-foreground'
+})
+
+const hint = computed(() => {
+  const state = indicator.value?.state
+  if (state === 'pending') return languages.SESSIONS_IN_OVERVIEWS_PENDING
+  if (state === 'failed') return languages.SESSIONS_IN_OVERVIEWS_FAILED
+  return included.value ? languages.SESSIONS_IN_OVERVIEWS_ON : languages.SESSIONS_IN_OVERVIEWS_OFF
+})
 </script>

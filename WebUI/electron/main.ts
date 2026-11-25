@@ -328,6 +328,8 @@ import { saveChatTranscript } from './session/sessionChatTurn'
 import { setAppMediaPathResolver } from './agent/piCustomTools'
 import { readSessionSettings, writePresetSettings } from './session/sessionSettings'
 import { lastTurnPreset } from './session/sessionHistory'
+import { setOverviewSummaryComplete } from './session/overviewSummary'
+import { runOverviewSummaryCompletion } from './session/overviewSummaryRunner'
 import { claimSessionTurn, inSessionTurn, releaseSessionTurn } from './session/sessionTurns'
 import { buildAgentModeRegistry } from './kernel/registries/agentMode'
 import { buildChatRegistry } from './kernel/registries/chat'
@@ -1517,6 +1519,7 @@ function wireChatEngine(): void {
     ensureBackendReadiness: (args) => ensureChatBackendReady(args),
     readCloudProviderKey,
   })
+  setOverviewSummaryComplete(runOverviewSummaryCompletion)
   // Reuses the main-side aipg-media reader the agent attachments already use;
   // the engine contract throws on failure (the ported customFetch behavior).
   setChatEngineDeps({

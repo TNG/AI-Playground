@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { MountedFolderAccessSchema } from './agentSessionIpc'
+import { ChatModelConfigSchema } from './chatIpc'
 
 /**
  * A Session's `session.json` (ADR-0003). Everything the later tickets fill in
@@ -46,6 +47,60 @@ export type MissingWorkspace = {
   fallback?: { folderId: string }
 }
 
+export const HistoryEntryKindSchema = z.enum([
+  'chat',
+  'agent',
+  'image',
+  'edit',
+  'video',
+  'tts',
+  'stt',
+])
+
+export const ArtifactMediaTypeSchema = z.enum(['image', 'video', 'audio', 'model3d'])
+
+/** The stored account of a Session's whole work while it is Included in Overviews. */
+export const OverviewSummaryStateSchema = z.enum(['pending', 'ready', 'failed'])
+export type OverviewSummaryState = z.infer<typeof OverviewSummaryStateSchema>
+
+/**
+ * The newest visual Artifact an update judged still matches its account.
+ * `path` is relative to `folderId` when there is one, and absolute otherwise
+ * (a game's icon lives in the game folder, not a Session folder).
+ */
+export const OverviewSummaryPictureSchema = z.object({
+  folderId: z.string().optional(),
+  path: z.string().min(1),
+  mediaType: ArtifactMediaTypeSchema,
+  source: z.enum(['artifact', 'video-thumbnail', 'game-icon']),
+})
+export type OverviewSummaryPicture = z.infer<typeof OverviewSummaryPictureSchema>
+
+export const OverviewSummarySchema = z.object({
+  state: OverviewSummaryStateSchema,
+  text: z.string().optional(),
+  /** The newest History Entry the text covers; absent while nothing has been written. */
+  coveredEntryId: z.string().optional(),
+  /** The model that wrote the current text. */
+  model: z.string().optional(),
+  /** The Session's reply language when the text was written. */
+  language: z.string().optional(),
+  /** A materially changed summariser prompt bumps this to mark old summaries behind. */
+  contractVersion: z.number().int().positive(),
+  picture: OverviewSummaryPictureSchema.optional(),
+  failureReason: z.string().optional(),
+  writtenAt: z.number().int().nonnegative().optional(),
+})
+export type OverviewSummary = z.infer<typeof OverviewSummarySchema>
+
+/** What the renderer resolves for an activation or refresh: local model and reply language. */
+export const OverviewSummaryRequestSchema = z.object({
+  /** Absent when no local model is available; the summary stays pending and no call is made. */
+  model: ChatModelConfigSchema.optional(),
+  language: z.string().min(1),
+})
+export type OverviewSummaryRequest = z.infer<typeof OverviewSummaryRequestSchema>
+
 export const SessionFileSchema = z.object({
   schemaVersion: z.literal(1),
   id: z.string(),
@@ -78,6 +133,8 @@ export const SessionFileSchema = z.object({
   reachable: z.boolean().default(false),
   /** Its History Entries may appear in an Overview (Included in Overviews); off by default. */
   includedInOverviews: z.boolean().default(false),
+  /** Its Overview Summary while it is included; absent on an old file or before anything is written. */
+  overviewSummary: OverviewSummarySchema.optional(),
   /** Hidden messages stay in the file and in what the model sees; only the view drops them. */
   hiddenMessageIds: z.array(z.string()).default([]),
   /** Absent on a file written before the list existed; read through `sessionFolderListOf`. */
@@ -111,10 +168,18 @@ export type SessionSummary = Pick<
   | 'reachable'
   | 'includedInOverviews'
   | 'hiddenMessageIds'
-> & { unreadable?: boolean; folderList?: SessionFolderList }
+> & {
+  unreadable?: boolean
+  folderList?: SessionFolderList
+  /** Only the state travels with every panel row; the text and picture stay on the document. */
+  overviewSummaryState?: OverviewSummaryState
+}
 
-/** What opening a Session hands the renderer: its row plus the display timeline. */
-export type SessionDocument = SessionSummary & { timeline: unknown[] }
+/** What opening a Session hands the renderer: its row plus the display timeline and summary. */
+export type SessionDocument = SessionSummary & {
+  timeline: unknown[]
+  overviewSummary?: OverviewSummary
+}
 
 export const SESSION_NAME_MAX_LENGTH = 500
 
@@ -152,18 +217,6 @@ export type SessionDeletePreview = {
 }
 
 export type SessionGroupsState = { groups: SessionGroup[]; showMore: ShowMore }
-
-export const HistoryEntryKindSchema = z.enum([
-  'chat',
-  'agent',
-  'image',
-  'edit',
-  'video',
-  'tts',
-  'stt',
-])
-
-export const ArtifactMediaTypeSchema = z.enum(['image', 'video', 'audio', 'model3d'])
 
 /** One line of `session-history.jsonl`: a settled turn, never rewritten. */
 export const HistoryEntrySchema = z.object({

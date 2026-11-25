@@ -44,6 +44,7 @@ describe('per-owner handler registries', () => {
       | 'sessions:openFolder'
       | 'sessions:pin'
       | 'sessions:setIncludedInOverviews'
+      | 'sessions:refreshOverviewSummary'
       | 'sessions:pickAgent'
       | 'sessions:createGroup'
       | 'sessions:moveToGroup'

@@ -79,6 +79,7 @@ function summaryOf(file: SessionFile): SessionSummary {
     pickedAgentId,
     reachable,
     includedInOverviews,
+    overviewSummary,
     hiddenMessageIds,
   } = file
   return {
@@ -89,6 +90,7 @@ function summaryOf(file: SessionFile): SessionSummary {
     reachable,
     includedInOverviews,
     hiddenMessageIds,
+    ...(overviewSummary === undefined ? {} : { overviewSummaryState: overviewSummary.state }),
     ...(groupId === undefined ? {} : { groupId }),
     createdAt,
     updatedAt,
@@ -209,7 +211,11 @@ export async function listSessions(): Promise<SessionSummary[]> {
 }
 
 export function sessionDocumentOf(file: SessionFile): SessionDocument {
-  return { ...summaryOf(file), timeline: file.timeline }
+  return {
+    ...summaryOf(file),
+    timeline: file.timeline,
+    ...(file.overviewSummary === undefined ? {} : { overviewSummary: file.overviewSummary }),
+  }
 }
 
 export async function openSession(id: string): Promise<SessionDocument> {

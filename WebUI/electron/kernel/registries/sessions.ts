@@ -11,10 +11,12 @@ import {
   ArtifactMediaTypeSchema,
   AudioTurnRequestSchema,
   HarnessGameWorkspaceSchema,
+  OverviewSummaryRequestSchema,
   SessionTurnSchema,
   type AssistantCapabilityDefaults,
   type SessionCreateOptions,
 } from '@/types/sessionIpc'
+import { applyOverviewInclusion, refreshOverviewSummary } from '../../session/overviewSummary'
 import type {
   createSession,
   createSessionGroup,
@@ -354,12 +356,24 @@ export function buildSessionsRegistry(deps: SessionsDeps) {
         return ipcFail(e)
       }
     },
-    'sessions:setIncludedInOverviews': async (_event, id, included) => {
+    'sessions:setIncludedInOverviews': async (_event, id, included, request) => {
       try {
         if (typeof included !== 'boolean') throw new Error('included must be a boolean')
-        const session = await deps.setSessionIncludedInOverviews(
+        const sessionId = requireString(id, 'session id')
+        const session = await deps.setSessionIncludedInOverviews(sessionId, included)
+        if (request === undefined) return { success: true as const, session }
+        const parsed = OverviewSummaryRequestSchema.parse(request)
+        const changed = await applyOverviewInclusion(sessionId, included, parsed)
+        return { success: true as const, session: changed }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
+    'sessions:refreshOverviewSummary': async (_event, id, request) => {
+      try {
+        const session = await refreshOverviewSummary(
           requireString(id, 'session id'),
-          included,
+          OverviewSummaryRequestSchema.parse(request),
         )
         return { success: true as const, session }
       } catch (e) {

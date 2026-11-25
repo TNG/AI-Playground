@@ -28,6 +28,7 @@ import {
 } from './mountedFolderTurn.ts'
 import { buildWorkspaceInstructions, ensureWorkspaceRuntime } from './piWorkspaceRuntime.ts'
 import { createSamplingExtension } from './piSampling.ts'
+import { createOutputBudgetExtension } from './piOutputBudget.ts'
 import { laminarPiExtensionPath } from '../observability/laminar.ts'
 import { llmServerMtpArmed } from '../adapters/llmServerSnapshot.ts'
 import { withLiveEndpoint } from './piLocalEndpoint.ts'
@@ -61,6 +62,7 @@ import {
   copySamplingParams,
   ensureModelRuntime,
   modelContextWindow,
+  modelMaxTokens,
   registerModel,
   traceContext,
 } from './piModelRuntime.ts'
@@ -427,6 +429,10 @@ async function createSession(
           ? () => llmServerMtpArmed('openVINO')
           : undefined,
       ),
+      ...(config.modelConfig.source === 'local' &&
+      (config.modelConfig.backend ?? 'llamaCPP') === 'llamaCPP'
+        ? [createOutputBudgetExtension(modelMaxTokens(config.modelConfig))]
+        : []),
     ],
     // Laminar's own Pi extension traces the run (one trace per agent run, LLM
     // and tool spans). Nothing when no developer opted into tracing, and never

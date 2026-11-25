@@ -468,6 +468,7 @@
   "ANSWER_RAG_ENABLE": "Abilita query sui file",
   "ANSWER_RAG_OPEN_DIALOG": "Apri il caricamento file",
   "ANSWER_FILE_OPEN_TOOLTIP": "Apri questo file con l'applicazione predefinita",
+  "ANSWER_CREATED_FILES": "File creati",
   "REQUEST_LLM_MODEL_NAME": "Aggiungi un modello a tua scelta da huggingface.co",
   "REQUEST_LLM_MODEL_DESCRIPTION": "Puoi scaricare un repository di modelli con la sintassi",
   "REQUEST_LLM_MODEL_EXAMPLE": "<namespace>/<repo_name>, ad es. 'facebook/opt-1.3b'",

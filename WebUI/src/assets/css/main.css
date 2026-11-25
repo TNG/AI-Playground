@@ -439,8 +439,8 @@ footer {
   opacity: 0.8;
 }
 
-/* A created file's answer mention: a chip that opens it with the OS default app. */
-.markdown-content .file-link {
+/* The standalone FileChip of a turn's Created-files row: opens the file with the OS default app. */
+.file-link {
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
@@ -455,12 +455,12 @@ footer {
   cursor: pointer;
 }
 
-.markdown-content .file-link:hover {
+.file-link:hover {
   border-color: hsl(var(--primary) / 50%);
   background: hsl(var(--accent));
 }
 
-.markdown-content .file-link:focus-visible {
+.file-link:focus-visible {
   outline: 2px solid hsl(var(--primary));
   outline-offset: 1px;
 }

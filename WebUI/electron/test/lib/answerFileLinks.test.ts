@@ -1,9 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import type { UIMessage } from 'ai'
-import { createdFilesOf, linkifyAnswerFiles } from '@/lib/answerFileLinks'
+import { createdFilesOf, createdFilesOfMessages } from '@/lib/answerFileLinks'
 
 function messageOf(parts: unknown[]): UIMessage {
   return { id: 'm1', role: 'assistant', parts } as unknown as UIMessage
+}
+
+function writeOf(id: string, path: string): unknown {
+  return {
+    type: 'dynamic-tool',
+    toolCallId: id,
+    toolName: 'write',
+    state: 'output-available',
+    input: { path },
+  }
 }
 
 describe('createdFilesOf', () => {
@@ -57,62 +67,22 @@ describe('createdFilesOf', () => {
   })
 })
 
-describe('linkifyAnswerFiles', () => {
-  it('links a bare mention of the created file', () => {
-    const text = 'I created game.js in the workspace.'
-    expect(linkifyAnswerFiles(text, ['game.js'])).toBe(
-      'I created [game.js](aipg-file:game.js) in the workspace.',
-    )
+describe('createdFilesOfMessages', () => {
+  it('collects across a turn’s answers, deduped, in first-seen order', () => {
+    const first = messageOf([writeOf('t1', 'design.md')])
+    const second = messageOf([writeOf('t2', 'game.js'), writeOf('t3', 'design.md')])
+    expect(createdFilesOfMessages([first, second])).toEqual(['design.md', 'game.js'])
   })
 
-  it('keeps every mention clickable, with the tooltip on each', () => {
-    const text = 'game.js is done — open game.js to see it.'
-    expect(linkifyAnswerFiles(text, ['game.js'], 'Open it')).toBe(
-      '[game.js](aipg-file:game.js "Open it") is done — open [game.js](aipg-file:game.js "Open it") to see it.',
-    )
+  it('keeps distinct raw paths that share a basename', () => {
+    const first = messageOf([writeOf('t1', 'a/game.js')])
+    const second = messageOf([writeOf('t2', 'b/game.js')])
+    expect(createdFilesOfMessages([first, second])).toEqual(['a/game.js', 'b/game.js'])
   })
 
-  it('links a mounted-folder reference as written', () => {
-    const text = 'Check /mnt/data/todo.txt when you have time.'
-    expect(linkifyAnswerFiles(text, ['/mnt/data/todo.txt'])).toBe(
-      'Check [/mnt/data/todo.txt](aipg-file:%2Fmnt%2Fdata%2Ftodo.txt) when you have time.',
-    )
-  })
-
-  it('prefers the longer form where both it and the basename appear', () => {
-    const text = 'The plan is design.md, the game is game.js, both under /workspace.'
-    expect(linkifyAnswerFiles(text, ['/workspace/design.md', '/workspace/game.js'])).toBe(
-      'The plan is [design.md](aipg-file:%2Fworkspace%2Fdesign.md), the game is [game.js](aipg-file:%2Fworkspace%2Fgame.js), both under /workspace.',
-    )
-  })
-
-  it('leaves an ambiguous basename plain', () => {
-    const text = 'Both folders have their own game.js in them.'
-    expect(linkifyAnswerFiles(text, ['a/game.js', 'b/game.js'])).toBe(text)
-  })
-
-  it('does not link a partial extension match', () => {
-    const text = 'The file game.jsx is different.'
-    expect(linkifyAnswerFiles(text, ['game.js'])).toBe(text)
-  })
-
-  it('leaves mentions inside code untouched', () => {
-    const text = 'Run `node game.js` next:\n\n```js\n// game.js lives here\n```\nSee game.js there.'
-    const result = linkifyAnswerFiles(text, ['game.js'])
-    expect(result).toContain('`node game.js`')
-    expect(result).toContain('// game.js lives here')
-    expect(result.endsWith('See [game.js](aipg-file:game.js) there.')).toBe(true)
-  })
-
-  it('links a mention behind an @ reference', () => {
-    const text = 'All details are in @design.md.'
-    expect(linkifyAnswerFiles(text, ['design.md'])).toBe(
-      'All details are in @[design.md](aipg-file:design.md).',
-    )
-  })
-
-  it('returns the text unchanged when nothing can link', () => {
-    expect(linkifyAnswerFiles('No tools ran here.', [])).toBe('No tools ran here.')
-    expect(linkifyAnswerFiles('', ['game.js'])).toBe('')
+  it('returns nothing for a turn without writing tools', () => {
+    const answer = messageOf([{ type: 'text', text: 'Done' }])
+    expect(createdFilesOfMessages([answer])).toEqual([])
+    expect(createdFilesOfMessages([])).toEqual([])
   })
 })

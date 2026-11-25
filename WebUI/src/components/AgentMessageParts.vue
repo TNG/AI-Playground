@@ -6,8 +6,6 @@
         :section="section"
         :grid-artifacts="gridArtifactsOf(index)"
         :hide-media-grid="hideMediaGrid(index)"
-        :created-files="createdFilesOf(message)"
-        :harness-session-id="harnessSessionId"
       />
     </template>
   </div>
@@ -20,7 +18,6 @@ import { useArtifactRuns } from '@/assets/js/store/artifactRuns'
 import { useSessions } from '@/assets/js/store/sessions'
 import AgentMessagePart from '@/components/AgentMessagePart.vue'
 import { mediaToolNameOf } from '@/lib/agentTranscript'
-import { createdFilesOf } from '@/lib/answerFileLinks'
 import { consecutiveMediaGroups } from '@/lib/mediaPartGroups'
 import { toolCallArtifacts, type TurnArtifact } from '@/lib/turnArtifacts'
 
@@ -28,8 +25,6 @@ const props = defineProps<{
   message: UIMessage
   section?: 'details' | 'result'
   indexes?: readonly number[]
-  /** The harness session that produced the message, for its file links. */
-  harnessSessionId?: string
 }>()
 
 const textInference = useTextInference()

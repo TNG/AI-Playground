@@ -228,11 +228,19 @@ function historyEntryIdOf(message: TimelineMessage): string | undefined {
   return message.metadata?.historyEntryId
 }
 
+type OverviewUpdateTurn = Extract<TimelineTurn, { kind: OverviewUpdateTurnKind }>
+
+function isOverviewUpdateTurn(turn: TimelineTurn): turn is OverviewUpdateTurn {
+  return (
+    turn.kind === 'chat' || turn.kind === 'agent' || turn.kind === 'media' || turn.kind === 'audio'
+  )
+}
+
 /**
  * Gives each settled chat or agent Turn its own Overview Summary update outcome, so
- * the Turn's details row can show it. Entries are matched by kind, prompt and (for
- * an Agent turn) Harness Session; an Agent Run's first prompt differs from the
- * recorded run line, so it falls back to the next unclaimed entry there.
+ * the Turn's details row can show it. Turns that know their entry claim that exact
+ * row first; only then do turns without an id fall back by kind and prompt, newest
+ * first, so an older turn sharing a prompt cannot steal a newer turn's outcome.
  */
 function attachOverviewUpdates(
   turns: TimelineTurn[],
@@ -240,43 +248,47 @@ function attachOverviewUpdates(
 ): void {
   if (rows.length === 0) return
   const remaining = rows.map((row) => ({ row, used: false }))
-  for (const turn of turns) {
-    if (
-      turn.kind !== 'chat' &&
-      turn.kind !== 'agent' &&
-      turn.kind !== 'media' &&
-      turn.kind !== 'audio'
-    ) {
-      continue
-    }
-    const kinds = OVERVIEW_UPDATE_TURN_KINDS[turn.kind]
-    const prompt = normalizedPrompt(turn.prompt?.text ?? '')
-    const harness = turn.kind === 'agent' ? turn.harnessSessionId : undefined
-    const fits = (row: OverviewSummaryUpdateRow) =>
-      kinds.includes(row.kind) &&
-      (!harness || !row.harnessSessionId || row.harnessSessionId === harness)
-    const entryId = turn.historyEntryId
-    let index = entryId
-      ? remaining.findIndex((entry) => !entry.used && entry.row.entryId === entryId)
-      : -1
-    // A turn that knows its own entry never falls back to another turn's row.
-    if (index < 0 && !entryId) {
-      index = remaining.findIndex(
-        (entry) => !entry.used && fits(entry.row) && normalizedPrompt(entry.row.prompt) === prompt,
-      )
-    }
-    if (index < 0 && !entryId && turn.kind === 'agent') {
-      index = remaining.findIndex((entry) => !entry.used && fits(entry.row))
-    }
-    if (index < 0) continue
-    const row = remaining[index].row
-    remaining[index].used = true
+  const push = (turn: OverviewUpdateTurn, row: OverviewSummaryUpdateRow) => {
     turn.details.parts.push({
       kind: 'overview-update',
       entryId: row.entryId,
       update: row.update,
       ...(row.covered ? { covered: row.covered } : {}),
     })
+  }
+  const kindsOf = (turn: OverviewUpdateTurn): readonly OverviewSummaryUpdateRow['kind'][] =>
+    OVERVIEW_UPDATE_TURN_KINDS[turn.kind]
+
+  for (const turn of turns) {
+    if (!isOverviewUpdateTurn(turn) || !turn.historyEntryId) continue
+    const entry = remaining.find(
+      (candidate) => !candidate.used && candidate.row.entryId === turn.historyEntryId,
+    )
+    if (!entry) continue
+    entry.used = true
+    push(turn, entry.row)
+  }
+
+  for (let index = turns.length - 1; index >= 0; index--) {
+    const turn = turns[index]
+    if (!turn || !isOverviewUpdateTurn(turn) || turn.historyEntryId) continue
+    const kinds = kindsOf(turn)
+    const prompt = normalizedPrompt(turn.prompt?.text ?? '')
+    const harness = turn.kind === 'agent' ? turn.harnessSessionId : undefined
+    const fits = (row: OverviewSummaryUpdateRow) =>
+      kinds.includes(row.kind) &&
+      (!harness || !row.harnessSessionId || row.harnessSessionId === harness)
+    let found = remaining.findLastIndex(
+      (entry) => !entry.used && fits(entry.row) && normalizedPrompt(entry.row.prompt) === prompt,
+    )
+    if (found < 0 && turn.kind === 'agent') {
+      found = remaining.findLastIndex((entry) => !entry.used && fits(entry.row))
+    }
+    if (found < 0) continue
+    const entry = remaining[found]
+    if (!entry) continue
+    entry.used = true
+    push(turn, entry.row)
   }
 }
 

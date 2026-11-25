@@ -457,6 +457,104 @@ describe('the turn details data', () => {
     )
   })
 
+  it('keeps an older prompt-sharing turn without an entry id from taking a newer outcome', () => {
+    const timeline = [
+      {
+        id: 'u1',
+        role: 'user',
+        metadata: { chatTurn: true },
+        parts: [{ type: 'text', text: 'same prompt' }],
+      },
+      {
+        id: 'a1',
+        role: 'assistant',
+        metadata: { chatTurn: true },
+        parts: [{ type: 'text', text: 'old answer' }],
+      },
+      {
+        id: 'u2',
+        role: 'user',
+        metadata: { chatTurn: true, historyEntryId: 'entry-2' },
+        parts: [{ type: 'text', text: 'same prompt' }],
+      },
+      {
+        id: 'a2',
+        role: 'assistant',
+        metadata: { chatTurn: true, historyEntryId: 'entry-2' },
+        parts: [{ type: 'text', text: 'new answer' }],
+      },
+    ]
+    const rows: OverviewSummaryUpdateRow[] = [
+      {
+        entryId: 'entry-2',
+        kind: 'chat',
+        prompt: 'same prompt',
+        update: { state: 'ready', text: 'New update.', coveredEntryId: 'entry-2' },
+      },
+    ]
+
+    const turns = sessionTimelineItems(timeline, {} as never, {}, rows).filter(
+      (item) => item.kind === 'chat',
+    )
+    expect(turns[0]?.details.parts).not.toContainEqual(
+      expect.objectContaining({ kind: 'overview-update' }),
+    )
+    expect(turns[1]?.details.parts).toContainEqual({
+      kind: 'overview-update',
+      entryId: 'entry-2',
+      update: rows[0]!.update,
+    })
+  })
+
+  it('gives a live turn without an id the newest matching outcome', () => {
+    const timeline = [
+      {
+        id: 'u1',
+        role: 'user',
+        metadata: { chatTurn: true },
+        parts: [{ type: 'text', text: 'same prompt' }],
+      },
+      {
+        id: 'a1',
+        role: 'assistant',
+        metadata: { chatTurn: true },
+        parts: [{ type: 'text', text: 'old answer' }],
+      },
+      {
+        id: 'u2',
+        role: 'user',
+        metadata: { chatTurn: true },
+        parts: [{ type: 'text', text: 'same prompt' }],
+      },
+      {
+        id: 'a2',
+        role: 'assistant',
+        metadata: { chatTurn: true },
+        parts: [{ type: 'text', text: 'new answer' }],
+      },
+    ]
+    const rows: OverviewSummaryUpdateRow[] = [
+      {
+        entryId: 'entry-live',
+        kind: 'chat',
+        prompt: 'same prompt',
+        update: { state: 'pending' },
+      },
+    ]
+
+    const turns = sessionTimelineItems(timeline, {} as never, {}, rows).filter(
+      (item) => item.kind === 'chat',
+    )
+    expect(turns[0]?.details.parts).not.toContainEqual(
+      expect.objectContaining({ kind: 'overview-update' }),
+    )
+    expect(turns[1]?.details.parts).toContainEqual({
+      kind: 'overview-update',
+      entryId: 'entry-live',
+      update: rows[0]!.update,
+    })
+  })
+
   it('gives a media turn and an audio turn their own update row', () => {
     const timeline = [
       { id: 'u1', role: 'user', parts: [{ type: 'text', text: 'a red fox' }] },

@@ -112,6 +112,33 @@ describe('display timeline', () => {
     expect((await openSession(session.id)).timeline).toEqual([user, settled, next])
   })
 
+  it("keeps a message's first-settled createdAt across a later re-save", async () => {
+    const session = await createSession()
+    const answer = {
+      id: 'a1',
+      role: 'assistant',
+      parts: [{ type: 'text', text: 'done' }],
+      createdAt: 1_000,
+    }
+    const restamped = { ...answer, createdAt: 9_000 }
+
+    await upsertTimelineMessages(session.id, [answer])
+    await upsertTimelineMessages(session.id, [restamped])
+
+    expect((await openSession(session.id)).timeline).toEqual([answer])
+  })
+
+  it('never stamps a message that settled before timestamps existed', async () => {
+    const session = await createSession()
+    const old = { id: 'a1', role: 'assistant', parts: [{ type: 'text', text: 'done' }] }
+    const restamped = { ...old, createdAt: 9_000 }
+
+    await upsertTimelineMessages(session.id, [old])
+    await upsertTimelineMessages(session.id, [restamped])
+
+    expect((await openSession(session.id)).timeline).toEqual([old])
+  })
+
   // A Session change announced meanwhile, such as the Workspace following the title, carries
   // the timeline it read; the window replaces its own with whichever arrives last.
   it('announces the saved timeline, so an earlier announcement cannot hide a reply', async () => {

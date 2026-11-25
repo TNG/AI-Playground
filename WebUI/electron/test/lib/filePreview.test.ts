@@ -1,5 +1,15 @@
-import { describe, expect, it } from 'vitest'
-import { fenceFor, isMarkdownFile, languageOf, previewMarkdownOf } from '@/lib/filePreview'
+import { describe, expect, it, vi } from 'vitest'
+
+// Node has no DOM for DOMPurify; hljs escaping is what the assertions cover.
+vi.mock('@/lib/sanitize', () => ({ sanitizeMarkdown: (html: string) => html }))
+
+import {
+  fenceFor,
+  isMarkdownFile,
+  languageOf,
+  previewMarkdownOf,
+  snippetHtmlOf,
+} from '@/lib/filePreview'
 
 describe('languageOf', () => {
   it('maps common extensions to highlight.js languages', () => {
@@ -52,5 +62,31 @@ describe('previewMarkdownOf', () => {
 
   it('returns nothing for an empty file', () => {
     expect(previewMarkdownOf('game.js', '')).toBe('')
+  })
+})
+
+describe('snippetHtmlOf', () => {
+  it('wraps the source in a bare highlighted code block', () => {
+    const html = snippetHtmlOf('game.js', 'const x = 1')
+    expect(html).toContain('<pre class="hljs">')
+    expect(html).toContain('hljs-keyword')
+  })
+
+  it('renders a markdown file as highlighted source, not rendered markdown', () => {
+    expect(snippetHtmlOf('design.md', '# Plan')).not.toContain('<h1>')
+  })
+
+  it('escapes html-shaped content so nothing survives sanitization live', () => {
+    const html = snippetHtmlOf('notes.txt', '<script>alert(1)</script>')
+    expect(html).not.toContain('<script')
+    expect(html).toContain('&lt;script&gt;')
+  })
+
+  it('falls back to plaintext for unknown extensions', () => {
+    expect(snippetHtmlOf('data.xyz', 'raw')).toContain('raw')
+  })
+
+  it('returns nothing for an empty file', () => {
+    expect(snippetHtmlOf('game.js', '')).toBe('')
   })
 })

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { CubeIcon, MusicalNoteIcon, TrashIcon } from '@heroicons/vue/24/outline'
+import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useGallery } from '@/assets/js/store/gallery'
 import { useI18N } from '@/assets/js/store/i18n'
 import { relativeTime } from '@/assets/js/store/recordRows'
@@ -8,10 +9,12 @@ import { useSessionLifecycle } from '@/assets/js/store/sessionLifecycle'
 import { useSessions } from '@/assets/js/store/sessions'
 import { useSessionTabs } from '@/assets/js/store/sessionTabs'
 import DeleteArtifactDialog from '@/components/DeleteArtifactDialog.vue'
+import FileArtifactCard from '@/components/FileArtifactCard.vue'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { artifactsInScope } from '@/lib/artifactsInScope'
+import { createdFileEntriesOf, type SessionFileEntry } from '@/lib/sessionCreatedFiles'
 import type { ArtifactsScope } from '@/lib/sessionTabs'
 import type { SessionArtifact } from '@/types/sessionIpc'
 
@@ -19,6 +22,7 @@ const gallery = useGallery()
 const sessions = useSessions()
 const sessionTabs = useSessionTabs()
 const lifecycle = useSessionLifecycle()
+const agentMode = useAgentMode()
 const languages = useI18N().state
 
 const deleting = ref<SessionArtifact | null>(null)
@@ -32,6 +36,33 @@ const shown = computed(() =>
   artifactsInScope(gallery.artifacts, sessionTabs.artifactsScope, sessions.openSessionId),
 )
 const allSessions = computed(() => sessionTabs.artifactsScope === 'all-sessions')
+
+/** One grid entry: a media artifact or a written file, ordered by timestamp. */
+type GridEntry =
+  | { kind: 'media'; artifact: SessionArtifact; at: number }
+  | { kind: 'file'; file: SessionFileEntry; at: number }
+
+const entries = computed<GridEntry[]>(() => {
+  const media: GridEntry[] = shown.value.map((artifact) => ({
+    kind: 'media',
+    artifact,
+    at: artifact.timestamp,
+  }))
+  if (allSessions.value) return media
+  // Files of messages that settled before timestamps existed fall back to their
+  // harness session's creation — static, so a new turn cannot re-float them.
+  const files: GridEntry[] = createdFileEntriesOf(
+    sessions.openVisibleTimeline,
+    (harnessId) => agentMode.sessions[harnessId]?.createdAt ?? 0,
+  ).map((file) => ({ kind: 'file', file, at: file.createdAt }))
+  return [...media, ...files].sort((a, b) => b.at - a.at)
+})
+
+function keyOf(entry: GridEntry): string {
+  return entry.kind === 'media'
+    ? entry.artifact.url
+    : `${entry.file.sessionId}\u0000${entry.file.file}`
+}
 
 onMounted(() => void gallery.refresh())
 watch(
@@ -86,79 +117,94 @@ async function confirmDelete() {
 
     <div class="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
       <p
-        v-if="!gallery.loading && shown.length === 0"
+        v-if="!gallery.loading && entries.length === 0"
         class="flex h-full items-center justify-center text-center text-muted-foreground"
       >
         {{ allSessions ? languages.ARTIFACTS_EMPTY_ALL : languages.ARTIFACTS_EMPTY_SESSION }}
       </p>
       <TooltipProvider v-else :delay-duration="200">
         <ul class="grid grid-cols-[repeat(auto-fill,minmax(14rem,1fr))] gap-4">
-          <li
-            v-for="artifact in shown"
-            :key="artifact.url"
-            role="group"
-            :aria-label="artifact.prompt || sessionTitle(artifact)"
-            class="flex flex-col overflow-hidden rounded-lg border border-border bg-muted"
-          >
-            <div
-              class="flex aspect-square min-h-0 items-center justify-center overflow-hidden bg-accent"
+          <template v-for="entry in entries" :key="keyOf(entry)">
+            <li v-if="entry.kind === 'file'" class="min-w-0">
+              <FileArtifactCard
+                :file="entry.file.file"
+                :session-id="entry.file.sessionId"
+                :created-at="entry.file.createdAt"
+              />
+            </li>
+            <li
+              v-else
+              role="group"
+              :aria-label="entry.artifact.prompt || sessionTitle(entry.artifact)"
+              class="flex flex-col overflow-hidden rounded-lg border border-border bg-muted"
             >
-              <img
-                v-if="artifact.mediaType === 'image'"
-                :src="artifact.url"
-                :alt="artifact.prompt"
-                class="h-full w-full object-contain"
-              />
-              <video
-                v-else-if="artifact.mediaType === 'video'"
-                :src="artifact.url"
-                controls
-                preload="metadata"
-                class="h-full w-full object-contain"
-              />
-              <CubeIcon
-                v-else-if="artifact.mediaType === 'model3d'"
-                class="size-12 text-muted-foreground"
-              />
-              <div v-else class="flex w-full flex-col items-center gap-3 px-3">
-                <MusicalNoteIcon class="size-12 text-muted-foreground" />
-                <audio :src="artifact.url" controls preload="metadata" class="w-full"></audio>
+              <div
+                class="flex aspect-square min-h-0 items-center justify-center overflow-hidden bg-accent"
+              >
+                <img
+                  v-if="entry.artifact.mediaType === 'image'"
+                  :src="entry.artifact.url"
+                  :alt="entry.artifact.prompt"
+                  class="h-full w-full object-contain"
+                />
+                <video
+                  v-else-if="entry.artifact.mediaType === 'video'"
+                  :src="entry.artifact.url"
+                  controls
+                  preload="metadata"
+                  class="h-full w-full object-contain"
+                />
+                <CubeIcon
+                  v-else-if="entry.artifact.mediaType === 'model3d'"
+                  class="size-12 text-muted-foreground"
+                />
+                <div v-else class="flex w-full flex-col items-center gap-3 px-3">
+                  <MusicalNoteIcon class="size-12 text-muted-foreground" />
+                  <audio
+                    :src="entry.artifact.url"
+                    controls
+                    preload="metadata"
+                    class="w-full"
+                  ></audio>
+                </div>
               </div>
-            </div>
-            <div class="flex flex-1 flex-col gap-1 px-3 py-2">
-              <p class="truncate text-sm">{{ artifact.prompt || artifact.preset }}</p>
-              <p class="truncate text-xs text-muted-foreground">
-                <template v-if="allSessions">{{ sessionTitle(artifact) }} · </template>
-                {{ relativeTime(artifact.timestamp) }}
-              </p>
-              <div class="mt-1 flex items-center justify-between gap-2">
-                <Button
-                  v-if="artifact.sessionId !== sessions.openSessionId"
-                  variant="ghost"
-                  size="sm"
-                  class="px-2"
-                  @click="openSession(artifact)"
-                >
-                  {{ languages.GALLERY_OPEN_SESSION }}
-                </Button>
-                <span v-else></span>
-                <Tooltip>
-                  <TooltipTrigger as-child>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      class="h-8 w-8"
-                      :aria-label="languages.ARTIFACT_DELETE"
-                      @click="deleting = artifact"
-                    >
-                      <TrashIcon class="size-4" aria-hidden="true" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>{{ languages.ARTIFACT_DELETE }}</TooltipContent>
-                </Tooltip>
+              <div class="flex flex-1 flex-col gap-1 px-3 py-2">
+                <p class="truncate text-sm">
+                  {{ entry.artifact.prompt || entry.artifact.preset }}
+                </p>
+                <p class="truncate text-xs text-muted-foreground">
+                  <template v-if="allSessions">{{ sessionTitle(entry.artifact) }} · </template>
+                  {{ relativeTime(entry.artifact.timestamp) }}
+                </p>
+                <div class="mt-1 flex items-center justify-between gap-2">
+                  <Button
+                    v-if="entry.artifact.sessionId !== sessions.openSessionId"
+                    variant="ghost"
+                    size="sm"
+                    class="px-2"
+                    @click="openSession(entry.artifact)"
+                  >
+                    {{ languages.GALLERY_OPEN_SESSION }}
+                  </Button>
+                  <span v-else></span>
+                  <Tooltip>
+                    <TooltipTrigger as-child>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        class="h-8 w-8"
+                        :aria-label="languages.ARTIFACT_DELETE"
+                        @click="deleting = entry.artifact"
+                      >
+                        <TrashIcon class="size-4" aria-hidden="true" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>{{ languages.ARTIFACT_DELETE }}</TooltipContent>
+                  </Tooltip>
+                </div>
               </div>
-            </div>
-          </li>
+            </li>
+          </template>
         </ul>
       </TooltipProvider>
     </div>

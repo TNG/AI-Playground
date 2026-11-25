@@ -582,18 +582,28 @@ export const useSessions = defineStore('sessions', () => {
 
   /** Saves settled display messages into a Session's timeline; one with a known id is replaced. */
   async function saveTimelineMessages(id: string, messages: { id: string }[]): Promise<void> {
+    let saved = messages
     if (id === openSessionId.value) {
       const timeline = [...openTimeline.value]
       const at = new Map(timeline.map((message, index) => [timelineIdOf(message), index]))
-      for (const message of messages) {
+      saved = messages.map((message) => {
         const index = at.get(message.id)
-        if (index === undefined) timeline.push(message)
-        else timeline[index] = message
-      }
+        if (index === undefined) {
+          timeline.push(message)
+          return message
+        }
+        // A message's createdAt is when it first settled: a replace never moves
+        // it, and never stamps a message that had none — a fresh settle time
+        // is only honest for a message's first arrival, which is a push.
+        const prior = (timeline[index] as { createdAt?: number }).createdAt
+        const merged = { ...message, createdAt: prior }
+        timeline[index] = merged
+        return merged
+      })
       openTimeline.value = timeline
     }
     await call('sessions/save-timeline-failed', () =>
-      window.electronAPI.sessions.saveTimelineMessages(id, cloneForIpc(messages)),
+      window.electronAPI.sessions.saveTimelineMessages(id, cloneForIpc(saved)),
     )
   }
 

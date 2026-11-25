@@ -27,7 +27,11 @@ export async function upsertTimelineMessages(
         at.set(message.id, timeline.length)
         timeline.push(message)
       } else {
-        timeline[index] = message
+        // A message's createdAt is when it first settled: a replace never moves
+        // it, and never stamps a message that had none — a fresh settle time is
+        // only honest for a first arrival, which is a push.
+        const prior = (timeline[index] as TimelineMessage & { createdAt?: number }).createdAt
+        timeline[index] = { ...message, createdAt: prior }
       }
     }
     return { ...current, timeline }

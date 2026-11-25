@@ -2,6 +2,9 @@
 // can show: markdown files render as themselves, everything else as one
 // highlighted code block whose fence cannot occur inside the file.
 
+import hljs from 'highlight.js'
+import { sanitizeMarkdown } from '@/lib/sanitize'
+
 const LANGUAGE_BY_EXTENSION: Record<string, string> = {
   js: 'javascript',
   mjs: 'javascript',
@@ -63,4 +66,13 @@ export function previewMarkdownOf(fileName: string, content: string): string {
   const fence = fenceFor(content)
   const language = languageOf(fileName)
   return `${fence}${language}\n${content}\n${fence}`
+}
+
+/** The file's content as a bare highlighted code block — the Artifacts card's square tile. */
+export function snippetHtmlOf(fileName: string, content: string): string {
+  if (content === '') return ''
+  const language = languageOf(fileName)
+  const known = hljs.getLanguage(language) ? language : 'plaintext'
+  const highlighted = hljs.highlight(content, { language: known }).value
+  return sanitizeMarkdown(`<pre class="hljs"><code class="hljs">${highlighted}</code></pre>`)
 }

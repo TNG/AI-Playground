@@ -521,6 +521,25 @@ describe('Hidden messages', () => {
     expect((await sessionModule.openSession(id)).timeline).toHaveLength(4)
   })
 
+  it("keeps a message's first-settled createdAt, and never stamps an unstamped one", async () => {
+    const store = useSessions()
+    await store.init()
+    const id = store.openSessionId!
+    const old = { id: 'a1', role: 'assistant', parts: [] } // settled before timestamps existed
+    const fresh = { id: 'b1', role: 'assistant', parts: [], createdAt: 1_000 }
+
+    await store.saveTimelineMessages(id, [old, fresh])
+    // A later settle re-sends the whole transcript, freshly stamped.
+    const oldAgain = { ...old, createdAt: 9_000 }
+    const freshAgain = { ...fresh, createdAt: 9_000 }
+    await store.saveTimelineMessages(id, [oldAgain, freshAgain])
+
+    const stamps = (store.openTimeline as { createdAt?: number }[]).map(
+      (message) => message.createdAt,
+    )
+    expect(stamps).toEqual([undefined, 1_000])
+  })
+
   it('takes the hidden mark off with the messages a delete removes', async () => {
     const store = useSessions()
     await store.init()

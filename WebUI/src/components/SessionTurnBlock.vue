@@ -97,7 +97,12 @@
               @toggle="toggleFilePreview"
             />
           </div>
-          <FilePreview v-if="openFile" :file="openFile" :session-id="harnessSessionIdOf()" />
+          <FilePreview
+            v-if="openFile"
+            :key="openFile"
+            :file="openFile"
+            :session-id="harnessSessionIdOf()"
+          />
         </div>
       </div>
       <SessionAssistantBubble v-if="item.kind === 'agent' && turnFailure">

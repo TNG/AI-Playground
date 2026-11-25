@@ -225,7 +225,7 @@ describe('a settled text turn updates its summary', () => {
 })
 
 describe('rebuilds', () => {
-  it('rebuilds the whole history periodically', async () => {
+  it('keeps updating incrementally, never rebuilding on a schedule', async () => {
     const { sessionId } = await included()
     const prompts: string[] = []
     reply = async (args) => {
@@ -233,14 +233,11 @@ describe('rebuilds', () => {
       return { text: 'An account.', pictureMatches: false }
     }
 
-    for (let index = 0; index < summary.OVERVIEW_SUMMARY_REBUILD_EVERY; index++) {
+    for (let index = 0; index < 12; index++) {
       await settleTurn(sessionId, entry({ prompt: `turn ${index}` }), { summariser: DESCRIPTOR })
     }
 
-    expect(prompts.slice(0, -1).every((prompt) => prompt.includes('Current account'))).toBe(true)
-    expect(prompts.at(-1)).not.toContain('Current account')
-    expect(prompts.at(-1)).toContain('set up the project')
-    expect((await openSession(sessionId)).overviewSummary?.updatesSinceRebuild).toBe(0)
+    expect(prompts.every((prompt) => prompt.includes('Current account'))).toBe(true)
   })
 
   it('rebuilds when the covered entry no longer exists', async () => {

@@ -4,5 +4,3 @@ export const OVERVIEW_SUMMARY_CONTRACT_VERSION = 1
 export const OVERVIEW_SUMMARY_MAX_CHARS = 600
 /** One prompt pass's token budget; a chunk summariser reads at most this much. */
 export const OVERVIEW_SUMMARY_CHUNK_TOKENS = 2000
-/** Incremental updates before a full rebuild bounds drift (an implementation constant). */
-export const OVERVIEW_SUMMARY_REBUILD_EVERY = 10

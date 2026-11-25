@@ -3,7 +3,7 @@ import { generateText } from 'ai'
 import { ensureChatBackendReady } from '../chat/chatReadiness'
 import { createMainChatModel } from '../chat/chatModelMain'
 import { finishTextRequest, submitTextRequest } from '../kernel/orchestrator'
-import { isLocalSummaryModel } from '@/lib/summariser'
+import { isLocalSummaryModel, summaryModelConfig } from '@/lib/summariser'
 import {
   parseOverviewSummaryReply,
   type OverviewSummaryCompleteInput,
@@ -47,7 +47,7 @@ export async function runOverviewSummaryCompletion(
       activityLabel: 'Updating Overview Summary…',
     })
     const result = await generateText({
-      model: createMainChatModel(model),
+      model: createMainChatModel(summaryModelConfig(model)),
       prompt,
       abortSignal: signal,
       temperature: 0.2,

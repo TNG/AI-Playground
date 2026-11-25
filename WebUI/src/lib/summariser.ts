@@ -13,3 +13,16 @@ export function localSummaryModel(summariser: Summariser | undefined): ChatModel
 export function summariserModelName(model: ChatModelConfig): string {
   return model.readiness?.llmModelName ?? model.modelId
 }
+
+/**
+ * The same model with reasoning turned off: a summary is a short extraction, not a
+ * problem to think through, and a reasoning trace is what made one take minutes.
+ */
+export function summaryModelConfig(model: ChatModelConfig): ChatModelConfig {
+  const { reasoning_effort: _reasoning, ...rest } = model.chatTemplateKwargs ?? {}
+  return {
+    ...model,
+    // Always explicit: a template that defaults to thinking must be told not to.
+    chatTemplateKwargs: { ...rest, enable_thinking: false },
+  }
+}

@@ -24,7 +24,6 @@ import {
   OVERVIEW_SUMMARY_CHUNK_TOKENS,
   OVERVIEW_SUMMARY_CONTRACT_VERSION,
   OVERVIEW_SUMMARY_MAX_CHARS,
-  OVERVIEW_SUMMARY_REBUILD_EVERY,
 } from './overviewContract'
 import { localSummaryModel, summariserModelName } from '@/lib/summariser'
 import type { ChatModelConfig } from '@/types/chatIpc'
@@ -46,7 +45,6 @@ export {
   OVERVIEW_SUMMARY_CHUNK_TOKENS,
   OVERVIEW_SUMMARY_CONTRACT_VERSION,
   OVERVIEW_SUMMARY_MAX_CHARS,
-  OVERVIEW_SUMMARY_REBUILD_EVERY,
 }
 export {
   estimateTokens,
@@ -214,11 +212,9 @@ async function performUpdate(
   const coveredIndex = previous?.coveredEntryId
     ? entries.findIndex((entry) => entry.id === previous.coveredEntryId)
     : -1
-  const sinceRebuild = (previous?.updatesSinceRebuild ?? 0) + 1
   const missingCover = previous?.coveredEntryId !== undefined && coveredIndex < 0
   const contractChanged =
     previous !== undefined && previous.contractVersion !== OVERVIEW_SUMMARY_CONTRACT_VERSION
-  const periodic = previous !== undefined && sinceRebuild >= OVERVIEW_SUMMARY_REBUILD_EVERY
   const newEntries = coveredIndex >= 0 ? entries.slice(coveredIndex + 1) : []
   const incremental =
     previous?.text !== undefined &&
@@ -226,8 +222,7 @@ async function performUpdate(
     coveredIndex >= 0 &&
     newEntries.length > 0 &&
     !missingCover &&
-    !contractChanged &&
-    !periodic
+    !contractChanged
 
   const list = await readSessionFolders(sessionId)
   const cover = await newestVisualCover(sessionId, file, list, entries, createRecordsLookup())
@@ -276,7 +271,6 @@ async function performUpdate(
     language: request.language,
     contractVersion: OVERVIEW_SUMMARY_CONTRACT_VERSION,
     writtenAt: Date.now(),
-    updatesSinceRebuild: incremental ? sinceRebuild : 0,
     ...(pictureMatches && cover ? { picture: pictureOf(sessionId, cover, list) } : {}),
   }
   const written = await writeSummary(sessionId, run.token, summary)

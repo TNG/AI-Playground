@@ -90,8 +90,6 @@ export const OverviewSummarySchema = z.object({
   picture: OverviewSummaryPictureSchema.optional(),
   failureReason: z.string().optional(),
   writtenAt: z.number().int().nonnegative().optional(),
-  /** Incremental updates since the last full rebuild; the periodic rebuild resets it. */
-  updatesSinceRebuild: z.number().int().nonnegative().optional(),
 })
 export type OverviewSummary = z.infer<typeof OverviewSummarySchema>
 

@@ -469,6 +469,8 @@
   "ANSWER_RAG_OPEN_DIALOG": "ファイルアップローダーを開く",
   "ANSWER_FILE_OPEN_TOOLTIP": "このファイルを既定のアプリケーションで開く",
   "ANSWER_CREATED_FILES": "作成されたファイル",
+  "ANSWER_FILE_PREVIEW_TOOLTIP": "このファイルをプレビュー",
+  "ANSWER_FILE_PREVIEW_TRUNCATED": "プレビューは省略されています — 残りを見るにはファイルを開いてください。",
   "REQUEST_LLM_MODEL_NAME": "huggingface.co から任意のモデルを追加",
   "REQUEST_LLM_MODEL_DESCRIPTION": "次の構文でモデルリポジトリをダウンロードできます",
   "REQUEST_LLM_MODEL_EXAMPLE": "<namespace>/<repo_name>、例: 'facebook/opt-1.3b'",

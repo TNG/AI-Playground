@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { SessionFileAction } from '@/types/agentIpc'
-import type { IpcMutationResult } from '@/types/ipcChannels'
+import type { IpcDataResult, IpcMutationResult } from '@/types/ipcChannels'
 import type { SessionFileMounts } from './sessionWorkspace.ts'
 
 // ── Open or reveal a file an agent turn wrote ───────────────────────────────
@@ -88,6 +88,34 @@ export function sessionFileActions(deps: SessionFileDeps) {
         await deps.reveal(filePath)
       }
       return { success: true }
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  }
+}
+
+// ── Read a written file for the transcript's inline preview ────────────────
+
+/** Previews stay light: a file past this size is cut off, with the flag set. */
+export const SESSION_FILE_PREVIEW_CAP = 256 * 1024
+
+export function sessionFileReader(deps: Pick<SessionFileDeps, 'mountsOf'>) {
+  return async (
+    sessionId: string,
+    rawPath: string,
+  ): Promise<IpcDataResult<{ content: string; truncated: boolean }>> => {
+    try {
+      if (!sessionId || !rawPath) return { success: false, error: 'invalid file request' }
+      const mounts = await deps.mountsOf(sessionId)
+      if (!mounts) return { success: false, error: 'This session has no workspace folder.' }
+      const filePath = resolveSessionFilePath(mounts, rawPath)
+      if (!filePath) return { success: false, error: 'The file no longer exists.' }
+      const bytes = await fs.promises.readFile(filePath)
+      const truncated = bytes.byteLength > SESSION_FILE_PREVIEW_CAP
+      const content = truncated
+        ? bytes.subarray(0, SESSION_FILE_PREVIEW_CAP).toString('utf8')
+        : bytes.toString('utf8')
+      return { success: true, data: { content, truncated } }
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : String(error) }
     }

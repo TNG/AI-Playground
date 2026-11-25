@@ -19,7 +19,7 @@ import type {
   sessionDocuments,
 } from '../../agent/sessionDocuments'
 import type { workspaceMediaFileActions } from '../../agent/workspaceMediaFile'
-import type { sessionFileActions } from '../../agent/sessionFileAction'
+import type { sessionFileActions, sessionFileReader } from '../../agent/sessionFileAction'
 import type {
   bootstrapAgentSessions,
   deleteAgentSessionRecord,
@@ -66,6 +66,7 @@ export type AgentModeDeps = {
   removeSessionDocument: typeof removeSessionDocument
   mediaFileAction: ReturnType<typeof workspaceMediaFileActions>
   sessionFileAction: ReturnType<typeof sessionFileActions>
+  readSessionFile: ReturnType<typeof sessionFileReader>
   openWorkspaceFolder: (dir: string) => Promise<void>
   bootstrapAgentSessions: typeof bootstrapAgentSessions
   migrateLegacyAgentSessions: typeof migrateLegacyAgentSessions
@@ -340,6 +341,13 @@ export function buildAgentModeRegistry(deps: AgentModeDeps) {
         ['open', 'reveal'].includes(action)
       if (!valid) return { success: false, error: 'invalid file request' }
       return deps.sessionFileAction(sessionId, filePath, action)
+    },
+    // Read a written file as text for the transcript's inline preview
+    // (see agent/sessionFileAction.ts).
+    'agentMode:readSessionFile': (_event, sessionId, filePath) => {
+      const valid = typeof sessionId === 'string' && typeof filePath === 'string' && filePath
+      if (!valid) return { success: false, error: 'invalid file request' }
+      return deps.readSessionFile(sessionId, filePath)
     },
     // What the agent can be equipped with, for the Capabilities checkboxes in
     // Agent Settings (availability depends on the turn's tool specs / MCP config).

@@ -469,6 +469,8 @@
   "ANSWER_RAG_OPEN_DIALOG": "Buka Pengunggah File",
   "ANSWER_FILE_OPEN_TOOLTIP": "Buka file ini dengan aplikasi default",
   "ANSWER_CREATED_FILES": "File yang dibuat",
+  "ANSWER_FILE_PREVIEW_TOOLTIP": "Pratinjau file ini",
+  "ANSWER_FILE_PREVIEW_TRUNCATED": "Pratinjau terpotong — buka file untuk melihat sisanya.",
   "REQUEST_LLM_MODEL_NAME": "Tambahkan model pilihan Anda dari huggingface.co",
   "REQUEST_LLM_MODEL_DESCRIPTION": "Anda dapat mengunduh repositori model dengan sintaks",
   "REQUEST_LLM_MODEL_EXAMPLE": "<namespace>/<repo_name>, mis. 'facebook/opt-1.3b'",

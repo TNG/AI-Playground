@@ -84,13 +84,20 @@
       <!-- Every file the turn wrote is reachable here even when no answer names it. -->
       <div v-if="turnFiles.length > 0" class="flex items-start gap-3">
         <span :class="textInference.iconSizeClass" class="shrink-0" aria-hidden="true" />
-        <div class="flex min-w-0 max-w-[90%] flex-col gap-1">
+        <div class="flex min-w-0 max-w-[90%] flex-1 flex-col gap-1">
           <p class="text-muted-foreground" :class="textInference.nameSizeClass">
             {{ languages.ANSWER_CREATED_FILES }}
           </p>
           <div class="flex flex-wrap items-center gap-1">
-            <FileChip v-for="file in turnFiles" :key="file" :file="file" @open="openAnswerFile" />
+            <FileChip
+              v-for="file in turnFiles"
+              :key="file"
+              :file="file"
+              :aria-pressed="openFile === file"
+              @toggle="toggleFilePreview"
+            />
           </div>
+          <FilePreview v-if="openFile" :file="openFile" :session-id="harnessSessionIdOf()" />
         </div>
       </div>
       <SessionAssistantBubble v-if="item.kind === 'agent' && turnFailure">
@@ -133,10 +140,10 @@ import type { PendingAudioTurn } from '@/assets/js/store/sessionAudio'
 import type { PendingMediaTurn } from '@/assets/js/store/sessions'
 import { noFooter } from '@/lib/turnFooter'
 import { useTurnActions } from '@/lib/useTurnActions'
-import { useAnswerFileOpener } from '@/lib/useAnswerFileOpener'
 import { createdFilesOfMessages } from '@/lib/answerFileLinks'
 import AgentMessageParts from '@/components/AgentMessageParts.vue'
 import FileChip from '@/components/FileChip.vue'
+import FilePreview from '@/components/FilePreview.vue'
 import { useTextInference } from '@/assets/js/store/textInference'
 import AudioTurnBlock from '@/components/AudioTurnBlock.vue'
 import ChatConfirmation from '@/components/ChatConfirmation.vue'
@@ -211,13 +218,18 @@ function harnessSessionIdOf(): string | undefined {
   return props.item.kind === 'agent' ? props.item.harnessSessionId : undefined
 }
 
-// A turn's files cover every answer, so a mention linkifies across answers and
-// the Result's chip row stays complete however the model phrased things.
+// A turn's files cover every answer, so the Result's chip row stays complete
+// however the model phrased things.
 const turnCreatedFiles = computed(() =>
   props.item.kind === 'agent' ? createdFilesOfMessages(props.item.answers) : undefined,
 )
 const turnFiles = computed(() => turnCreatedFiles.value ?? [])
-const openAnswerFile = useAnswerFileOpener(() => harnessSessionIdOf())
+
+// One preview at a time: tapping the open chip again closes it.
+const openFile = ref<string | null>(null)
+function toggleFilePreview(file: string): void {
+  openFile.value = openFile.value === file ? null : file
+}
 
 function answerOf(messageId: string): UIMessage | undefined {
   return answersOf().find((answer) => answer.id === messageId)

@@ -2,7 +2,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { sessionFileActions } from '../../agent/sessionFileAction'
+import {
+  SESSION_FILE_PREVIEW_CAP,
+  sessionFileActions,
+  sessionFileReader,
+} from '../../agent/sessionFileAction'
 import type { SessionFileMounts } from '../../agent/sessionWorkspace'
 
 const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'session-file-action-')))
@@ -13,6 +17,7 @@ fs.mkdirSync(mountedDir, { recursive: true })
 fs.writeFileSync(path.join(workspaceDir, 'game.js'), 'game')
 fs.writeFileSync(path.join(workspaceDir, 'sub', 'notes.txt'), 'notes')
 fs.writeFileSync(path.join(mountedDir, 'todo.txt'), 'todo')
+fs.writeFileSync(path.join(workspaceDir, 'big.js'), 'b'.repeat(SESSION_FILE_PREVIEW_CAP + 10))
 fs.writeFileSync(path.join(root, 'secret.txt'), 'outside')
 
 const gamesMounts: SessionFileMounts = {
@@ -123,6 +128,46 @@ describe('session file actions', () => {
 
   it('refuses an invalid request', async () => {
     const result = await act('session-1', '', 'open')
+    expect(result).toEqual({ success: false, error: 'invalid file request' })
+  })
+})
+
+const read = sessionFileReader({
+  mountsOf: async (sessionId) =>
+    sessionId === 'session-1' ? sessionMounts : sessionId === 'game-1' ? gamesMounts : null,
+})
+
+describe('session file reader', () => {
+  it('reads a workspace-relative file', async () => {
+    const result = await read('session-1', 'sub/notes.txt')
+    expect(result).toEqual({ success: true, data: { content: 'notes', truncated: false } })
+  })
+
+  it('truncates a file past the cap and says so', async () => {
+    const result = await read('session-1', 'big.js')
+    expect(result.success).toBe(true)
+    if (!result.success) return
+    expect(result.data.content).toBe('b'.repeat(SESSION_FILE_PREVIEW_CAP))
+    expect(result.data.truncated).toBe(true)
+  })
+
+  it('refuses a path that escapes the session folders', async () => {
+    const result = await read('session-1', '../secret.txt')
+    expect(result.success).toBe(false)
+  })
+
+  it('fails when the file is gone', async () => {
+    const result = await read('session-1', 'missing.js')
+    expect(result).toEqual({ success: false, error: 'The file no longer exists.' })
+  })
+
+  it('fails when the session has no workspace', async () => {
+    const result = await read('gone', 'game.js')
+    expect(result.success).toBe(false)
+  })
+
+  it('refuses an invalid request', async () => {
+    const result = await read('', 'game.js')
     expect(result).toEqual({ success: false, error: 'invalid file request' })
   })
 })

@@ -815,6 +815,17 @@ export const CHANNELS = {
     args: [] as unknown as readonly [string, string, SessionFileAction],
     result: null as unknown as IpcMutationResult,
   },
+  /**
+   * Read a file an agent turn wrote as UTF-8 text, for the transcript's inline
+   * preview. Same path validation as sessionFileAction (agent/sessionFileAction.ts);
+   * content is capped at 256 KB and `truncated` says when the cap bit.
+   */
+  'agentMode:readSessionFile': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string],
+    result: null as unknown as IpcDataResult<{ content: string; truncated: boolean }>,
+  },
   /** What the agent could be equipped with, for the Capabilities checkboxes. */
   'agentMode:listCapabilities': {
     kind: 'invoke',

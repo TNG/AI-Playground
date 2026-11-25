@@ -469,6 +469,8 @@
   "ANSWER_RAG_OPEN_DIALOG": "Otwórz narzędzie do przesyłania plików",
   "ANSWER_FILE_OPEN_TOOLTIP": "Otwórz ten plik w aplikacji domyślnej",
   "ANSWER_CREATED_FILES": "Utworzone pliki",
+  "ANSWER_FILE_PREVIEW_TOOLTIP": "Podejrzyj ten plik",
+  "ANSWER_FILE_PREVIEW_TRUNCATED": "Podgląd skrócono — otwórz plik, aby zobaczyć resztę.",
   "REQUEST_LLM_MODEL_NAME": "Dodaj wybrany przez siebie model z huggingface.co",
   "REQUEST_LLM_MODEL_DESCRIPTION": "Możesz pobrać repozytorium modelu, używając składni",
   "REQUEST_LLM_MODEL_EXAMPLE": "<namespace>/<repo_name>, np. 'facebook/opt-1.3b'",

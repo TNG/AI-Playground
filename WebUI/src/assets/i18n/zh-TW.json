@@ -469,6 +469,8 @@
   "ANSWER_RAG_OPEN_DIALOG": "開啟檔案上傳器",
   "ANSWER_FILE_OPEN_TOOLTIP": "使用預設應用程式開啟此檔案",
   "ANSWER_CREATED_FILES": "已建立的檔案",
+  "ANSWER_FILE_PREVIEW_TOOLTIP": "預覽此檔案",
+  "ANSWER_FILE_PREVIEW_TRUNCATED": "預覽已截斷 — 開啟檔案以檢視其餘內容。",
   "REQUEST_LLM_MODEL_NAME": "從 huggingface.co 加入您選擇的模型",
   "REQUEST_LLM_MODEL_DESCRIPTION": "您可以使用以下語法下載模型儲存庫",
   "REQUEST_LLM_MODEL_EXAMPLE": "<namespace>/<repo_name>，例如 'facebook/opt-1.3b'",

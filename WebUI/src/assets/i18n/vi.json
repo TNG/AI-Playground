@@ -469,6 +469,8 @@
   "ANSWER_RAG_OPEN_DIALOG": "Mở trình tải tệp lên",
   "ANSWER_FILE_OPEN_TOOLTIP": "Mở tệp này bằng ứng dụng mặc định",
   "ANSWER_CREATED_FILES": "Tệp đã tạo",
+  "ANSWER_FILE_PREVIEW_TOOLTIP": "Xem trước tệp này",
+  "ANSWER_FILE_PREVIEW_TRUNCATED": "Bản xem trước bị cắt — mở tệp để xem phần còn lại.",
   "REQUEST_LLM_MODEL_NAME": "Thêm mô hình bạn chọn từ huggingface.co",
   "REQUEST_LLM_MODEL_DESCRIPTION": "Bạn có thể tải kho mô hình với cú pháp",
   "REQUEST_LLM_MODEL_EXAMPLE": "<namespace>/<repo_name>, ví dụ 'facebook/opt-1.3b'",

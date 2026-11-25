@@ -35,7 +35,12 @@ export type AnswerDetailKind = 'reasoning' | 'tool' | 'generation' | 'compaction
 export type TurnDetailPart =
   | ({ kind: AnswerDetailKind } & AnswerPartRef)
   | { kind: 'workspace-path'; path: string }
-  | { kind: 'overview-update'; entryId: string; update: OverviewSummaryUpdate }
+  | {
+      kind: 'overview-update'
+      entryId: string
+      update: OverviewSummaryUpdate
+      covered?: { at: number; number: number }
+    }
   | {
       kind: 'workflow'
       variant?: string
@@ -187,6 +192,8 @@ export type TurnOf<K extends string, Body> = {
   details: TurnDetails
   result: TurnResultPart[]
   footer: TurnFooter
+  /** The History Entry this turn settled as, when the timeline carries it. */
+  historyEntryId?: string
 } & Body
 
 /** A chat or agent Turn opened by an answer has no prompt. */

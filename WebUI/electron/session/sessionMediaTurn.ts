@@ -100,7 +100,7 @@ export async function recordMediaTurn(
   for (const item of turn.items) adopted.push(await adoptItem(turn, item))
   const items = adopted.map(({ item }) => item)
 
-  await settleTurn(
+  const written = await settleTurn(
     turn.sessionId,
     {
       preset: turn.preset,
@@ -114,17 +114,20 @@ export async function recordMediaTurn(
   )
 
   const now = Date.now()
+  const metadata = written ? { metadata: { historyEntryId: written.id } } : {}
   const messages: TimelineMessage[] = [
     {
       id: `msg-${randomUUID()}`,
       role: 'user',
       createdAt: now,
       parts: [{ type: 'text', text: turn.prompt }],
+      ...metadata,
     },
     {
       id: `msg-${randomUUID()}`,
       role: 'assistant',
       createdAt: now,
+      ...metadata,
       parts: [
         {
           type: 'data-media',

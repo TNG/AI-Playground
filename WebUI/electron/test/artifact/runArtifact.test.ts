@@ -98,8 +98,12 @@ vi.mock('@/lib/utils', () => ({
 }))
 
 const summariser = {
-  readiness: { serviceName: 'llamacpp-backend', llmModelName: 'qwen-test' },
-  replyLanguage: 'de',
+  model: {
+    backend: 'llamaCPP',
+    modelId: 'qwen-test',
+    readiness: { serviceName: 'llamacpp-backend', llmModelName: 'qwen-test' },
+  },
+  language: 'de',
 }
 vi.mock('@/lib/turnSummariser', () => ({ turnSummariser: () => summariser }))
 

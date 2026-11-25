@@ -62,8 +62,8 @@ import type {
   SessionTurn,
   ShowMore,
   ShowMoreSection,
-  OverviewSummaryRequest,
-  OverviewTurnUpdate,
+  Summariser,
+  OverviewSummaryUpdateRow,
 } from './sessionIpc'
 import type { PresetSessionSettings, SessionSettingsMap } from './sessionSettings'
 import type { SpeechSynthesisRequest } from './speechIpc'
@@ -329,7 +329,7 @@ export const CHANNELS = {
   'sessions:setIncludedInOverviews': {
     kind: 'invoke',
     owner: 'main',
-    args: [] as unknown as readonly [string, boolean, OverviewSummaryRequest?],
+    args: [] as unknown as readonly [string, boolean, Summariser?],
     result: null as unknown as IpcOkWith<{ session: SessionSummary }>,
   },
   /**
@@ -340,7 +340,7 @@ export const CHANNELS = {
   'sessions:refreshOverviewSummary': {
     kind: 'invoke',
     owner: 'main',
-    args: [] as unknown as readonly [string, OverviewSummaryRequest],
+    args: [] as unknown as readonly [string, Summariser],
     result: null as unknown as IpcOkWith<{ session: SessionSummary }>,
   },
   /**
@@ -350,7 +350,7 @@ export const CHANNELS = {
   'sessions:retryOverviewUpdate': {
     kind: 'invoke',
     owner: 'main',
-    args: [] as unknown as readonly [string, string, OverviewSummaryRequest],
+    args: [] as unknown as readonly [string, string, Summariser],
     result: null as unknown as IpcOkWith<{ session: SessionSummary }>,
   },
   /**
@@ -361,7 +361,7 @@ export const CHANNELS = {
   'sessions:resumePendingOverviewUpdates': {
     kind: 'invoke',
     owner: 'main',
-    args: [] as unknown as readonly [OverviewSummaryRequest],
+    args: [] as unknown as readonly [Summariser],
     result: null as unknown as IpcDataResult<{ resumed: string[] }>,
   },
   /**
@@ -372,7 +372,7 @@ export const CHANNELS = {
     kind: 'invoke',
     owner: 'main',
     args: [] as unknown as readonly [string],
-    result: null as unknown as IpcDataResult<{ updates: OverviewTurnUpdate[] }>,
+    result: null as unknown as IpcDataResult<{ updates: OverviewSummaryUpdateRow[] }>,
   },
   /**
    * Add a host folder to a Session's folder list, read-only; `refusal` says why it was not added

@@ -63,8 +63,12 @@ describe('settling a turn into its Session', () => {
 
     const written = await settleTurn(id, entry(), {
       summariser: {
-        readiness: { serviceName: 'llamacpp-backend', llmModelName: 'LFM2.5-350M-Q4_K_M.gguf' },
-        replyLanguage: 'en-US',
+        model: {
+          backend: 'llamaCPP',
+          modelId: 'LFM2.5-350M-Q4_K_M.gguf',
+          readiness: { serviceName: 'llamacpp-backend', llmModelName: 'LFM2.5-350M-Q4_K_M.gguf' },
+        },
+        language: 'en-US',
       },
       abortSignal: new AbortController().signal,
     })

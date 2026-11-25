@@ -32,7 +32,7 @@ function saveIntoFiles(
 export async function recordAudioTurn(turn: AudioTurnRequest): Promise<SessionDocument> {
   const saved = turn.audio ? await saveIntoFiles(turn.sessionId, turn.audio) : undefined
 
-  await settleTurn(
+  const written = await settleTurn(
     turn.sessionId,
     {
       preset: turn.preset,
@@ -46,17 +46,20 @@ export async function recordAudioTurn(turn: AudioTurnRequest): Promise<SessionDo
   )
 
   const now = Date.now()
+  const metadata = written ? { metadata: { historyEntryId: written.id } } : {}
   const messages: TimelineMessage[] = [
     {
       id: `msg-${randomUUID()}`,
       role: 'user',
       createdAt: now,
       parts: [{ type: 'text', text: turn.prompt }],
+      ...metadata,
     },
     {
       id: `msg-${randomUUID()}`,
       role: 'assistant',
       createdAt: now,
+      ...metadata,
       parts: [
         {
           type: 'data-audio',

@@ -16,8 +16,12 @@ const speech = vi.hoisted(() => ({
 }))
 const activePreset = vi.hoisted(() => ({ name: 'Text to Speech' }))
 const turnSummariser = vi.hoisted(() => ({
-  readiness: { serviceName: 'llamacpp-backend', llmModelName: 'qwen-test' },
-  replyLanguage: 'en-US',
+  model: {
+    backend: 'llamaCPP',
+    modelId: 'qwen-test',
+    readiness: { serviceName: 'llamacpp-backend', llmModelName: 'qwen-test' },
+  },
+  language: 'en-US',
 }))
 
 vi.mock('../../persist/userDataPaths.ts', () => ({

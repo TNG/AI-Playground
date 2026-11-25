@@ -5,11 +5,11 @@ import { onGeneratedMedia } from '../agent/generatedMedia'
 import type { AgentTurnEnd } from '../agent/agentTurnOutcome'
 import { artifactReferenceOf } from './historyArtifacts'
 import { readSessionFolders } from './sessionFolders'
-import { settleTurn, type SummariserDescriptor } from './sessionSettlement'
+import { settleTurn } from './sessionSettlement'
 import { mutateSession, sessionDocumentOf } from './sessions'
 import { afterTurn } from './sessionTitle'
 import type { AgentFollowUpTag } from '@/types/agentSessionIpc'
-import type { ArtifactMediaType, HistoryArtifact } from '@/types/sessionIpc'
+import type { ArtifactMediaType, HistoryArtifact, Summariser } from '@/types/sessionIpc'
 
 const MEDIA_TYPES: Record<string, ArtifactMediaType> = {
   '.png': 'image',
@@ -42,7 +42,9 @@ export type AgentTurnInSession = {
   taskRun?: { taskName: string; input?: string }
   followUp?: AgentFollowUpTag
   /** The renderer-resolved local model and reply language for the Session's summary. */
-  summariser?: SummariserDescriptor
+  summariser?: Summariser
+  /** The turn ran on a cloud model: the summary waits for the next local turn. */
+  cloudTurn?: boolean
 }
 
 /** An Agent Run is recorded as what was run, not as the run prompt holding every Step. */
@@ -97,7 +99,7 @@ export function trackAgentTurnInSession(turn: AgentTurnInSession): {
             ...(turn.taskRun ? { taskName: turn.taskRun.taskName } : {}),
             ...(turn.followUp ? { ...turn.followUp, followUp: true } : {}),
           },
-          { summariser: turn.summariser },
+          { summariser: turn.summariser, ...(turn.cloudTurn ? { cloudTurn: true } : {}) },
         )
         const file = await mutateSession(turn.sessionRef, (current) => ({
           ...current,

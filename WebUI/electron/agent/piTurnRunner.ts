@@ -496,11 +496,25 @@ export async function startAgentTurn(
         ...(config.modelConfig.source === 'local' && config.readiness
           ? {
               summariser: {
-                readiness: config.readiness,
-                replyLanguage: config.responseLocale ?? 'en-US',
+                model: {
+                  backend: config.modelConfig.backend ?? 'llamaCPP',
+                  modelId: config.modelConfig.model,
+                  baseUrl: config.modelConfig.baseUrl,
+                  readiness: config.readiness,
+                  ...(config.modelConfig.samplingParams
+                    ? { samplingRequestBody: config.modelConfig.samplingParams }
+                    : {}),
+                  ...(config.modelConfig.maxOutputTokens
+                    ? { maxOutputTokens: config.modelConfig.maxOutputTokens }
+                    : {}),
+                  supportsVision: config.modelConfig.supportsVision,
+                  timingsPerToken: true,
+                },
+                language: config.responseLocale ?? 'en-US',
               },
             }
           : {}),
+        cloudTurn: config.modelConfig.source === 'cloud',
       })
     : null
   const translator = createStreamTranslator({

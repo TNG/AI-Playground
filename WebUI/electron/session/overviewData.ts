@@ -1,20 +1,14 @@
-import path from 'node:path'
 import {
   resolveOverviewWindow,
   type OverviewRangeInput,
   type OverviewWindow,
 } from './overviewRange'
-import { artifactHostPath } from './historyArtifacts'
 import { readHistoryEntries } from './sessionHistory'
-import { readSessionFolders } from './sessionFolders'
+import { storedPictureHostPath } from './overviewPicture'
 import { autoTitle } from './sessionTitle'
-import { listSessions, readSession, sessionPaths } from './sessions'
-import type {
-  ArtifactMediaType,
-  HistoryEntry,
-  OverviewSummary,
-  OverviewSummaryPicture,
-} from '@/types/sessionIpc'
+import { listSessions, readSession } from './sessions'
+import { OVERVIEW_SUMMARY_CONTRACT_VERSION } from './overviewContract'
+import type { ArtifactMediaType, HistoryEntry, OverviewSummary } from '@/types/sessionIpc'
 
 // Read side of an Overview: only Sessions included in Overviews, never the reporting
 // Session, and a window that selects by each Session's newest History Entry.
@@ -83,31 +77,6 @@ function iconOf(summary: OverviewSummary | undefined, newest: HistoryEntry): str
   }
 }
 
-/**
- * The file the stored picture names: relative to its folder, the Session's
- * artifact root, or absolute for a game icon outside every Session folder.
- */
-async function storedPicturePath(
-  sessionId: string,
-  picture: OverviewSummaryPicture,
-): Promise<string | undefined> {
-  if (picture.folderId) {
-    const list = await readSessionFolders(sessionId)
-    return (
-      artifactHostPath(
-        sessionId,
-        { folderId: picture.folderId, path: picture.path, mediaType: picture.mediaType },
-        list,
-      ) ?? undefined
-    )
-  }
-  if (path.isAbsolute(picture.path)) return path.resolve(picture.path)
-  const root = sessionPaths(sessionId).artifactRoot
-  const file = path.resolve(root, picture.path)
-  const relative = path.relative(root, file)
-  return relative && !relative.startsWith('..') && !path.isAbsolute(relative) ? file : undefined
-}
-
 /** The newest entry by timestamp, and the later-appended one when two share a millisecond. */
 function newestEntry(entries: readonly HistoryEntry[]): HistoryEntry | undefined {
   return entries.reduce<HistoryEntry | undefined>(
@@ -146,9 +115,9 @@ export async function selectOverviewSessions(query: OverviewQuery): Promise<Over
 
   type Active = OverviewSessionCard & {
     newest: number
-    /** A `ready` summary with text is usable; anything else leaves the Session off the page. */
+    /** A summary with text is usable; only one with no text leaves the Session off the page. */
     usable: boolean
-    /** A usable summary whose covered entry is not the newest one is behind it. */
+    /** A summary that is not current with the newest entry is behind it. */
     behind: boolean
   }
   const found: Active[] = []
@@ -159,9 +128,13 @@ export async function selectOverviewSessions(query: OverviewQuery): Promise<Over
     const file = await readSession(row.id)
     const stored = file.overviewSummary
     const summary = stored?.text?.trim() ?? ''
-    const usable = stored?.state === 'ready' && summary !== ''
+    const usable = summary !== ''
+    const current =
+      stored?.state === 'ready' &&
+      stored.coveredEntryId === newest.id &&
+      stored.contractVersion === OVERVIEW_SUMMARY_CONTRACT_VERSION
     const picturePath =
-      usable && stored?.picture ? await storedPicturePath(row.id, stored.picture) : undefined
+      usable && stored?.picture ? await storedPictureHostPath(row.id, stored.picture) : undefined
     found.push({
       id: row.id,
       title: row.title.trim() || autoTitle(newest),
@@ -170,7 +143,7 @@ export async function selectOverviewSessions(query: OverviewQuery): Promise<Over
       ...(picturePath ? { picturePath } : {}),
       newest: newest.timestamp,
       usable,
-      behind: usable && stored?.coveredEntryId !== newest.id,
+      behind: usable && !current,
     })
   }
 

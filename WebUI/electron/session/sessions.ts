@@ -81,6 +81,7 @@ function summaryOf(file: SessionFile): SessionSummary {
     includedInOverviews,
     overviewSummary,
     hiddenMessageIds,
+    responseLocale,
   } = file
   return {
     id,
@@ -90,6 +91,7 @@ function summaryOf(file: SessionFile): SessionSummary {
     reachable,
     includedInOverviews,
     hiddenMessageIds,
+    ...(responseLocale === undefined ? {} : { responseLocale }),
     ...(overviewSummary === undefined ? {} : { overviewSummaryState: overviewSummary.state }),
     ...(groupId === undefined ? {} : { groupId }),
     createdAt,

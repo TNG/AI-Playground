@@ -302,7 +302,7 @@ describe('omitted and behind Sessions', () => {
     expect(selection.behind).toEqual([])
   })
 
-  it('treats a failed or pending summary as unusable even when an older text remains', async () => {
+  it('includes a failed or pending summary that still has text, marked behind', async () => {
     const failed = await seedSession([historyEntry({ timestamp: NOW - HOUR })], {
       summary: 'Stale text kept from before the failure.',
       summaryState: 'failed',
@@ -320,9 +320,57 @@ describe('omitted and behind Sessions', () => {
 
     const selection = await query()
 
+    expect(selection.outcome).toBe('ok')
+    expect(selection.sessions.map((session) => session.id)).toEqual([failed, pending])
+    expect(selection.behind).toEqual(['Failed Update', 'Pending Update'])
+    expect(selection.omitted).toEqual([])
+    expect(selection.sessions.map((session) => session.summary)).toEqual([
+      'Stale text kept from before the failure.',
+      'Text from the last successful run.',
+    ])
+  })
+
+  it('omits a failed or pending summary only when it has no text', async () => {
+    const failed = await seedSession([historyEntry({ timestamp: NOW - HOUR })], {
+      summaryState: 'failed',
+    })
+    const pending = await seedSession([historyEntry({ timestamp: NOW - 2 * HOUR })], {
+      summaryState: 'pending',
+    })
+    for (const [id, title] of [
+      [failed, 'Failed Update'],
+      [pending, 'Pending Update'],
+    ] as const) {
+      await mutateSession(id, (file) => ({ ...file, title, renamed: true }))
+    }
+
+    const selection = await query()
+
     expect(selection.outcome).toBe('none-usable')
     expect(selection.sessions).toEqual([])
     expect(selection.omitted).toEqual(['Failed Update', 'Pending Update'])
+  })
+
+  it('treats an old contract version as behind even when it covers the newest entry', async () => {
+    const id = await seedSession([historyEntry({ timestamp: NOW - HOUR })], {
+      summary: 'Written by an older contract.',
+    })
+    await mutateSession(id, (file) => ({
+      ...file,
+      title: 'Old Contract',
+      renamed: true,
+      overviewSummary: file.overviewSummary && {
+        ...file.overviewSummary,
+        contractVersion: 999,
+      },
+    }))
+
+    const selection = await query()
+
+    expect(selection.outcome).toBe('ok')
+    expect(selection.sessions.map((session) => session.id)).toEqual([id])
+    expect(selection.sessions[0]?.summary).toBe('Written by an older contract.')
+    expect(selection.behind).toEqual(['Old Contract'])
   })
 
   it('includes a Session whose summary is behind its newest entry, and names its Title', async () => {

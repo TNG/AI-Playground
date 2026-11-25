@@ -33,7 +33,7 @@ import {
 import type { ArtifactPhase, ArtifactRunOwner, ArtifactRunTag } from '@/types/kernelEvents'
 import type { MediaItem } from '@/types/mediaItem'
 import type { ArtifactRunMode, ArtifactRunResult } from '@/types/artifactIpc'
-import type { TurnSummariser } from '@/types/sessionIpc'
+import type { Summariser } from '@/types/sessionIpc'
 import type { IpcOkWith } from '@/types/ipcChannels'
 import {
   findKeysByClassType,
@@ -132,7 +132,7 @@ export type ArtifactRunPayload = {
   /** The Session a panel run belongs to: its outputs and History Entry settle there. */
   sessionId?: string
   /** The renderer-resolved local model and reply language for that Session's summary. */
-  summariser?: TurnSummariser
+  summariser?: Summariser
 }
 
 // Hoisted to `@/types/artifactIpc` (the manifest row states it); re-exported

@@ -51,10 +51,7 @@ const MODEL: ChatModelConfig = {
   readiness: { serviceName: 'llamacpp-backend', llmModelName: 'qwen-test' },
 }
 const REQUEST = { model: MODEL, language: 'de' }
-const SUMMARISER = {
-  readiness: { serviceName: 'llamacpp-backend', llmModelName: 'qwen-test' },
-  replyLanguage: 'de',
-}
+const SUMMARISER = { model: MODEL, language: 'de' }
 
 let calls: CompleteArgs[] = []
 let reply: (
@@ -214,7 +211,7 @@ describe('a settled panel media turn updates the summary', () => {
     const sessionId = await included()
 
     await recordMediaTurn(mediaTurn(sessionId), {
-      summariser: { replyLanguage: 'de' },
+      summariser: { language: 'de' },
     })
 
     const entries = await readHistoryEntries(sessionId)
@@ -293,7 +290,7 @@ describe('a settled audio turn updates the summary', () => {
   it('leaves a no-local-model audio turn pending without calling a model', async () => {
     const sessionId = await included()
 
-    await recordAudioTurn(tts(sessionId, { summariser: { replyLanguage: 'de' } }))
+    await recordAudioTurn(tts(sessionId, { summariser: { language: 'de' } }))
 
     const written = lastEntry(await readHistoryEntries(sessionId))
     expect(written.kind).toBe('tts')

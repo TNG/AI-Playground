@@ -11,7 +11,7 @@ import {
   ArtifactMediaTypeSchema,
   AudioTurnRequestSchema,
   HarnessGameWorkspaceSchema,
-  OverviewSummaryRequestSchema,
+  SummariserSchema,
   SessionTurnSchema,
   type AssistantCapabilityDefaults,
   type SessionCreateOptions,
@@ -366,10 +366,15 @@ export function buildSessionsRegistry(deps: SessionsDeps) {
       try {
         if (typeof included !== 'boolean') throw new Error('included must be a boolean')
         const sessionId = requireString(id, 'session id')
-        const session = await deps.setSessionIncludedInOverviews(sessionId, included)
-        if (request === undefined) return { success: true as const, session }
-        const parsed = OverviewSummaryRequestSchema.parse(request)
-        const changed = await applyOverviewInclusion(sessionId, included, parsed)
+        if (request === undefined) {
+          const session = await deps.setSessionIncludedInOverviews(sessionId, included)
+          return { success: true as const, session }
+        }
+        const changed = await applyOverviewInclusion(
+          sessionId,
+          included,
+          SummariserSchema.parse(request),
+        )
         return { success: true as const, session: changed }
       } catch (e) {
         return ipcFail(e)
@@ -379,7 +384,7 @@ export function buildSessionsRegistry(deps: SessionsDeps) {
       try {
         const session = await refreshOverviewSummary(
           requireString(id, 'session id'),
-          OverviewSummaryRequestSchema.parse(request),
+          SummariserSchema.parse(request),
         )
         return { success: true as const, session }
       } catch (e) {
@@ -391,7 +396,7 @@ export function buildSessionsRegistry(deps: SessionsDeps) {
         const session = await retryOverviewUpdate(
           requireString(id, 'session id'),
           requireString(entryId, 'entry id'),
-          OverviewSummaryRequestSchema.parse(request),
+          SummariserSchema.parse(request),
         )
         return { success: true as const, session }
       } catch (e) {
@@ -400,9 +405,7 @@ export function buildSessionsRegistry(deps: SessionsDeps) {
     },
     'sessions:resumePendingOverviewUpdates': async (_event, request) => {
       try {
-        const resumed = await resumePendingOverviewUpdates(
-          OverviewSummaryRequestSchema.parse(request),
-        )
+        const resumed = await resumePendingOverviewUpdates(SummariserSchema.parse(request))
         return { success: true as const, data: { resumed } }
       } catch (e) {
         return ipcFail(e)

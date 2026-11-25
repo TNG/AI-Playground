@@ -13,7 +13,7 @@ import {
   HistoryEntrySchema,
   type HistoryArtifact,
   type HistoryEntry,
-  type OverviewTurnUpdate,
+  type OverviewSummaryUpdateRow,
   type SessionLastPreset,
 } from '@/types/sessionIpc'
 
@@ -83,20 +83,28 @@ export async function updateHistoryEntry(
 }
 
 /** The entries whose turns recorded an Overview Summary update outcome. */
-export async function historyOverviewUpdates(sessionId: string): Promise<OverviewTurnUpdate[]> {
-  return (await readHistoryEntries(sessionId)).flatMap((entry) =>
-    entry.overviewUpdate
-      ? [
-          {
-            entryId: entry.id,
-            kind: entry.kind,
-            prompt: entry.prompt,
-            ...(entry.harnessSessionId ? { harnessSessionId: entry.harnessSessionId } : {}),
-            update: entry.overviewUpdate,
-          },
-        ]
-      : [],
+export async function historyOverviewUpdates(
+  sessionId: string,
+): Promise<OverviewSummaryUpdateRow[]> {
+  const entries = await readHistoryEntries(sessionId)
+  const place = new Map(
+    entries.map((entry, index) => [entry.id, { at: entry.timestamp, number: index + 1 }]),
   )
+  return entries.flatMap((entry) => {
+    if (!entry.overviewUpdate) return []
+    const coveredEntryId = entry.overviewUpdate.coveredEntryId
+    const covered = coveredEntryId ? place.get(coveredEntryId) : undefined
+    return [
+      {
+        entryId: entry.id,
+        kind: entry.kind,
+        prompt: entry.prompt,
+        ...(entry.harnessSessionId ? { harnessSessionId: entry.harnessSessionId } : {}),
+        update: entry.overviewUpdate,
+        ...(covered ? { covered } : {}),
+      },
+    ]
+  })
 }
 
 /**

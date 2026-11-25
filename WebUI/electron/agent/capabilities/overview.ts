@@ -261,8 +261,9 @@ async function buildOverviewTools(host: CapabilityHost): Promise<ToolDefinition[
         'when a preview server is serving the Workspace. When nothing is included, nothing is ' +
         'active in the window, or none of the active Sessions has a usable summary, it writes no ' +
         'file and returns `written: false` with the `outcome` and a `message`. It also reports the ' +
-        '`omitted` Titles (active Sessions with no usable summary) and `behind` Titles (a summary ' +
-        'that stops at an older entry) so you can relay what the page leaves out or marks. It ' +
+        '`omitted` Titles and `omittedCount`, and `behind` Titles and `behindCount` (active ' +
+        'Sessions with no usable summary, and summaries that stop at an older entry) so you can ' +
+        'relay what the page leaves out or marks. It ' +
         'never returns History Entries or summary text. Relay the window and the link unchanged; ' +
         'never summarise a Session, write markup, or compute a timestamp.',
       parameters: jsonSchemaParameters(OVERVIEW_SCHEMA),
@@ -284,6 +285,8 @@ async function buildOverviewTools(host: CapabilityHost): Promise<ToolDefinition[
               outcome: selection.outcome,
               window: selection.window,
               windowLabel,
+              omittedCount: selection.omitted.length,
+              behindCount: selection.behind.length,
               ...(selection.omitted.length ? { omitted: selection.omitted } : {}),
               message: selection.message,
             })
@@ -312,6 +315,8 @@ async function buildOverviewTools(host: CapabilityHost): Promise<ToolDefinition[
             ...(url ? { url } : {}),
             window: selection.window,
             windowLabel,
+            omittedCount: selection.omitted.length,
+            behindCount: selection.behind.length,
             ...(selection.omitted.length ? { omitted: selection.omitted } : {}),
             ...(selection.behind.length ? { behind: selection.behind } : {}),
           })

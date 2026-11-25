@@ -267,8 +267,17 @@ describe('the page', () => {
       path: 'overview-2026-11-23_1530..2026-11-24_1530.html',
       window: { from: NOW - DAY, to: NOW },
       windowLabel: expect.any(String),
+      omittedCount: 0,
+      behindCount: 0,
     })
-    expect(Object.keys(result).sort()).toEqual(['path', 'window', 'windowLabel', 'written'])
+    expect(Object.keys(result).sort()).toEqual([
+      'behindCount',
+      'omittedCount',
+      'path',
+      'window',
+      'windowLabel',
+      'written',
+    ])
     const serialized = JSON.stringify(result)
     expect(serialized).not.toContain('It shipped the thing')
     expect(serialized).not.toContain('Shipped the thing')
@@ -431,7 +440,7 @@ describe('omitted and behind Sessions', () => {
 
     const result = await call(hostFor(), { range: 'last-24h' })
 
-    expect(result).toMatchObject({ written: true })
+    expect(result).toMatchObject({ written: true, omittedCount: 1, behindCount: 1 })
     expect(result.omitted).toEqual(['No Summary'])
     expect(result.behind).toEqual(['Behind Session'])
 
@@ -448,7 +457,12 @@ describe('omitted and behind Sessions', () => {
 
     const result = await call(hostFor(), { range: 'last-24h' })
 
-    expect(result).toMatchObject({ written: false, outcome: 'none-usable' })
+    expect(result).toMatchObject({
+      written: false,
+      outcome: 'none-usable',
+      omittedCount: 1,
+      behindCount: 0,
+    })
     expect(result.omitted).toEqual(['Draft Only'])
     expect(String(result.message)).toMatch(/usable Overview Summary/i)
     expect(result.path).toBeUndefined()

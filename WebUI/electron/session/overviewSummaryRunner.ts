@@ -3,6 +3,7 @@ import { generateText } from 'ai'
 import { ensureChatBackendReady } from '../chat/chatReadiness'
 import { createMainChatModel } from '../chat/chatModelMain'
 import { finishTextRequest, submitTextRequest } from '../kernel/orchestrator'
+import { isLocalSummaryModel } from '@/lib/summariser'
 import {
   parseOverviewSummaryReply,
   type OverviewSummaryCompleteInput,
@@ -17,7 +18,8 @@ export async function runOverviewSummaryCompletion(
   input: OverviewSummaryCompleteInput,
 ): Promise<OverviewSummaryCompletion> {
   const { model, prompt, signal, sessionId, final, admitted } = input
-  if (model.backend === 'cloud' || !model.readiness?.llmModelName) {
+  const readiness = model.readiness
+  if (!isLocalSummaryModel(model) || !readiness) {
     throw new Error('An Overview Summary must be written by a local model')
   }
   const runId = `overview-summary-${randomUUID()}`
@@ -37,7 +39,7 @@ export async function runOverviewSummaryCompletion(
     )
   }
   try {
-    await ensureChatBackendReady(model.readiness, {
+    await ensureChatBackendReady(readiness, {
       skipGpuAdmission: true,
       abortSignal: signal,
       remember: false,

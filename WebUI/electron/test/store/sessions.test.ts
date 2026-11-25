@@ -102,7 +102,7 @@ beforeEach(async () => {
         setIncludedInOverviews: (
           id: string,
           included: boolean,
-          request?: import('@/types/sessionIpc').OverviewSummaryRequest,
+          request?: import('@/types/sessionIpc').Summariser,
         ) => registry['sessions:setIncludedInOverviews'](noEvent, id, included, request),
         overviewUpdates: (id: string) => registry['sessions:overviewUpdates'](noEvent, id),
         createGroup: (id: string, name: string) =>

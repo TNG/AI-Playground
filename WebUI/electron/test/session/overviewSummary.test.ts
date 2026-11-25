@@ -220,6 +220,27 @@ describe('enabling a Session', () => {
     )
   })
 
+  it('chunks by a token budget rather than a character count', () => {
+    expect(summary.estimateTokens('x'.repeat(4000))).toBe(1000)
+    const sized = (index: number): HistoryEntry => ({
+      id: `sized-${index}`,
+      timestamp: Date.now(),
+      preset: 'Assistant',
+      kind: 'chat',
+      prompt: `turn ${index} ${'x'.repeat(1200)}`,
+      status: 'completed',
+      artifacts: [],
+      response: 'y'.repeat(1200),
+    })
+
+    const small = summary.overviewSummaryPrompts('A Session', [sized(0)], 'en-US')
+    expect(small).toHaveLength(1)
+
+    const huge = summary.overviewSummaryPrompts('A Session', [0, 1, 2, 3].map(sized), 'en-US')
+    expect(huge.length).toBeGreaterThan(1)
+    expect(huge.at(-1)?.prompt).toContain('at most 600 characters')
+  })
+
   it('keeps the summary in its own context: Title and History Entries only', async () => {
     const session = await createSession()
     await mutateSession(session.id, (file) => ({
@@ -251,6 +272,28 @@ describe('enabling a Session', () => {
     expect(prompt).not.toContain('HARNESS-MESSAGE-MUST-NOT-APPEAR')
     expect(prompt.toLowerCase()).not.toContain('tool_call')
     expect(calls[0]).not.toHaveProperty('tools')
+  })
+
+  it('freezes the reply language once and ignores a later UI language', async () => {
+    const session = await createSession()
+    await addEntry(session.id, { prompt: 'set up the project' })
+
+    await summary.applyOverviewInclusion(session.id, true, REQUEST)
+    await vi.waitFor(async () => {
+      expect((await openSession(session.id)).overviewSummary?.state).toBe('ready')
+    })
+    expect((await openSession(session.id)).responseLocale).toBe('de')
+    calls = []
+
+    await summary.refreshOverviewSummary(session.id, { model: MODEL, language: 'fr' })
+    await vi.waitFor(async () => {
+      expect(calls).toHaveLength(1)
+      expect((await openSession(session.id)).overviewSummary?.state).toBe('ready')
+    })
+
+    expect(calls[0].prompt).toContain('Reply language: de')
+    expect((await openSession(session.id)).overviewSummary?.language).toBe('de')
+    expect((await openSession(session.id)).responseLocale).toBe('de')
   })
 
   it('does not move the Session updatedAt', async () => {

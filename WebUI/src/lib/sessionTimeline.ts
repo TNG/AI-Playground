@@ -77,7 +77,7 @@ import type {
   TurnSummary,
 } from '@/lib/turnTypes'
 import type { GenerationSettings } from '@/types/mediaItem'
-import type { SessionTurnKind, OverviewTurnUpdate } from '@/types/sessionIpc'
+import type { SessionTurnKind, OverviewSummaryUpdateRow } from '@/types/sessionIpc'
 import type {
   AgentTurnTag,
   AudioTurnData,
@@ -206,10 +206,13 @@ function withLiveChatTurn(
   return [...merged, ...tagged.values()]
 }
 
-type SettledTurnKind = 'chat' | 'agent' | 'media' | 'audio'
+type OverviewUpdateTurnKind = 'chat' | 'agent' | 'media' | 'audio'
 
 /** Which History Entry kinds belong to a turn kind, so a media or audio turn finds its own row. */
-const OVERVIEW_UPDATE_TURN_KINDS: Record<SettledTurnKind, readonly OverviewTurnUpdate['kind'][]> = {
+const OVERVIEW_UPDATE_TURN_KINDS: Record<
+  OverviewUpdateTurnKind,
+  readonly OverviewSummaryUpdateRow['kind'][]
+> = {
   chat: ['chat'],
   agent: ['agent'],
   media: ['image', 'edit', 'video'],
@@ -220,13 +223,21 @@ function normalizedPrompt(text: string): string {
   return text.replace(/\s+/g, ' ').trim()
 }
 
+/** The History Entry a timeline message settled as, written when the turn settled. */
+function historyEntryIdOf(message: TimelineMessage): string | undefined {
+  return message.metadata?.historyEntryId
+}
+
 /**
  * Gives each settled chat or agent Turn its own Overview Summary update outcome, so
  * the Turn's details row can show it. Entries are matched by kind, prompt and (for
  * an Agent turn) Harness Session; an Agent Run's first prompt differs from the
  * recorded run line, so it falls back to the next unclaimed entry there.
  */
-function attachOverviewUpdates(turns: TimelineTurn[], rows: readonly OverviewTurnUpdate[]): void {
+function attachOverviewUpdates(
+  turns: TimelineTurn[],
+  rows: readonly OverviewSummaryUpdateRow[],
+): void {
   if (rows.length === 0) return
   const remaining = rows.map((row) => ({ row, used: false }))
   for (const turn of turns) {
@@ -241,21 +252,30 @@ function attachOverviewUpdates(turns: TimelineTurn[], rows: readonly OverviewTur
     const kinds = OVERVIEW_UPDATE_TURN_KINDS[turn.kind]
     const prompt = normalizedPrompt(turn.prompt?.text ?? '')
     const harness = turn.kind === 'agent' ? turn.harnessSessionId : undefined
-    const fits = (row: OverviewTurnUpdate) =>
+    const fits = (row: OverviewSummaryUpdateRow) =>
       kinds.includes(row.kind) &&
       (!harness || !row.harnessSessionId || row.harnessSessionId === harness)
-    let index = remaining.findIndex(
-      (entry) => !entry.used && fits(entry.row) && normalizedPrompt(entry.row.prompt) === prompt,
-    )
-    if (index < 0 && turn.kind === 'agent') {
+    const entryId = turn.historyEntryId
+    let index = entryId
+      ? remaining.findIndex((entry) => !entry.used && entry.row.entryId === entryId)
+      : -1
+    // A turn that knows its own entry never falls back to another turn's row.
+    if (index < 0 && !entryId) {
+      index = remaining.findIndex(
+        (entry) => !entry.used && fits(entry.row) && normalizedPrompt(entry.row.prompt) === prompt,
+      )
+    }
+    if (index < 0 && !entryId && turn.kind === 'agent') {
       index = remaining.findIndex((entry) => !entry.used && fits(entry.row))
     }
     if (index < 0) continue
+    const row = remaining[index].row
     remaining[index].used = true
     turn.details.parts.push({
       kind: 'overview-update',
-      entryId: remaining[index].row.entryId,
-      update: remaining[index].row.update,
+      entryId: row.entryId,
+      update: row.update,
+      ...(row.covered ? { covered: row.covered } : {}),
     })
   }
 }
@@ -270,7 +290,7 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
    * the hidden turns (chat regenerate), so they must not offer the actions.
    */
   atTrueEnd = true,
-  overviewUpdates: readonly OverviewTurnUpdate[] = [],
+  overviewUpdates: readonly OverviewSummaryUpdateRow[] = [],
 ): SessionTimelineItem<M, A>[] {
   let merged = withLiveChatTurn(timeline, live.chat ?? [])
   for (const agent of live.agents ?? []) {
@@ -1026,6 +1046,7 @@ export function timelineTurns(
           footer: noFooter(),
           presetName: followUp ?? tag.presetName,
           harnessSessionId: tag.harnessSessionId,
+          ...(historyEntryIdOf(message) ? { historyEntryId: historyEntryIdOf(message) } : {}),
           artifacts: [],
           audioArtifacts: [],
           ...(message.role === 'user'
@@ -1065,6 +1086,7 @@ export function timelineTurns(
         details: EMPTY_DETAILS,
         result: [],
         footer: noFooter(),
+        ...(historyEntryIdOf(message) ? { historyEntryId: historyEntryIdOf(message) } : {}),
         artifacts: [],
         audioArtifacts: [],
         ...(prompted ? { prompt: messagePrompt(message), answers: [] } : { answers: [message] }),
@@ -1083,6 +1105,7 @@ export function timelineTurns(
         details: audioDetails(audio),
         result: [{ kind: 'audio' }],
         footer: audioFooter(audio),
+        ...(historyEntryIdOf(answer) ? { historyEntryId: historyEntryIdOf(answer) } : {}),
         prompt: textPrompt(promptOf(message), audio.preset, {
           audio: audio.kind === 'stt' && audio.audioUrl ? [{ url: audio.audioUrl }] : undefined,
         }),
@@ -1102,6 +1125,7 @@ export function timelineTurns(
         details: mediaDetails(media),
         result: [{ kind: 'media' }],
         footer: noFooter(),
+        ...(historyEntryIdOf(next) ? { historyEntryId: historyEntryIdOf(next) } : {}),
         prompt: textPrompt(promptOf(message), media.preset, {
           inputImageUrl: mediaInputImage(media),
         }),

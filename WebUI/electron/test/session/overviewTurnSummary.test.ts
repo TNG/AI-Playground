@@ -39,7 +39,7 @@ const { settleTurn } = await import('../../session/sessionSettlement')
 const summary = await import('../../session/overviewSummary')
 const { sessionTimelineItems } = await import('@/lib/sessionTimeline')
 import type { ChatModelConfig } from '@/types/chatIpc'
-import type { HistoryEntry, OverviewTurnUpdate } from '@/types/sessionIpc'
+import type { HistoryEntry, OverviewSummaryUpdateRow } from '@/types/sessionIpc'
 
 type CompleteArgs = Parameters<
   NonNullable<Parameters<typeof summary.setOverviewSummaryComplete>[0]>
@@ -50,10 +50,7 @@ const MODEL: ChatModelConfig = {
   modelId: 'qwen-test',
   readiness: { serviceName: 'llamacpp-backend', llmModelName: 'qwen-test' },
 }
-const DESCRIPTOR = {
-  readiness: { serviceName: 'llamacpp-backend', llmModelName: 'qwen-test' },
-  replyLanguage: 'de',
-}
+const DESCRIPTOR = { model: MODEL, language: 'de' }
 const REQUEST = { model: MODEL, language: 'de' }
 
 let calls: CompleteArgs[] = []
@@ -211,8 +208,12 @@ describe('a settled text turn updates its summary', () => {
 
     const written = await settleTurn(sessionId, entry({ prompt: 'a red fox' }), {
       summariser: {
-        readiness: { serviceName: 'llamacpp-backend', llmModelName: 'other-model' },
-        replyLanguage: 'de',
+        model: {
+          backend: 'llamaCPP',
+          modelId: 'other-model',
+          readiness: { serviceName: 'llamacpp-backend', llmModelName: 'other-model' },
+        },
+        language: 'de',
       },
     })
 
@@ -359,7 +360,7 @@ describe('the turn details data', () => {
         parts: [{ type: 'text', text: 'done' }],
       },
     ]
-    const rows: OverviewTurnUpdate[] = [
+    const rows: OverviewSummaryUpdateRow[] = [
       {
         entryId: 'entry-1',
         kind: 'chat',
@@ -381,6 +382,79 @@ describe('the turn details data', () => {
       update: rows[0].update,
     })
     expect(timeline.some((message) => 'overviewUpdate' in message)).toBe(false)
+  })
+
+  it('attaches each outcome by entry identity when prompts repeat, including a regenerate', () => {
+    const timeline = [
+      {
+        id: 'u1',
+        role: 'user',
+        metadata: { chatTurn: true, historyEntryId: 'entry-1' },
+        parts: [{ type: 'text', text: 'same prompt' }],
+      },
+      {
+        id: 'a1',
+        role: 'assistant',
+        metadata: { chatTurn: true, historyEntryId: 'entry-1' },
+        parts: [{ type: 'text', text: 'first answer' }],
+      },
+      {
+        id: 'u2',
+        role: 'user',
+        metadata: { chatTurn: true, historyEntryId: 'entry-2' },
+        parts: [{ type: 'text', text: 'same prompt' }],
+      },
+      {
+        id: 'a2',
+        role: 'assistant',
+        metadata: { chatTurn: true, historyEntryId: 'entry-2' },
+        parts: [{ type: 'text', text: 'second answer' }],
+      },
+    ]
+    const rows: OverviewSummaryUpdateRow[] = [
+      {
+        entryId: 'entry-1',
+        kind: 'chat',
+        prompt: 'same prompt',
+        update: { state: 'ready', text: 'First update.', coveredEntryId: 'entry-1' },
+        covered: { at: 1000, number: 1 },
+      },
+      {
+        entryId: 'entry-2',
+        kind: 'chat',
+        prompt: 'same prompt',
+        update: { state: 'ready', text: 'Second update.', coveredEntryId: 'entry-2' },
+        covered: { at: 2000, number: 2 },
+      },
+    ]
+
+    const turns = sessionTimelineItems(timeline, {} as never, {}, rows).filter(
+      (item) => item.kind === 'chat',
+    )
+    expect(turns[0]?.details.parts).toContainEqual({
+      kind: 'overview-update',
+      entryId: 'entry-1',
+      update: rows[0].update,
+      covered: { at: 1000, number: 1 },
+    })
+    expect(turns[1]?.details.parts).toContainEqual({
+      kind: 'overview-update',
+      entryId: 'entry-2',
+      update: rows[1].update,
+      covered: { at: 2000, number: 2 },
+    })
+
+    // A regenerate removed the first turn's entry: its row is gone, so the surviving
+    // row must not slide onto the earlier turn that shares the prompt.
+    const regenerated = sessionTimelineItems(timeline, {} as never, {}, [rows[1]]).filter(
+      (item) => item.kind === 'chat',
+    )
+    expect(regenerated[0]?.details.parts).not.toContainEqual(
+      expect.objectContaining({ kind: 'overview-update' }),
+    )
+    expect(regenerated[1]?.details.parts).toContainEqual(
+      expect.objectContaining({ kind: 'overview-update', entryId: 'entry-2' }),
+    )
   })
 
   it('gives a media turn and an audio turn their own update row', () => {
@@ -414,7 +488,7 @@ describe('the turn details data', () => {
         ],
       },
     ]
-    const rows: OverviewTurnUpdate[] = [
+    const rows: OverviewSummaryUpdateRow[] = [
       {
         entryId: 'entry-1',
         kind: 'image',

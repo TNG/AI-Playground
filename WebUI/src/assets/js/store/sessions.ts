@@ -6,8 +6,8 @@ import { requestMissingWorkspace } from '@/assets/js/permissions/permissions'
 import type {
   MissingWorkspace,
   OverviewSummary,
-  OverviewSummaryRequest,
-  OverviewTurnUpdate,
+  Summariser,
+  OverviewSummaryUpdateRow,
   SessionDeletePreview,
   SessionDocument,
   SessionFolderList,
@@ -66,7 +66,7 @@ export const useSessions = defineStore('sessions', () => {
   /** The open Session's Overview Summary text and picture; the panel rows carry only its state. */
   const openOverviewSummary = ref<OverviewSummary | undefined>()
   /** The open Session's per-turn Overview Summary update outcomes, for the turn details rows. */
-  const openOverviewUpdates = ref<OverviewTurnUpdate[]>([])
+  const openOverviewUpdates = ref<OverviewSummaryUpdateRow[]>([])
   // Ids a regenerate dropped from the view before main's file did; a stale `session-changed` must not restore them.
   const forgottenTimelineIds = new Set<string>()
   /** Artifact URLs of the open Session whose file was deleted; their cards say so. */
@@ -427,7 +427,7 @@ export const useSessions = defineStore('sessions', () => {
   async function setIncludedInOverviews(
     id: string,
     included: boolean,
-    request?: OverviewSummaryRequest,
+    request?: Summariser,
   ): Promise<boolean> {
     const result = await call('sessions/set-included-in-overviews-failed', () =>
       window.electronAPI.sessions.setIncludedInOverviews(id, included, request),
@@ -437,10 +437,7 @@ export const useSessions = defineStore('sessions', () => {
   }
 
   /** Ask main to write the Overview Summary again without a new turn (the chip's Retry). */
-  async function refreshOverviewSummary(
-    id: string,
-    request: OverviewSummaryRequest,
-  ): Promise<boolean> {
+  async function refreshOverviewSummary(id: string, request: Summariser): Promise<boolean> {
     const result = await call('sessions/refresh-overview-summary-failed', () =>
       window.electronAPI.sessions.refreshOverviewSummary(id, request),
     )
@@ -452,7 +449,7 @@ export const useSessions = defineStore('sessions', () => {
   async function retryOverviewUpdate(
     id: string,
     entryId: string,
-    request: OverviewSummaryRequest,
+    request: Summariser,
   ): Promise<boolean> {
     const result = await call('sessions/retry-overview-update-failed', () =>
       window.electronAPI.sessions.retryOverviewUpdate(id, entryId, request),
@@ -462,7 +459,7 @@ export const useSessions = defineStore('sessions', () => {
   }
 
   /** Resume the pending updates an interrupted run left behind; returns the Session ids. */
-  async function resumePendingOverviewUpdates(request: OverviewSummaryRequest): Promise<string[]> {
+  async function resumePendingOverviewUpdates(request: Summariser): Promise<string[]> {
     const result = await call('sessions/resume-pending-overview-updates-failed', () =>
       window.electronAPI.sessions.resumePendingOverviewUpdates(request),
     )

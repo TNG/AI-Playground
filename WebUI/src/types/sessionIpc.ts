@@ -115,36 +115,35 @@ export const OverviewSummaryUpdateSchema = z.object({
   coveredEntryId: z.string().optional(),
   failureReason: z.string().optional(),
   text: z.string().optional(),
+  /**
+   * Why the entry is pending: a local update was interrupted and resumes, or it
+   * waits for the next local turn because the turn was cloud or had no local model.
+   */
+  pendingReason: z.enum(['local', 'cloud', 'no-local']).optional(),
 })
 export type OverviewSummaryUpdate = z.infer<typeof OverviewSummaryUpdateSchema>
 
 /** The per-turn outcome a details row reads, with the entry it belongs to and its prompt. */
-export type OverviewTurnUpdate = {
+export type OverviewSummaryUpdateRow = {
   entryId: string
   kind: HistoryEntryKind
   prompt: string
   harnessSessionId?: string
   update: OverviewSummaryUpdate
+  /** The covered entry as a person can read it: its timestamp and 1-based place in the history. */
+  covered?: { at: number; number: number }
 }
 
-/** What the renderer resolves for an activation or refresh: local model and reply language. */
-export const OverviewSummaryRequestSchema = z.object({
-  /** Absent when no local model is available; the summary stays pending and no call is made. */
+/**
+ * The one renderer-resolved summariser every summary path ships — a turn's
+ * settlement, activation, refresh and retry: a local model (absent when none is
+ * available, which leaves the summary pending) and the Session's reply language.
+ */
+export const SummariserSchema = z.object({
   model: ChatModelConfigSchema.optional(),
   language: z.string().min(1),
 })
-export type OverviewSummaryRequest = z.infer<typeof OverviewSummaryRequestSchema>
-
-/**
- * What a media or audio turn ships so main never guesses a summariser: the
- * Assistant preset's local model readiness (absent for a cloud setup) and the
- * Session's reply language.
- */
-export const TurnSummariserSchema = z.object({
-  readiness: ChatModelConfigSchema.shape.readiness,
-  replyLanguage: z.string().min(1),
-})
-export type TurnSummariser = z.infer<typeof TurnSummariserSchema>
+export type Summariser = z.infer<typeof SummariserSchema>
 
 export const SessionFileSchema = z.object({
   schemaVersion: z.literal(1),
@@ -180,6 +179,8 @@ export const SessionFileSchema = z.object({
   includedInOverviews: z.boolean().default(false),
   /** Its Overview Summary while it is included; absent on an old file or before anything is written. */
   overviewSummary: OverviewSummarySchema.optional(),
+  /** The reply language frozen at its first summary; later UI language changes leave it alone. */
+  responseLocale: z.string().optional(),
   /** Hidden messages stay in the file and in what the model sees; only the view drops them. */
   hiddenMessageIds: z.array(z.string()).default([]),
   /** Absent on a file written before the list existed; read through `sessionFolderListOf`. */
@@ -213,6 +214,7 @@ export type SessionSummary = Pick<
   | 'reachable'
   | 'includedInOverviews'
   | 'hiddenMessageIds'
+  | 'responseLocale'
 > & {
   unreadable?: boolean
   folderList?: SessionFolderList
@@ -333,7 +335,7 @@ export const AudioTurnRequestSchema = z.object({
   /** TTS: the synthesized clip; STT: the source audio. */
   audio: z.object({ base64: z.string().min(1), fileName: z.string().min(1) }).optional(),
   /** The renderer-resolved local model and reply language for the Overview Summary update. */
-  summariser: TurnSummariserSchema.optional(),
+  summariser: SummariserSchema.optional(),
 })
 
 export type AudioTurnRequest = z.infer<typeof AudioTurnRequestSchema>

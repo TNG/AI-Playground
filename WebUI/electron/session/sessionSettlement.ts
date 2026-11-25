@@ -7,26 +7,16 @@ import {
 } from './overviewSummary'
 import { readSession, sessionDocumentOf } from './sessions'
 import { appendHistoryEntry, updateHistoryEntry, type NewHistoryEntry } from './sessionHistory'
-import type {
-  HistoryEntry,
-  OverviewSummaryUpdate,
-  OverviewSummaryRequest,
-  TurnSummariser,
-} from '@/types/sessionIpc'
-import type { ChatModelConfig } from '@/types/chatIpc'
+import { localSummaryModel } from '@/lib/summariser'
+import type { HistoryEntry, OverviewSummaryUpdate, Summariser } from '@/types/sessionIpc'
 
 const LOG_SCOPE = 'sessions'
 
-/**
- * What a settled turn needs to refresh its Session's Overview Summary: the local
- * model the renderer resolved and the Session's frozen reply language. A cloud
- * turn carries none, because a summary is never written by a cloud model.
- */
-export type SummariserDescriptor = TurnSummariser
-
 export type TurnSettlement = {
   /** Absent for a turn with no local model to write an Overview Summary with. */
-  summariser?: SummariserDescriptor
+  summariser?: Summariser
+  /** The turn ran on a cloud model, so the summary waits for the next local turn. */
+  cloudTurn?: boolean
   abortSignal?: AbortSignal
   /**
    * Runs after the turn is recorded but before the update's model call: a panel
@@ -40,21 +30,9 @@ export type TurnSettlement = {
   summariserAdmitted?: boolean
 }
 
-const BACKEND_OF_SERVICE: Record<string, ChatModelConfig['backend']> = {
-  'llamacpp-backend': 'llamaCPP',
-  'openvino-backend': 'openVINO',
-}
-
-/** The renderer ships readiness only; the summariser needs the full local model config. */
-function summaryRequestOf(descriptor?: SummariserDescriptor): OverviewSummaryRequest | null {
-  const readiness = descriptor?.readiness
-  if (!descriptor || !readiness?.llmModelName) return null
-  const backend = BACKEND_OF_SERVICE[readiness.serviceName]
-  if (!backend) return null
-  return {
-    model: { backend, modelId: readiness.llmModelName, readiness },
-    language: descriptor.replyLanguage || 'en-US',
-  }
+function pendingReasonOf(options: TurnSettlement): OverviewSummaryUpdate['pendingReason'] {
+  if (localSummaryModel(options.summariser)) return 'local'
+  return options.cloudTurn ? 'cloud' : 'no-local'
 }
 
 async function rewriteOutcome(
@@ -96,7 +74,10 @@ export async function settleTurn(
     written = await appendHistoryEntry(
       sessionId,
       included && entry.status !== 'cancelled'
-        ? { ...entry, overviewUpdate: { state: 'pending' } }
+        ? {
+            ...entry,
+            overviewUpdate: { state: 'pending', pendingReason: pendingReasonOf(options) },
+          }
         : entry,
     )
   } catch (error) {
@@ -109,8 +90,8 @@ export async function settleTurn(
     return rewriteOutcome(sessionId, written, { state: 'skipped' })
   }
 
-  const request = summaryRequestOf(options.summariser)
-  if (request && options.beforeSummary) {
+  const request = options.summariser
+  if (localSummaryModel(request) && options.beforeSummary) {
     try {
       await options.beforeSummary()
     } catch (error) {
@@ -122,7 +103,7 @@ export async function settleTurn(
   try {
     outcome = await updateOverviewSummaryForTurn(
       sessionId,
-      request ?? { language: options.summariser?.replyLanguage ?? 'en-US' },
+      request ?? { language: 'en-US' },
       options.abortSignal,
       { admitted: options.summariserAdmitted },
     )

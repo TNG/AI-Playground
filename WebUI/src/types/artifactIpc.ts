@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { ComfyInputSchema, ComfyUiPresetSchema } from '@/lib/presetSchemas'
-import { TurnSummariserSchema } from './sessionIpc'
+import { SummariserSchema } from './sessionIpc'
 import type { MediaItem } from './mediaItem'
 
 /**
@@ -45,7 +45,7 @@ export const ArtifactRunRequestSchema = z.object({
   /** The Session a panel run belongs to. */
   sessionId: z.string().optional(),
   /** The renderer-resolved local model and reply language for that Session's summary. */
-  summariser: TurnSummariserSchema.optional(),
+  summariser: SummariserSchema.optional(),
 })
 
 export type ArtifactRunRequest = z.infer<typeof ArtifactRunRequestSchema>

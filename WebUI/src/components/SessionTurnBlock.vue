@@ -41,6 +41,7 @@
             v-else-if="part.kind === 'overview-update'"
             :entry-id="part.entryId"
             :update="part.update"
+            :covered="part.covered"
           />
           <template v-else-if="answerOf(part.messageId)">
             <ChatMessageParts

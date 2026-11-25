@@ -49,10 +49,7 @@ const MODEL: ChatModelConfig = {
   modelId: 'qwen-test',
   readiness: { serviceName: 'llamacpp-backend', llmModelName: 'qwen-test' },
 }
-const DESCRIPTOR = {
-  readiness: { serviceName: 'llamacpp-backend', llmModelName: 'qwen-test' },
-  replyLanguage: 'de',
-}
+const DESCRIPTOR = { model: MODEL, language: 'de' }
 const REQUEST = { model: MODEL, language: 'de' }
 
 let calls: CompleteArgs[] = []
@@ -204,7 +201,7 @@ describe('a pending update across a restart', () => {
       entry({
         prompt: 'a red fox',
         response: 'The answer that must survive.',
-        overviewUpdate: { state: 'pending' },
+        overviewUpdate: { state: 'pending', pendingReason: 'local' },
       }),
     )
     await mutateSession(sessionId, (file) => ({
@@ -242,7 +239,10 @@ describe('a pending update across a restart', () => {
     const { sessionId } = await included()
     const pending = await appendHistoryEntry(
       sessionId,
-      entry({ prompt: 'a red fox', overviewUpdate: { state: 'pending' } }),
+      entry({
+        prompt: 'a red fox',
+        overviewUpdate: { state: 'pending', pendingReason: 'local' },
+      }),
     )
 
     reply = async () => ({ text: 'Caught up.', pictureMatches: false })
@@ -255,6 +255,43 @@ describe('a pending update across a restart', () => {
     expect(caughtUp?.overviewUpdate?.state).toBe('ready')
     expect(calls[0].prompt).toContain('a red fox')
     expect(calls[0].prompt).toContain('a blue fox')
+  })
+
+  it('does not summarise a cloud turn locally at launch, and the next local turn covers it', async () => {
+    const { sessionId } = await included()
+
+    // A cloud turn records the entry and leaves it pending: no local model ran.
+    const cloudTurn = await settleTurn(
+      sessionId,
+      entry({ prompt: 'answered by the cloud', response: 'A cloud answer.' }),
+      { cloudTurn: true },
+    )
+    expect(cloudTurn?.overviewUpdate).toMatchObject({
+      state: 'pending',
+      pendingReason: 'cloud',
+    })
+
+    summary.resetOverviewSummaryForTest()
+    setSessionDeps({ isDemoMode: () => false })
+    summary.setOverviewSummaryComplete(async (args) => {
+      calls.push(args)
+      return reply(args)
+    })
+    const resumed = await summary.resumePendingOverviewUpdates(REQUEST)
+
+    expect(resumed).toEqual([])
+    expect(calls).toEqual([])
+    expect((await openSession(sessionId)).overviewSummary?.state).toBe('pending')
+
+    reply = async () => ({ text: 'Caught up after the cloud turn.', pictureMatches: false })
+    const next = await settleTurn(sessionId, entry({ prompt: 'a local turn' }), {
+      summariser: DESCRIPTOR,
+    })
+    expect(next?.overviewUpdate?.state).toBe('ready')
+    expect(calls[0].prompt).toContain('answered by the cloud')
+    expect(calls[0].prompt).toContain('a local turn')
+    const caughtUp = (await readHistoryEntries(sessionId)).find((item) => item.id === cloudTurn?.id)
+    expect(caughtUp?.overviewUpdate?.state).toBe('ready')
   })
 
   it('leaves a pending marker alone when no local model can run it', async () => {

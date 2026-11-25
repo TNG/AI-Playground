@@ -374,8 +374,12 @@ describe('artifact runner', () => {
       params: { ...payload().params, batchSize: 1 },
     })
     const summariser = {
-      readiness: { serviceName: 'llamacpp-backend', llmModelName: 'qwen-test' },
-      replyLanguage: 'de',
+      model: {
+        backend: 'llamaCPP' as const,
+        modelId: 'qwen-test',
+        readiness: { serviceName: 'llamacpp-backend', llmModelName: 'qwen-test' },
+      },
+      language: 'de',
     }
     const run = submitArtifactRun({
       ...request,

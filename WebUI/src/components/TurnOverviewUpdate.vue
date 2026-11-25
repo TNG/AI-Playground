@@ -11,8 +11,8 @@
       <span v-if="update.tokens !== undefined">
         · {{ fillTemplate(languages.SESSION_OVERVIEW_UPDATE_TOKENS, { count: update.tokens }) }}
       </span>
-      <span v-if="shortCovered">
-        · {{ fillTemplate(languages.SESSION_OVERVIEW_UPDATE_COVERED, { entry: shortCovered }) }}
+      <span v-if="coveredLabel">
+        · {{ fillTemplate(languages.SESSION_OVERVIEW_UPDATE_COVERED, { entry: coveredLabel }) }}
       </span>
     </p>
     <p v-if="update.text" class="whitespace-pre-wrap wrap-break-word">{{ update.text }}</p>
@@ -36,9 +36,14 @@ import { fillTemplate } from '@/lib/fillTemplate'
 import { useSessionOverviews } from '@/lib/useSessionOverviews'
 import type { OverviewSummaryUpdate } from '@/types/sessionIpc'
 
-const props = defineProps<{ entryId: string; update: OverviewSummaryUpdate }>()
+const props = defineProps<{
+  entryId: string
+  update: OverviewSummaryUpdate
+  covered?: { at: number; number: number }
+}>()
 
-const languages = useI18N().state
+const i18n = useI18N()
+const languages = i18n.state
 const overviews = useSessionOverviews()
 const busy = ref(false)
 
@@ -66,19 +71,31 @@ const statusText = computed(() => {
 
 const moment = computed(() =>
   props.update.state === 'ready' && props.update.writtenAt !== undefined
-    ? new Date(props.update.writtenAt).toLocaleTimeString()
+    ? new Intl.DateTimeFormat(i18n.langName, { timeStyle: 'short' }).format(
+        new Date(props.update.writtenAt),
+      )
     : undefined,
 )
 
 const duration = computed(() => {
   const ms = props.update.durationMs
   if (ms === undefined) return undefined
-  if (ms < 1000) return `${ms} ms`
-  return `${(ms / 1000).toFixed(1)} s`
+  const seconds = ms >= 1000
+  return new Intl.NumberFormat(i18n.langName, {
+    style: 'unit',
+    unit: seconds ? 'second' : 'millisecond',
+    unitDisplay: 'short',
+    maximumFractionDigits: 1,
+  }).format(seconds ? ms / 1000 : ms)
 })
 
-const shortCovered = computed(() => {
-  const id = props.update.coveredEntryId
-  return id ? id.replace(/^entry-/, '').slice(-8) : undefined
+const coveredLabel = computed(() => {
+  const covered = props.covered
+  if (!covered) return undefined
+  const at = new Intl.DateTimeFormat(i18n.langName, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(new Date(covered.at))
+  return `${covered.number} · ${at}`
 })
 </script>

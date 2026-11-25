@@ -185,6 +185,7 @@ describe('a settled panel media turn updates the summary', () => {
       done = true
     })
 
+    await vi.waitFor(() => expect(calls).toHaveLength(1))
     await new Promise((resolve) => setTimeout(resolve, 5))
     expect(done).toBe(false)
     release({ text: 'A later account.', pictureMatches: false })
@@ -199,6 +200,8 @@ describe('a settled panel media turn updates the summary', () => {
     await recordMediaTurn(mediaTurn(sessionId), {
       summariser: SUMMARISER,
       beforeSummary: async () => {
+        // The model call has not happened yet: the GPU handoff comes first.
+        expect(calls).toEqual([])
         order.push('before-summary')
       },
     })
@@ -279,6 +282,7 @@ describe('a settled audio turn updates the summary', () => {
       done = true
     })
 
+    await vi.waitFor(() => expect(calls).toHaveLength(1))
     await new Promise((resolve) => setTimeout(resolve, 5))
     expect(done).toBe(false)
     release({ text: 'A later account.', pictureMatches: false })

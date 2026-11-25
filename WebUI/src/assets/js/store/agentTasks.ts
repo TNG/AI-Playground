@@ -1710,6 +1710,8 @@ export const useAgentTasks = defineStore('agentTasks', () => {
 
   agentMode.setTaskStepsLookup((taskId) => savedAgent(taskId)?.steps)
 
+  agentMode.setTaskSettingsLookup((harnessSessionId) => followUpOf(harnessSessionId)?.settings)
+
   /** The open Harness Session's run uses its Agent's Settings Template: its own are locked. */
   const openSessionSettingsReadOnly = computed(() => isSessionLockedByTask(agentMode.openSessionId))
 

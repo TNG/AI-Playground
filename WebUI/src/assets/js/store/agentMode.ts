@@ -2175,6 +2175,19 @@ export const useAgentMode = defineStore(
       taskStepsOf = lookup
     }
 
+    let taskSettingsOf: (harnessSessionId: string) => AgentSessionSettings | undefined = () =>
+      undefined
+
+    /**
+     * A Task Run's Regenerate re-runs on its Agent's saved Settings Template, as a Follow-up
+     * would; the Tasks store resolves the run's Agent here because it cannot be imported (cycle).
+     */
+    function setTaskSettingsLookup(
+      lookup: (harnessSessionId: string) => AgentSessionSettings | undefined,
+    ): void {
+      taskSettingsOf = lookup
+    }
+
     function taskLockRefusal(
       sessionId: string,
       signal: AbortSignal | undefined,
@@ -2439,11 +2452,15 @@ export const useAgentMode = defineStore(
     async function regenerateTurn(ref: HarnessTurnRef, edited = false): Promise<void> {
       if (!ref.promptId || ref.turnIds.length === 0) return
       const record = sessions.value[ref.harnessSessionId]
+      // An Agent Run re-runs on its Agent's saved Settings Template, as a Follow-up would; its
+      // own run tag already carries the workspace and folders, so only the settings are taken.
+      const agentSettings = record?.taskRun ? taskSettingsOf(ref.harnessSessionId) : undefined
       const result = await sendToSession(ref.harnessSessionId, '', {
         regenerate: ref,
         ...(edited ? { editedPrompt: true } : {}),
         // A Task Run re-runs in the Agent's own workspace, under its own run tag.
         ...(record?.taskRun ? { taskRun: record.taskRun } : {}),
+        ...(agentSettings ? { settings: agentSettings } : {}),
       })
       if (result.ok) return
       errors.report(new Error(result.message), {
@@ -2599,6 +2616,7 @@ export const useAgentMode = defineStore(
       sendToSession,
       setTaskLockLookup,
       setTaskStepsLookup,
+      setTaskSettingsLookup,
       quietSessionErrors,
       onTurnSettled,
       stopSession,

@@ -278,11 +278,17 @@ function attachOverviewUpdates(
     const fits = (row: OverviewSummaryUpdateRow) =>
       kinds.includes(row.kind) &&
       (!harness || !row.harnessSessionId || row.harnessSessionId === harness)
+    // A turn still working has no outcome of its own yet; it may show a pending row,
+    // but never a ready one from the turn before it.
+    const working =
+      (turn.kind === 'agent' && turn.streaming === true) || turn.details.live !== undefined
+    const usable = (entry: (typeof remaining)[number]) =>
+      !entry.used && fits(entry.row) && (!working || entry.row.update.state === 'pending')
     let found = remaining.findLastIndex(
-      (entry) => !entry.used && fits(entry.row) && normalizedPrompt(entry.row.prompt) === prompt,
+      (entry) => usable(entry) && normalizedPrompt(entry.row.prompt) === prompt,
     )
-    if (found < 0 && turn.kind === 'agent') {
-      found = remaining.findLastIndex((entry) => !entry.used && fits(entry.row))
+    if (found < 0 && turn.kind === 'agent' && !working) {
+      found = remaining.findLastIndex(usable)
     }
     if (found < 0) continue
     const entry = remaining[found]

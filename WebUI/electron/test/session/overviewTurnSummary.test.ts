@@ -457,6 +457,114 @@ describe('the turn details data', () => {
     )
   })
 
+  it("does not give a working turn the previous turn's summary", () => {
+    const timeline = [
+      {
+        id: 'u1',
+        role: 'user',
+        metadata: { chatTurn: true },
+        parts: [{ type: 'text', text: 'same prompt' }],
+      },
+      {
+        id: 'a1',
+        role: 'assistant',
+        metadata: { chatTurn: true },
+        parts: [{ type: 'text', text: 'old answer' }],
+      },
+      {
+        id: 'u2',
+        role: 'user',
+        metadata: { chatTurn: true },
+        parts: [{ type: 'text', text: 'same prompt' }],
+      },
+      {
+        id: 'a2',
+        role: 'assistant',
+        metadata: { chatTurn: true },
+        parts: [{ type: 'text', text: 'new answer' }],
+      },
+    ]
+    const rows: OverviewSummaryUpdateRow[] = [
+      {
+        entryId: 'entry-1',
+        kind: 'chat',
+        prompt: 'same prompt',
+        update: { state: 'ready', text: 'Old update.', coveredEntryId: 'entry-1' },
+      },
+    ]
+
+    const turns = sessionTimelineItems(
+      timeline,
+      { chat: [], chatStatus: { running: true } } as never,
+      {},
+      rows,
+    ).filter((item) => item.kind === 'chat')
+    expect(turns[0]?.details.parts).toContainEqual(
+      expect.objectContaining({ kind: 'overview-update', entryId: 'entry-1' }),
+    )
+    expect(turns[1]?.details.parts).not.toContainEqual(
+      expect.objectContaining({ kind: 'overview-update' }),
+    )
+  })
+
+  it('gives a working turn its own pending row', () => {
+    const timeline = [
+      {
+        id: 'u1',
+        role: 'user',
+        metadata: { chatTurn: true },
+        parts: [{ type: 'text', text: 'old prompt' }],
+      },
+      {
+        id: 'a1',
+        role: 'assistant',
+        metadata: { chatTurn: true },
+        parts: [{ type: 'text', text: 'old answer' }],
+      },
+      {
+        id: 'u2',
+        role: 'user',
+        metadata: { chatTurn: true },
+        parts: [{ type: 'text', text: 'new prompt' }],
+      },
+      {
+        id: 'a2',
+        role: 'assistant',
+        metadata: { chatTurn: true },
+        parts: [{ type: 'text', text: 'new answer' }],
+      },
+    ]
+    const rows: OverviewSummaryUpdateRow[] = [
+      {
+        entryId: 'entry-1',
+        kind: 'chat',
+        prompt: 'old prompt',
+        update: { state: 'ready', text: 'Old update.', coveredEntryId: 'entry-1' },
+      },
+      {
+        entryId: 'entry-2',
+        kind: 'chat',
+        prompt: 'new prompt',
+        update: { state: 'pending' },
+      },
+    ]
+
+    const turns = sessionTimelineItems(
+      timeline,
+      { chat: [], chatStatus: { running: true } } as never,
+      {},
+      rows,
+    ).filter((item) => item.kind === 'chat')
+    expect(turns[0]?.details.parts).toContainEqual(
+      expect.objectContaining({ kind: 'overview-update', entryId: 'entry-1' }),
+    )
+    expect(turns[1]?.details.parts).toContainEqual({
+      kind: 'overview-update',
+      entryId: 'entry-2',
+      update: rows[1]!.update,
+    })
+  })
+
   it('keeps an older prompt-sharing turn without an entry id from taking a newer outcome', () => {
     const timeline = [
       {

@@ -158,7 +158,7 @@
   "SESSIONS_REACHABLE_OFF": "Tus canales no pueden acceder a esta sesión. Haz clic para hacerla accesible.",
   "SESSIONS_IN_OVERVIEWS": "Incluida en Overviews",
   "SESSIONS_IN_OVERVIEWS_CHIP": "Overviews",
-  "SESSIONS_IN_OVERVIEWS_ON": "Esta sesión mantiene un Resumen de Overview escrito por un modelo local a partir de sus entradas del historial, y puede aparecer en un archivo que compartas. Haz clic para desactivarlo; el resumen se conserva y se reconstruye al volver a activarlo.",
+  "SESSIONS_IN_OVERVIEWS_ON": "Esta sesión mantiene un Resumen de Overview escrito por un modelo local a partir de sus entradas del historial, y puede aparecer en un archivo que compartas. Haz clic para desactivarlo; el resumen se conserva y solo se actualiza cuando la sesión cambia.",
   "SESSIONS_IN_OVERVIEWS_OFF": "Esta sesión queda fuera de las Overviews. Incluirla escribe un Resumen de Overview: un modelo local lee sus entradas del historial, y desactivarla conserva ese resumen sin usarlo. Haz clic para incluirla.",
   "SESSIONS_IN_OVERVIEWS_PENDING": "Escribiendo el Resumen de Overview de esta sesión a partir de sus entradas del historial…",
   "SESSIONS_IN_OVERVIEWS_FAILED": "No se pudo escribir el Resumen de Overview. Haz clic para desactivarlo; el resumen se conserva.",

@@ -365,7 +365,7 @@ describe('local-only', () => {
 })
 
 describe('opt-out and re-enable', () => {
-  it('keeps the summary, clears its cover and cancels a running update', async () => {
+  it('keeps the summary and cancels a running update', async () => {
     const session = await createSession()
     await addEntry(session.id)
 
@@ -385,12 +385,11 @@ describe('opt-out and re-enable', () => {
     expect(document.includedInOverviews).toBe(false)
     expect(document.overviewSummary).toMatchObject({ state: 'pending' })
     expect(document.overviewSummary?.text).toBeUndefined()
-    expect(document.overviewSummary?.coveredEntryId).toBeUndefined()
   })
 
-  it('keeps the text and rebuilds everything when re-enabled', async () => {
+  it('reuses a current summary when re-enabled', async () => {
     const session = await createSession()
-    await addEntry(session.id, { prompt: 'first turn' })
+    const first = await addEntry(session.id, { prompt: 'first turn' })
     reply = async () => ({ text: 'Old account.', pictureMatches: false })
     await summary.applyOverviewInclusion(session.id, true, REQUEST)
     await vi.waitFor(async () => {
@@ -400,19 +399,43 @@ describe('opt-out and re-enable', () => {
     await summary.applyOverviewInclusion(session.id, false, { language: 'de' })
     const kept = await openSession(session.id)
     expect(kept.includedInOverviews).toBe(false)
-    expect(kept.overviewSummary).toMatchObject({ text: 'Old account.', state: 'ready' })
-    expect(kept.overviewSummary?.coveredEntryId).toBeUndefined()
+    expect(kept.overviewSummary).toMatchObject({
+      text: 'Old account.',
+      state: 'ready',
+      coveredEntryId: first.id,
+    })
 
     calls = []
-    reply = async () => ({ text: 'Rebuilt account.', pictureMatches: false })
+    await summary.applyOverviewInclusion(session.id, true, REQUEST)
+    const reused = await openSession(session.id)
+    expect(reused.includedInOverviews).toBe(true)
+    expect(reused.overviewSummary?.text).toBe('Old account.')
+    expect(calls).toEqual([])
+  })
+
+  it('updates only the turns that happened while it was off', async () => {
+    const session = await createSession()
+    const first = await addEntry(session.id, { prompt: 'first turn' })
+    reply = async () => ({ text: 'Old account.', pictureMatches: false })
     await summary.applyOverviewInclusion(session.id, true, REQUEST)
     await vi.waitFor(async () => {
-      expect((await openSession(session.id)).overviewSummary?.text).toBe('Rebuilt account.')
+      expect((await openSession(session.id)).overviewSummary?.coveredEntryId).toBe(first.id)
+    })
+
+    await summary.applyOverviewInclusion(session.id, false, { language: 'de' })
+    const second = await addEntry(session.id, { prompt: 'second turn' })
+
+    calls = []
+    reply = async () => ({ text: 'Updated account.', pictureMatches: false })
+    await summary.applyOverviewInclusion(session.id, true, REQUEST)
+    await vi.waitFor(async () => {
+      expect((await openSession(session.id)).overviewSummary?.text).toBe('Updated account.')
     })
 
     expect(calls).toHaveLength(1)
-    expect(calls[0].prompt).toContain('first turn')
-    expect(calls[0].prompt).not.toContain('Old account.')
+    expect(calls[0].prompt).toContain('Old account.')
+    expect(calls[0].prompt).toContain('second turn')
+    expect((await openSession(session.id)).overviewSummary?.coveredEntryId).toBe(second.id)
   })
 })
 

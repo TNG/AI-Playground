@@ -158,7 +158,7 @@
   "SESSIONS_REACHABLE_OFF": "I tuoi canali non possono raggiungere questa sessione. Fai clic per renderla raggiungibile.",
   "SESSIONS_IN_OVERVIEWS": "Inclusa nelle Overviews",
   "SESSIONS_IN_OVERVIEWS_CHIP": "Overviews",
-  "SESSIONS_IN_OVERVIEWS_ON": "Questa sessione mantiene un Riepilogo Overview scritto da un modello locale a partire dalle sue Voci di cronologia, e può comparire in un file che condividi. Fai clic per disattivarlo; il riepilogo resta e viene ricostruito quando lo riattivi.",
+  "SESSIONS_IN_OVERVIEWS_ON": "Questa sessione mantiene un Riepilogo Overview scritto da un modello locale a partire dalle sue Voci di cronologia, e può comparire in un file che condividi. Fai clic per disattivarlo; il riepilogo resta e viene aggiornato solo quando la sessione cambia.",
   "SESSIONS_IN_OVERVIEWS_OFF": "Questa sessione resta fuori dalle Overviews. Includerla scrive un Riepilogo Overview: un modello locale legge le sue Voci di cronologia e disattivarla conserva quel riepilogo senza usarlo. Fai clic per includerla.",
   "SESSIONS_IN_OVERVIEWS_PENDING": "Scrittura del Riepilogo Overview di questa sessione dalle sue Voci di cronologia…",
   "SESSIONS_IN_OVERVIEWS_FAILED": "Non è stato possibile scrivere il Riepilogo Overview. Fai clic per disattivarlo; il riepilogo resta.",

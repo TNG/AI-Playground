@@ -148,7 +148,8 @@ _Avoid_: summary step, subagent, background summariser
 **Included in Overviews**:
 The per-Session switch, off by default: consent for the Session to keep an Overview Summary, and for
 that summary and one picture to appear in files the user may share. Turning it off cancels a running
-update and keeps the summary unused; turning it back on rebuilds it from the whole history.
+update and keeps the summary unused; turning it back on reuses it, updating only what changed while
+it was off.
 _Avoid_: shared, exported, reachable
 
 ## Capabilities

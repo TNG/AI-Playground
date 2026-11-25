@@ -158,7 +158,7 @@
   "SESSIONS_REACHABLE_OFF": "ช่องทางของคุณเข้าถึงเซสชันนี้ไม่ได้ คลิกเพื่อให้เข้าถึงได้",
   "SESSIONS_IN_OVERVIEWS": "รวมใน Overviews",
   "SESSIONS_IN_OVERVIEWS_CHIP": "Overviews",
-  "SESSIONS_IN_OVERVIEWS_ON": "เซสชันนี้เก็บ Overview Summary ที่โมเดลโลคอลเขียนจากรายการประวัติ และอาจปรากฏในไฟล์ที่คุณแชร์ คลิกเพื่อปิด สรุปจะยังคงอยู่และจะถูกสร้างใหม่เมื่อเปิดอีกครั้ง",
+  "SESSIONS_IN_OVERVIEWS_ON": "เซสชันนี้เก็บ Overview Summary ที่โมเดลโลคอลเขียนจากรายการประวัติ และอาจปรากฏในไฟล์ที่คุณแชร์ คลิกเพื่อปิด สรุปจะยังคงอยู่และจะอัปเดตเฉพาะเมื่อเซสชันเปลี่ยนแปลง",
   "SESSIONS_IN_OVERVIEWS_OFF": "เซสชันนี้จะไม่อยู่ใน Overviews การรวมจะเขียน Overview Summary โดยโมเดลโลคอลอ่านรายการประวัติ และการปิดจะเก็บสรุปนั้นไว้โดยไม่ใช้งาน คลิกเพื่อรวม",
   "SESSIONS_IN_OVERVIEWS_PENDING": "กำลังเขียน Overview Summary ของเซสชันนี้จากรายการประวัติ…",
   "SESSIONS_IN_OVERVIEWS_FAILED": "ไม่สามารถเขียน Overview Summary ได้ คลิกเพื่อปิด สรุปจะยังคงอยู่",

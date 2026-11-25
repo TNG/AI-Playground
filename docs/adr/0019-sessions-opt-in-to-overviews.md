@@ -18,8 +18,8 @@ by the chip, which summarises the existing history (in chunks when it does not f
 Session with no History Entries writes nothing until its first turn. Every later turn updates the
 summary before it finishes, locally, in its own context. Nothing is summarised for a Session that
 is not included. Turning the switch off cancels a running update but keeps the summary, which no
-Overview reads while the switch is off; re-enabling rebuilds it from the whole history. An Overview
-already written keeps its copy, because that file is the user's.
+Overview reads while the switch is off; re-enabling reuses it, updating only the turns that happened
+while it was off. An Overview already written keeps its copy, because that file is the user's.
 
 ## Considered Options
 
@@ -30,9 +30,10 @@ already written keeps its copy, because that file is the user's.
 - **Opting in per Overview rather than per Session** — rejected. It re-asks a question whose answer
   does not change, and it would leave no place in a Session's own settings to see the answer.
 - **Deleting the summary on opt-out** — rejected. It looks like the safest option, but it throws away
-  the Session's account for a switch the user may reverse, and re-enabling had to rebuild it anyway.
-  The kept copy is never read while inclusion is off and is rebuilt on re-enable; the price is a
-  hidden copy of prompt-derived text after consent ends, which the user accepted.
+  the Session's account for a switch the user may reverse, and a re-enable can reuse it as-is. The
+  kept copy is never read while inclusion is off and is reused on re-enable, updated only if the
+  Session moved on; the price is a hidden copy of prompt-derived text after consent ends, which the
+  user accepted.
 
 ## Consequences
 

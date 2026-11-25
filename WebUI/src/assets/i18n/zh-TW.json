@@ -158,7 +158,7 @@
   "SESSIONS_REACHABLE_OFF": "你的頻道無法存取此工作階段。按一下即可設為可存取。",
   "SESSIONS_IN_OVERVIEWS": "包含在 Overviews 中",
   "SESSIONS_IN_OVERVIEWS_CHIP": "Overviews",
-  "SESSIONS_IN_OVERVIEWS_ON": "此工作階段保留由本機模型根據其歷史記錄項目撰寫的 Overview 摘要，並可能出現在你分享的檔案中。按一下以關閉；摘要會保留，再次開啟時會重新產生。",
+  "SESSIONS_IN_OVERVIEWS_ON": "此工作階段保留由本機模型根據其歷史記錄項目撰寫的 Overview 摘要，並可能出現在你分享的檔案中。按一下以關閉；摘要會保留，並且僅在工作階段變更時更新。",
   "SESSIONS_IN_OVERVIEWS_OFF": "此工作階段不包含在 Overviews 中。包含它會撰寫 Overview 摘要：本機模型會讀取其歷史記錄項目，關閉會保留該摘要但不再使用。按一下以包含。",
   "SESSIONS_IN_OVERVIEWS_PENDING": "正在根據歷史記錄項目撰寫此工作階段的 Overview 摘要…",
   "SESSIONS_IN_OVERVIEWS_FAILED": "無法撰寫 Overview 摘要。按一下以關閉；摘要會保留。",

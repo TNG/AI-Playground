@@ -477,7 +477,7 @@ async function markPending(
   return sessionDocumentOf(file)
 }
 
-/** Enabling starts the first update; opting out keeps the summary but clears its cover. */
+/** Enabling reuses a current summary; opting out keeps it, unused, for the next enable. */
 export async function applyOverviewInclusion(
   sessionId: string,
   included: boolean,
@@ -485,15 +485,10 @@ export async function applyOverviewInclusion(
 ): Promise<SessionDocument> {
   if (!included) {
     cancelRun(sessionId)
-    const file = await mutateSession(sessionId, (current) => {
-      if (!current.overviewSummary) return { ...current, includedInOverviews: false }
-      const { coveredEntryId: _covered, ...kept } = current.overviewSummary
-      return {
-        ...current,
-        includedInOverviews: false,
-        overviewSummary: { ...kept, updatesSinceRebuild: 0 },
-      }
-    })
+    const file = await mutateSession(sessionId, (current) => ({
+      ...current,
+      includedInOverviews: false,
+    }))
     emitSessionChanged(sessionDocumentOf(file))
     return sessionDocumentOf(file)
   }
@@ -508,6 +503,30 @@ export async function applyOverviewInclusion(
   }
   const entries = await readHistoryEntries(sessionId)
   if (entries.length === 0) return sessionDocumentOf(file)
+
+  const newest = entries.at(-1)
+  const summary = file.overviewSummary
+  const currentSummary =
+    newest !== undefined &&
+    summary !== undefined &&
+    summary.text !== undefined &&
+    summary.text.trim() !== '' &&
+    summary.contractVersion === OVERVIEW_SUMMARY_CONTRACT_VERSION &&
+    summary.coveredEntryId !== undefined &&
+    summary.coveredEntryId === newest.id
+  if (currentSummary && summary) {
+    if (summary.state === 'ready' && summary.failureReason === undefined) {
+      return sessionDocumentOf(file)
+    }
+    const updated = await mutateSession(sessionId, (currentFile) => {
+      const kept = currentFile.overviewSummary
+      if (!kept) return currentFile
+      const { failureReason: _failure, ...rest } = kept
+      return { ...currentFile, overviewSummary: { ...rest, state: 'ready' } }
+    })
+    emitSessionChanged(sessionDocumentOf(updated))
+    return sessionDocumentOf(updated)
+  }
 
   const request = await withSessionLanguage(sessionId, initialRequest)
   if (!localSummaryModel(request)) {

@@ -65,5 +65,5 @@ audio turn pays a model load to update one, and a cloud turn leaves the summary 
 sending the Session's History Entries to a provider. Follow-ups that reshape prose — "make it
 terser", "only the games", "add the failures" — are gone; the agent's only decision is the range.
 The summary lives on the Session and is kept when the Session is opted out (ADR-0019); it is unused
-while the switch is off and rebuilt from the whole history when the Session is included again. An
-Overview file already written keeps the copy the user chose to keep.
+while the switch is off and reused when the Session is included again, updated only for turns that
+happened meanwhile. An Overview file already written keeps the copy the user chose to keep.

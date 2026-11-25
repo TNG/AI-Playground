@@ -158,7 +158,7 @@
   "SESSIONS_REACHABLE_OFF": "Your Channels can't reach this Session. Click to make it reachable.",
   "SESSIONS_IN_OVERVIEWS": "Included in Overviews",
   "SESSIONS_IN_OVERVIEWS_CHIP": "Overviews",
-  "SESSIONS_IN_OVERVIEWS_ON": "This Session keeps an Overview Summary written by a local model from its History Entries, and it may appear in a file you share. Click to turn it off; the summary stays, and turning it back on rebuilds it.",
+  "SESSIONS_IN_OVERVIEWS_ON": "This Session keeps an Overview Summary written by a local model from its History Entries, and it may appear in a file you share. Click to turn it off; the summary stays and is updated only when the Session changes.",
   "SESSIONS_IN_OVERVIEWS_OFF": "This Session stays out of Overviews. Including it writes an Overview Summary: a local model reads its History Entries, and turning it off keeps that summary without using it. Click to include it.",
   "SESSIONS_IN_OVERVIEWS_PENDING": "Writing this Session's Overview Summary from its History Entries…",
   "SESSIONS_IN_OVERVIEWS_FAILED": "The Overview Summary could not be written. Click to turn it off; the summary stays.",

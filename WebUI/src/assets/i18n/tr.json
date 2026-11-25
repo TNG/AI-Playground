@@ -158,7 +158,7 @@
   "SESSIONS_REACHABLE_OFF": "Kanallarınız bu oturuma erişemez. Erişilebilir yapmak için tıklayın.",
   "SESSIONS_IN_OVERVIEWS": "Overviews'a dahil",
   "SESSIONS_IN_OVERVIEWS_CHIP": "Overviews",
-  "SESSIONS_IN_OVERVIEWS_ON": "Bu oturum, yerel bir modelin Geçmiş Girdilerinden yazdığı bir Overview Özeti tutar ve paylaştığınız bir dosyada görünebilir. Kapatmak için tıklayın; özet kalır ve yeniden açtığınızda yeniden oluşturulur.",
+  "SESSIONS_IN_OVERVIEWS_ON": "Bu oturum, yerel bir modelin Geçmiş Girdilerinden yazdığı bir Overview Özeti tutar ve paylaştığınız bir dosyada görünebilir. Kapatmak için tıklayın; özet kalır ve yalnızca oturum değiştiğinde güncellenir.",
   "SESSIONS_IN_OVERVIEWS_OFF": "Bu oturum Overviews dışında kalır. Dahil etmek bir Overview Özeti yazar: yerel bir model Geçmiş Girdilerini okur ve kapatmak bu özeti kullanmadan saklar. Dahil etmek için tıklayın.",
   "SESSIONS_IN_OVERVIEWS_PENDING": "Bu oturumun Overview Özeti Geçmiş Girdilerinden yazılıyor…",
   "SESSIONS_IN_OVERVIEWS_FAILED": "Overview Özeti yazılamadı. Kapatmak için tıklayın; özet kalır.",

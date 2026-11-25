@@ -18,9 +18,7 @@ describe('condenseMediaAgentRun', () => {
     expect(result.summary).toBe('Made a castle.')
     expect(result.images).toHaveLength(1)
     expect(result.steps[0]).toContain('Draft Image')
-    expect(slimCondensedMedia(result).images).toEqual([
-      { id: '1', type: 'image', imageUrl: 'aipg-media://a.png' },
-    ])
+    expect(slimCondensedMedia(result).images).toEqual([{ id: '1', type: 'image' }])
   })
 
   it('keeps the prompt the specialist wrote on each image it produced', () => {
@@ -40,7 +38,6 @@ describe('condenseMediaAgentRun', () => {
       {
         id: '1',
         type: 'image',
-        imageUrl: 'aipg-media://a.png',
         settings: { prompt: 'a moonlit castle' },
       },
     ])
@@ -120,7 +117,6 @@ describe('condenseMediaAgentRun', () => {
       {
         id: '1',
         type: 'image',
-        imageUrl: 'aipg-media://a.png',
         settings: {
           prompt: 'a moonlit castle',
           preset: 'Draft Image',
@@ -240,9 +236,46 @@ describe('condenseMediaAgentRun', () => {
       {
         id: '1',
         type: 'image',
-        imageUrl: 'aipg-media://a.png',
         settings: { preset: 'Draft Image', prompt: 'a castle' },
       },
+    ])
+  })
+
+  it('keeps the savedFiles paths in the slim copy but no media URLs', () => {
+    const result = condenseMediaAgentRun({
+      text: 'Made a castle.',
+      steps: [
+        {
+          toolName: 'comfyUI',
+          input: { workflow: 'Draft Image', prompt: 'a castle' },
+          output: {
+            images: [
+              {
+                id: '1',
+                type: 'image',
+                imageUrl: 'aipg-media://folders/s1/folder-x/castle.png',
+                mode: 'imageGen',
+                settings: { preset: 'Draft Image', prompt: 'a castle' },
+              },
+            ],
+          },
+        },
+      ],
+    })
+    const saved = {
+      ...result,
+      savedFiles: ['generated/castle.png'],
+      savedFilesNote: 'The generated media files were saved into the workspace.',
+    }
+
+    // The parent model names files by their saved paths; the folder-served URLs stay out of
+    // its context, so it never quotes session or folder ids to the user.
+    expect(slimCondensedMedia(saved)).toMatchObject({
+      savedFiles: ['generated/castle.png'],
+      savedFilesNote: 'The generated media files were saved into the workspace.',
+    })
+    expect(slimCondensedMedia(saved).images).toEqual([
+      { id: '1', type: 'image', settings: { preset: 'Draft Image', prompt: 'a castle' } },
     ])
   })
 })

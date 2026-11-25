@@ -124,7 +124,7 @@ describe('mediaDelegation (in-process media tool)', () => {
     )
   })
 
-  it('returns the model its text unchanged and the transcript the items and steps', async () => {
+  it('returns the model the slim result and the transcript the items and steps', async () => {
     const video = { id: 'v', type: 'video', videoUrl: 'aipg-media://clip.mp4' }
     const model = { id: 'm', type: 'model3d', model3dUrl: 'aipg-media://shape.glb' }
     runMediaAgentInMainMock.mockResolvedValueOnce(specialistResult([video, model]))
@@ -138,10 +138,14 @@ describe('mediaDelegation (in-process media tool)', () => {
       new AbortController().signal,
     )) as { content: { type: string; text: string }[]; details?: unknown }
 
+    // The parent model's context carries no media URLs; the transcript's items keep them.
     expect(JSON.parse(result.content[0].text)).toEqual({
       summary: 'Made it.',
       steps: ['comfyUI (W1): produced 2 video, model3d'],
-      images: [video, model],
+      images: [
+        { id: 'v', type: 'video' },
+        { id: 'm', type: 'model3d' },
+      ],
     })
     expect(result.details).toEqual({
       items: [
@@ -188,6 +192,64 @@ describe('mediaDelegation (in-process media tool)', () => {
       'clip-1.mp4',
       undefined,
     ])
+    actual.setAppMediaPathResolver(null)
+  })
+
+  it('keeps the folder-served URLs out of the model content, which names files by path', async () => {
+    runMediaAgentInMainMock.mockResolvedValueOnce(
+      specialistResult([
+        {
+          id: '1',
+          type: 'image',
+          imageUrl: 'aipg-media://media/castle.png',
+          mode: 'imageGen',
+          settings: { preset: 'Draft Image', prompt: 'a castle' },
+        },
+      ]),
+    )
+    const appMedia = fs.mkdtempSync(path.join(os.tmpdir(), 'app-media-'))
+    fs.writeFileSync(path.join(appMedia, 'castle.png'), 'png-bytes')
+    const filesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'session-files-'))
+    const actual = await vi.importActual<typeof import('../../agent/piCustomTools.ts')>(
+      '../../agent/piCustomTools.ts',
+    )
+    actual.setAppMediaPathResolver((url) =>
+      path.join(appMedia, decodeURIComponent(new URL(url).pathname)),
+    )
+    saveMediaMock.mockImplementationOnce((result, dir) =>
+      actual.saveGeneratedMediaToWorkspace(result, dir, {
+        sessionRef: 'session-1',
+        workspace: 'files',
+        folderId: 'folder-ws',
+      }),
+    )
+    const host = hostWith({ workspaceDir: filesDir })
+    const tool = (await buildDelegatedMediaTool(host, MEDIA_SPEC)) as unknown as {
+      execute: (id: string, params: unknown, signal: AbortSignal) => Promise<unknown>
+    }
+
+    const result = (await tool.execute(
+      'call-1',
+      { request: 'a castle' },
+      new AbortController().signal,
+    )) as {
+      content: { type: string; text: string }[]
+      details: { items: Record<string, unknown>[] }
+    }
+
+    // The model names files by their saved paths: the folder-served URLs — and with them the
+    // Session and folder ids — stay out of its context, so it never quotes a UUID to the user.
+    const content = JSON.parse(result.content[0].text) as {
+      images: Record<string, unknown>[]
+      savedFiles: string[]
+    }
+    expect(content.savedFiles).toEqual(['castle.png'])
+    expect(content.images[0].imageUrl).toBeUndefined()
+    expect(result.content[0].text).not.toContain('aipg-media://folders/')
+    // The transcript's item keeps the folder-served URL the UI displays the image from.
+    expect(result.details.items[0].imageUrl).toBe(
+      'aipg-media://folders/session-1/folder-ws/castle.png',
+    )
     actual.setAppMediaPathResolver(null)
   })
 

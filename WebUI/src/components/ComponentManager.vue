@@ -247,6 +247,7 @@ function openCloudSetup() {
 
     <CloudModeSetupPage
       v-else-if="ui.componentManagerSubView === 'cloud'"
+      embedded
       @back="ui.closeComponentManagerSubView()"
       @done="ui.closeComponentManagerSubView()"
     />

@@ -38,6 +38,7 @@ import type {
   listAllArtifacts,
   missingArtifactUrls,
   newestArtifact,
+  openArtifactActions,
 } from '../../session/sessionArtifacts'
 import type { listAllCreatedFiles } from '../../session/sessionCreatedFiles'
 import type { harnessSessionFor } from '../../session/sessionHarness'
@@ -101,6 +102,7 @@ export type SessionsDeps = {
   recordAudioTurn: typeof recordAudioTurn
   listAllArtifacts: typeof listAllArtifacts
   listAllCreatedFiles: typeof listAllCreatedFiles
+  openArtifact: ReturnType<typeof openArtifactActions>
   missingArtifactUrls: typeof missingArtifactUrls
   deleteArtifact: typeof deleteArtifact
   readSessionSettings: typeof readSessionSettings
@@ -536,6 +538,14 @@ export function buildSessionsRegistry(deps: SessionsDeps) {
           requireString(id, 'session id'),
           requireString(url, 'artifact url'),
         )
+        return { success: true as const }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
+    'sessions:openArtifact': async (_event, id, url) => {
+      try {
+        await deps.openArtifact(requireString(id, 'session id'), requireString(url, 'artifact url'))
         return { success: true as const }
       } catch (e) {
         return ipcFail(e)

@@ -33,20 +33,36 @@
           {{ languages.GALLERY_OPEN_SESSION }}
         </Button>
         <span v-else></span>
-        <Tooltip>
-          <TooltipTrigger as-child>
-            <Button
-              variant="ghost"
-              size="icon"
-              class="h-8 w-8"
-              :aria-label="languages.ANSWER_FILE_OPEN_TOOLTIP"
-              @click="openAnswerFile(file)"
-            >
-              <ArrowTopRightOnSquareIcon class="size-4" aria-hidden="true" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>{{ languages.ANSWER_FILE_OPEN_TOOLTIP }}</TooltipContent>
-        </Tooltip>
+        <div class="flex items-center">
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <Button
+                variant="ghost"
+                size="icon"
+                class="h-8 w-8"
+                :aria-label="languages.ARTIFACT_DELETE"
+                @click="emit('delete')"
+              >
+                <TrashIcon class="size-4" aria-hidden="true" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{{ languages.ARTIFACT_DELETE }}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <Button
+                variant="ghost"
+                size="icon"
+                class="h-8 w-8"
+                :aria-label="languages.ANSWER_FILE_OPEN_TOOLTIP"
+                @click="openAnswerFile(file)"
+              >
+                <ArrowTopRightOnSquareIcon class="size-4" aria-hidden="true" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{{ languages.ANSWER_FILE_OPEN_TOOLTIP }}</TooltipContent>
+          </Tooltip>
+        </div>
       </div>
     </div>
   </div>
@@ -54,7 +70,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { ArrowTopRightOnSquareIcon } from '@heroicons/vue/24/outline'
+import { ArrowTopRightOnSquareIcon, TrashIcon } from '@heroicons/vue/24/outline'
 import { useI18N } from '@/assets/js/store/i18n'
 import { relativeTime } from '@/assets/js/store/recordRows'
 import { useSessionLifecycle } from '@/assets/js/store/sessionLifecycle'
@@ -75,6 +91,8 @@ const props = defineProps<{
   /** The Session whose timeline wrote the file; another Session's card offers to open it. */
   sessionRef: string
 }>()
+
+const emit = defineEmits<{ delete: [] }>()
 
 const languages = useI18N().state
 const sessions = useSessions()

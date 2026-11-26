@@ -84,9 +84,9 @@ function agentAnswer(
   }
 }
 
-const harnessRecord = (id: string, createdAt: number) => ({
+const harnessRecord = (id: string, createdAt: number, workspaceDir: string) => ({
   id,
-  workspaceDir: '/games/space-dodger',
+  workspaceDir,
   title: 'dodge asteroids',
   createdAt,
   updatedAt: createdAt,
@@ -95,10 +95,19 @@ const harnessRecord = (id: string, createdAt: number) => ({
   messages: [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'dodge asteroids' }] }],
 })
 
+/** A real workspace dir holding the named files, as the harness record points at it. */
+async function workspaceWith(files: string[]): Promise<string> {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'aipg-created-ws-'))
+  for (const file of files) await fs.writeFile(path.join(dir, file), `content of ${file}`)
+  return dir
+}
+
 describe('listAllCreatedFiles', () => {
   it('lists every Session agent-written file with its message stamp', async () => {
     const session = await createSession()
     await renameSession(session.id, 'space game')
+    const ws = await workspaceWith(['game.js', 'design.md'])
+    await saveAgentSession(harnessRecord('h1', 500, ws))
 
     await upsertTimelineMessages(session.id, [
       agentAnswer('a1', 'h1', ['game.js', 'design.md'], 1_000),
@@ -124,6 +133,8 @@ describe('listAllCreatedFiles', () => {
 
   it('keeps one entry per file, the latest write winning', async () => {
     const session = await createSession()
+    const ws = await workspaceWith(['game.js'])
+    await saveAgentSession(harnessRecord('h1', 500, ws))
     await upsertTimelineMessages(session.id, [
       agentAnswer('a1', 'h1', ['game.js'], 1_000),
       agentAnswer('a2', 'h1', ['game.js'], 2_000),
@@ -143,7 +154,8 @@ describe('listAllCreatedFiles', () => {
 
   it('falls back to the harness record creation for writes that settled before stamps', async () => {
     const session = await createSession()
-    await saveAgentSession(harnessRecord('h1', 500))
+    const ws = await workspaceWith(['game.js'])
+    await saveAgentSession(harnessRecord('h1', 500, ws))
     await upsertTimelineMessages(session.id, [agentAnswer('a1', 'h1', ['game.js'])])
 
     const [file] = await listAllCreatedFiles()
@@ -152,7 +164,8 @@ describe('listAllCreatedFiles', () => {
 
   it('a re-write with a real stamp beats the harness fallback', async () => {
     const session = await createSession()
-    await saveAgentSession(harnessRecord('h1', 500))
+    const ws = await workspaceWith(['game.js'])
+    await saveAgentSession(harnessRecord('h1', 500, ws))
     await upsertTimelineMessages(session.id, [
       agentAnswer('a1', 'h1', ['game.js']),
       agentAnswer('a2', 'h1', ['game.js'], 8_000),
@@ -181,5 +194,39 @@ describe('listAllCreatedFiles', () => {
     await upsertTimelineMessages(session.id, [chat])
 
     expect(await listAllCreatedFiles()).toEqual([])
+  })
+
+  it('drops a file that no longer exists on disk', async () => {
+    const session = await createSession()
+    const ws = await workspaceWith(['game.js', 'design.md'])
+    await saveAgentSession(harnessRecord('h1', 500, ws))
+    await upsertTimelineMessages(session.id, [agentAnswer('a1', 'h1', ['game.js', 'design.md'])])
+
+    expect(await listAllCreatedFiles()).toHaveLength(2)
+
+    await fs.rm(path.join(ws, 'game.js'))
+    const files = await listAllCreatedFiles()
+    expect(files).toEqual([expect.objectContaining({ file: 'design.md' })])
+  })
+
+  it('drops a card whose harness workspace is gone without failing the listing', async () => {
+    const session = await createSession()
+    const kept = await workspaceWith(['kept.js'])
+    await saveAgentSession(harnessRecord('h1', 500, kept))
+    await upsertTimelineMessages(session.id, [
+      agentAnswer('a1', 'h1', ['kept.js'], 1_000),
+      agentAnswer('a2', 'h2', ['gone.js'], 2_000),
+    ])
+
+    const files = await listAllCreatedFiles()
+    expect(files).toEqual([
+      {
+        file: 'kept.js',
+        harnessSessionId: 'h1',
+        sessionRef: session.id,
+        sessionTitle: '',
+        createdAt: 1_000,
+      },
+    ])
   })
 })

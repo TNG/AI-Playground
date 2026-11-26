@@ -4,7 +4,7 @@ import type { SessionFileAction } from '@/types/agentIpc'
 import type { IpcDataResult, IpcMutationResult } from '@/types/ipcChannels'
 import type { SessionFileMounts } from './sessionWorkspace.ts'
 
-// ── Open or reveal a file an agent turn wrote ───────────────────────────────
+// ── Open, reveal or delete a file an agent turn wrote ───────────────────────
 //
 // The transcript linkifies the paths exactly as the model wrote them, so the
 // resolution to a real host path happens here, against the session's own
@@ -16,6 +16,8 @@ export type SessionFileDeps = {
   /** `shell.openPath`: resolves '' on success, the OS error text otherwise. */
   open: (filePath: string) => Promise<string>
   reveal: (filePath: string) => unknown
+  /** To the OS Trash (permanent in demo mode); the workspace's own file leaves for good. */
+  delete: (filePath: string) => Promise<void>
 }
 
 function isInside(root: string, candidate: string): boolean {
@@ -84,6 +86,8 @@ export function sessionFileActions(deps: SessionFileDeps) {
       if (action === 'open') {
         const error = await deps.open(filePath)
         if (error) return { success: false, error }
+      } else if (action === 'delete') {
+        await deps.delete(filePath)
       } else {
         await deps.reveal(filePath)
       }

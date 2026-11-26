@@ -288,6 +288,7 @@ import {
   listAllArtifacts,
   missingArtifactUrls,
   newestArtifact,
+  openArtifactActions,
 } from './session/sessionArtifacts'
 import { listAllCreatedFiles } from './session/sessionCreatedFiles'
 import {
@@ -427,6 +428,7 @@ import {
 } from './agent/trialRuns'
 import { wireTrialRuns } from './agent/trialRunsWiring'
 import { saveGeneratedAudioFile } from './persist/audioFiles.ts'
+import { discardPath } from './persist/sessionFiles'
 import {
   arcadeCatalog,
   createGame,
@@ -1926,6 +1928,7 @@ function initEventHandle() {
       recordAudioTurn,
       listAllArtifacts,
       listAllCreatedFiles,
+      openArtifact: openArtifactActions({ open: openFileWithSystem }),
       missingArtifactUrls,
       deleteArtifact,
       readSessionSettings,
@@ -1976,6 +1979,7 @@ function initEventHandle() {
         mountsOf: sessionFileMounts,
         open: openFileWithSystem,
         reveal: revealFileInFolder,
+        delete: discardPath,
       }),
       readSessionFile: sessionFileReader({ mountsOf: sessionFileMounts }),
       bootstrapAgentSessions,

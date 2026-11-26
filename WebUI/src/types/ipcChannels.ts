@@ -532,6 +532,13 @@ export const CHANNELS = {
     args: [] as unknown as readonly [string, string],
     result: null as unknown as IpcMutationResult,
   },
+  /** Open one artifact's file with the OS default application (session id, its media URL). */
+  'sessions:openArtifact': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string],
+    result: null as unknown as IpcMutationResult,
+  },
   /** A Session's Session Settings, every preset's at once (ADR-0004). */
   'sessions:readSettings': {
     kind: 'invoke',
@@ -813,7 +820,7 @@ export const CHANNELS = {
     result: null as unknown as IpcMutationResult,
   },
   /**
-   * Open or reveal a file an agent turn wrote, addressed the way the model wrote it:
+   * Open, reveal or delete a file an agent turn wrote, addressed the way the model wrote it:
    * workspace-relative, or under a sandbox mount. Main resolves the path against the
    * session's own folders and refuses anything outside them (agent/sessionFileAction.ts).
    */

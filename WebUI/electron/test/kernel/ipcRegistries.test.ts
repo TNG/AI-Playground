@@ -63,6 +63,7 @@ describe('per-owner handler registries', () => {
       | 'sessions:listArtifacts'
       | 'sessions:listCreatedFiles'
       | 'sessions:deleteArtifact'
+      | 'sessions:openArtifact'
       | 'sessions:readSettings'
       | 'sessions:writePresetSettings'
       | 'sessions:beginTurn'

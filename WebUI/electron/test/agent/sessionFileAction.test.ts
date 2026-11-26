@@ -35,17 +35,20 @@ const sessionMounts: SessionFileMounts = {
 
 const open = vi.fn(async () => '')
 const reveal = vi.fn()
+const del = vi.fn(async () => undefined)
 
 const act = sessionFileActions({
   mountsOf: async (sessionId) =>
     sessionId === 'session-1' ? sessionMounts : sessionId === 'game-1' ? gamesMounts : null,
   open,
   reveal,
+  delete: del,
 })
 
 beforeEach(() => {
   open.mockReset().mockResolvedValue('')
   reveal.mockReset()
+  del.mockReset().mockResolvedValue(undefined)
 })
 
 describe('session file actions', () => {
@@ -131,6 +134,25 @@ describe('session file actions', () => {
   it('refuses an invalid request', async () => {
     const result = await act('session-1', '', 'open')
     expect(result).toEqual({ success: false, error: 'invalid file request' })
+  })
+
+  it('deletes the resolved file', async () => {
+    const result = await act('session-1', 'sub/notes.txt', 'delete')
+    expect(result).toEqual({ success: true })
+    expect(del).toHaveBeenCalledWith(path.join(workspaceDir, 'sub', 'notes.txt'))
+    expect(open).not.toHaveBeenCalled()
+  })
+
+  it('refuses to delete a path that escapes the session folders', async () => {
+    const result = await act('session-1', '../secret.txt', 'delete')
+    expect(result.success).toBe(false)
+    expect(del).not.toHaveBeenCalled()
+  })
+
+  it('refuses to delete a file that is gone', async () => {
+    const result = await act('session-1', 'missing.js', 'delete')
+    expect(result).toEqual({ success: false, error: 'The file no longer exists.' })
+    expect(del).not.toHaveBeenCalled()
   })
 })
 

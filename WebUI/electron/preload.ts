@@ -352,6 +352,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     listCreatedFiles: () => invoke('sessions:listCreatedFiles'),
     deleteArtifact: (sessionId: string, url: string) =>
       invoke('sessions:deleteArtifact', sessionId, url),
+    openArtifact: (sessionId: string, url: string) =>
+      invoke('sessions:openArtifact', sessionId, url),
     readSettings: (id: string) => invoke('sessions:readSettings', id),
     writePresetSettings: (id: string, presetName: string, entry: PresetSessionSettings) =>
       invoke('sessions:writePresetSettings', id, presetName, cloneForIpc(entry)),

@@ -1,8 +1,11 @@
+import { resolveSessionFilePath } from '../agent/sessionFileAction'
+import { sessionFileMounts } from '../agent/sessionWorkspace'
 import { bootstrapAgentSessions } from '../persist/agentSessionFiles'
 import { readSessionFile } from '../persist/sessionFiles'
 import { listSessions } from './sessions'
 import { createdFilesOf } from '@/lib/answerFileLinks'
 import type { SessionCreatedFile } from '@/types/sessionIpc'
+import type { SessionFileMounts } from '../agent/sessionWorkspace'
 
 type TimelineMessage = {
   role?: unknown
@@ -15,6 +18,8 @@ type TimelineMessage = {
  * the Artifacts tab lists these beside the media artifacts. A write whose
  * message settled before timestamps existed falls back to its Harness
  * Session's creation — a static value, so a later turn cannot re-float it.
+ * A file that no longer exists on disk drops out of the listing, like a
+ * media artifact whose file was deleted.
  */
 export async function listAllCreatedFiles(): Promise<SessionCreatedFile[]> {
   const [summaries, harness] = await Promise.all([listSessions(), bootstrapAgentSessions()])
@@ -44,5 +49,23 @@ export async function listAllCreatedFiles(): Promise<SessionCreatedFile[]> {
       }
     }
   }
-  return [...byKey.values()]
+  const mountsByHarness = new Map<string, Promise<SessionFileMounts | null>>()
+  const mountsOf = (harnessSessionId: string) => {
+    let mounts = mountsByHarness.get(harnessSessionId)
+    if (!mounts) {
+      mounts = sessionFileMounts(harnessSessionId)
+      mountsByHarness.set(harnessSessionId, mounts)
+    }
+    return mounts
+  }
+  const listed: SessionCreatedFile[] = []
+  for (const entry of byKey.values()) {
+    try {
+      const mounts = await mountsOf(entry.harnessSessionId)
+      if (mounts && resolveSessionFilePath(mounts, entry.file)) listed.push(entry)
+    } catch {
+      // A stale path (mount gone, folder moved) drops its own card, never the listing.
+    }
+  }
+  return listed
 }

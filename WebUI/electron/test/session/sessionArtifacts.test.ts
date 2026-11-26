@@ -29,8 +29,13 @@ const { createSession, deleteSession, renameSession, resetSessionsForTest, setSe
   await import('../../session/sessions')
 const { ensureSessionWorkspace } = await import('../../session/sessionWorkspace')
 const { appendHistoryEntry } = await import('../../session/sessionHistory')
-const { deleteArtifact, listAllArtifacts, missingArtifactUrls, newestArtifact } =
-  await import('../../session/sessionArtifacts')
+const {
+  deleteArtifact,
+  listAllArtifacts,
+  missingArtifactUrls,
+  newestArtifact,
+  openArtifactActions,
+} = await import('../../session/sessionArtifacts')
 const { addSessionFolder, sessionWorkspaceEntry, starSessionFolder } =
   await import('../../session/sessionFolders')
 
@@ -218,4 +223,35 @@ describe('deleting an artifact', () => {
       expect(await fs.readdir(path.join(dirs.real, id, 'files'))).toEqual(['fox.png'])
     },
   )
+})
+
+describe('opening an artifact', () => {
+  it('opens the artifact file with the OS default application', async () => {
+    const id = await sessionWithArtifacts('Foxes', ['fox.png'])
+    const open = vi.fn(async () => '')
+
+    await openArtifactActions({ open })(id, `aipg-media://sessions/${id}/files/fox.png`)
+
+    expect(open).toHaveBeenCalledWith(path.join(dirs.real, id, 'files', 'fox.png'))
+  })
+
+  it('reports the OS open error text', async () => {
+    const id = await sessionWithArtifacts('Foxes', ['fox.png'])
+    const open = vi.fn(async () => 'No application is available for this file type')
+
+    await expect(
+      openArtifactActions({ open })(id, `aipg-media://sessions/${id}/files/fox.png`),
+    ).rejects.toThrow('No application is available for this file type')
+  })
+
+  it('refuses a URL that names no artifact of this Session', async () => {
+    const id = await sessionWithArtifacts('Foxes', ['fox.png'])
+    const other = await sessionWithArtifacts('Owls', ['owl.png'])
+    const open = vi.fn(async () => '')
+
+    await expect(
+      openArtifactActions({ open })(id, `aipg-media://sessions/${other}/files/owl.png`),
+    ).rejects.toThrow()
+    expect(open).not.toHaveBeenCalled()
+  })
 })

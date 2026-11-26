@@ -1,4 +1,8 @@
-import { AgentModeTurnConfigSchema, DeleteAgentTurnsRequestSchema } from '@/types/agentIpc'
+import {
+  AgentModeTurnConfigSchema,
+  DeleteAgentTurnsRequestSchema,
+  SESSION_FILE_ACTIONS,
+} from '@/types/agentIpc'
 import { AgentSessionRecordSchema, LegacyAgentSessionStateSchema } from '@/types/agentSessionIpc'
 import type { AgentModeInvokeName, InvokeHandlerMap } from '../ipcRegistries'
 import { ipcErrorText, ipcFail } from '../typedIpc'
@@ -332,13 +336,13 @@ export function buildAgentModeRegistry(deps: AgentModeDeps) {
         return ipcFail(error)
       }
     },
-    // Open or reveal a file an agent turn wrote, as its answer references it
+    // Open, reveal or delete a file an agent turn wrote, as its answer references it
     // (see agent/sessionFileAction.ts).
     'agentMode:sessionFileAction': (_event, sessionId, filePath, action) => {
       const valid =
         typeof sessionId === 'string' &&
         typeof filePath === 'string' &&
-        ['open', 'reveal'].includes(action)
+        (SESSION_FILE_ACTIONS as readonly string[]).includes(action)
       if (!valid) return { success: false, error: 'invalid file request' }
       return deps.sessionFileAction(sessionId, filePath, action)
     },

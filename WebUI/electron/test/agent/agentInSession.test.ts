@@ -1025,6 +1025,73 @@ describe('the Assistant preset in a Session', () => {
       expect(transcriptText(bodies.at(-1))).toContain('pear')
     }, 30000)
 
+    it('regenerates the turn before one that was deleted', async () => {
+      const session = await sessions.createSession()
+      const config = await assistantConfig(session.id)
+      await manager.startAgentTurn('t1', 'remember the word plum', config)
+      await manager.startAgentTurn('t2', 'and the word pear', config)
+      const tag = { agentTurn: { presetName: 'Assistant', harnessSessionId: config.sessionId } }
+      await timeline.upsertTimelineMessages(session.id, [
+        { id: 'u1', role: 'user', parts: [], metadata: tag },
+        { id: 'a1', role: 'assistant', parts: [], metadata: { ...tag, harnessTurnId: 't1' } },
+        { id: 'u2', role: 'user', parts: [], metadata: tag },
+        { id: 'a2', role: 'assistant', parts: [], metadata: { ...tag, harnessTurnId: 't2' } },
+      ] as never)
+
+      await manager.deleteAgentTurns({
+        sessionRef: session.id,
+        harnessSessionId: config.sessionId,
+        turnIds: ['t2'],
+        messageIds: ['u2', 'a2'],
+      })
+      expect(
+        await manager.startAgentTurn('t3', 'remember the word plum', {
+          ...config,
+          rewindTurnId: 't1',
+        }),
+      ).toEqual({ success: true })
+
+      // The deleted turn's marker outlives its entries, yet the turn before it
+      // is the latest live one: the rewind drops both turns' entries.
+      const last = transcriptText(bodies.at(-1))
+      expect(last).toContain('remember the word plum')
+      expect(last).not.toContain('reply 1')
+      expect(last).not.toContain('and the word pear')
+      expect(last).not.toContain('reply 2')
+    }, 30000)
+
+    it('deletes the turn before one that was deleted', async () => {
+      const session = await sessions.createSession()
+      const config = await assistantConfig(session.id)
+      await manager.startAgentTurn('t1', 'remember the word plum', config)
+      await manager.startAgentTurn('t2', 'and the word pear', config)
+      const tag = { agentTurn: { presetName: 'Assistant', harnessSessionId: config.sessionId } }
+      await timeline.upsertTimelineMessages(session.id, [
+        { id: 'u1', role: 'user', parts: [], metadata: tag },
+        { id: 'a1', role: 'assistant', parts: [], metadata: { ...tag, harnessTurnId: 't1' } },
+        { id: 'u2', role: 'user', parts: [], metadata: tag },
+        { id: 'a2', role: 'assistant', parts: [], metadata: { ...tag, harnessTurnId: 't2' } },
+      ] as never)
+
+      await manager.deleteAgentTurns({
+        sessionRef: session.id,
+        harnessSessionId: config.sessionId,
+        turnIds: ['t2'],
+        messageIds: ['u2', 'a2'],
+      })
+      await manager.deleteAgentTurns({
+        sessionRef: session.id,
+        harnessSessionId: config.sessionId,
+        turnIds: ['t1'],
+        messageIds: ['u1', 'a1'],
+      })
+
+      const ids = (await sessions.readSession(session.id)).timeline.map(
+        (message) => (message as { id: string }).id,
+      )
+      expect(ids).toEqual([])
+    }, 30000)
+
     it('regenerates the latest turn from the Harness Session as it was before it', async () => {
       const session = await sessions.createSession()
       const config = await assistantConfig(session.id)

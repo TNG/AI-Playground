@@ -48,12 +48,46 @@ function omitHarnessTurns(manager: SessionManager, turnIds: ReadonlySet<string>)
   return omit.length > 0
 }
 
-/** The turn markers of a branch, in the order the turns ran. */
+/** The markers of a branch's live turns, in the order the turns ran. */
 function harnessTurnMarkers(manager: SessionManager): string[] {
-  return manager.getBranch().flatMap((entry) => {
+  return liveTurnMarkers(manager).ids
+}
+
+/**
+ * The markers of a branch's live turns, with their entries' index: a marker cannot be
+ * context-edited away, so one outlives the delete that nulled its turn's entries. Only
+ * a turn that still owns a model entry that no null edit removed is live; a deleted
+ * turn is not, so the turns before it stay the latest for Regenerate and Delete.
+ */
+function liveTurnMarkers(manager: SessionManager): { at: number[]; ids: string[] } {
+  const branch = manager.getBranch()
+  const nulled = new Set(
+    branch.flatMap((entry) =>
+      entry.type === 'context_edit' && entry.replacement === null ? [entry.targetId] : [],
+    ),
+  )
+  const at: number[] = []
+  const ids: string[] = []
+  let pending: { index: number; id: string } | undefined
+  let live = false
+  const flush = () => {
+    if (pending && live && pending.id !== '') {
+      at.push(pending.index)
+      ids.push(pending.id)
+    }
+  }
+  branch.forEach((entry, index) => {
     const marker = turnMarkerId(entry)
-    return marker === undefined || marker === '' ? [] : [marker]
+    if (marker !== undefined) {
+      flush()
+      pending = { index, id: marker }
+      live = false
+    } else if (pending && reachesModel(entry) && !nulled.has(entry.id)) {
+      live = true
+    }
   })
+  flush()
+  return { at, ids }
 }
 
 /**
@@ -82,13 +116,10 @@ type PromptImages = NonNullable<NonNullable<Parameters<AgentSession['prompt']>[1
 /** The user message a rewound turn opened with, exactly as the model was sent it. */
 export type RewoundPrompt = { text: string; images: PromptImages }
 
-/** Moves the leaf to just before the latest turn, leaving the history ahead untouched. */
+/** Moves the leaf to just before the latest live turn, leaving the history ahead untouched. */
 export function rewindHarnessTurn(session: AgentSession, turnId: string): RewoundPrompt {
   const branch = session.sessionManager.getBranch()
-  const markers = branch.flatMap((entry, index) =>
-    turnMarkerId(entry) === undefined ? [] : [index],
-  )
-  const at = markers.at(-1)
+  const at = liveTurnMarkers(session.sessionManager).at.at(-1)
   if (at === undefined || turnMarkerId(branch[at]) !== turnId) {
     throw new Error(HARNESS_TURN_REFUSALS.notLatest)
   }

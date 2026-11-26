@@ -98,6 +98,7 @@ describe('a turn reports done only after its settlement', () => {
       workspaceDir: path.join(dirs.real, id, 'files'),
       prompt: 'a red fox',
       harnessSessionId: 'harness-1',
+      turnId: 'turn-1',
     })
     const held = await gate()
 

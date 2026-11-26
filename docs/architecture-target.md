@@ -1199,6 +1199,36 @@ flowchart TD
 - **§8.2 as-landed dual paths, Design, and later slices** — none of these is the next spine
   row. Cheap leftovers from landed steps are closed.
 
+### 8.4 Planned, postponed: stored-settings turns and Agent Runs in the kernel
+
+**Where it stands.** Channels now poll and route in the kernel (`electron/channels/`): one
+dispatcher, the router and its per-Session queue in main, the Channels switch and setup as main
+state every window projects. What it cannot do yet is reach a Session on its own. Sending a turn,
+starting an Agent Run, a Follow-up and a stop are calls to the workstation's window
+(`channelHost:portAsk`), and the router reads Session activity from a mirror that window keeps
+(`electron/channels/windowPort.ts` ↔ `src/lib/channelWindowPort.ts`). That is the last place where
+the kernel has to ask Vue whether a run is in flight.
+
+**Why it is not a spine row yet.** There is no background mode (§5.1), so the window is always
+open while Channels run; this changes ownership, not what the user can do. And the code it moves
+(`agentMode` turn assembly, `agentModeTurn`, `piTurnRunner`, the session timeline) is what the open
+harness, model-selection, turn-stopping and stored-summary branches all change. It waits until
+those have merged, so the main-side builder is designed with their shape rather than rebased onto
+it.
+
+**The cut.** The desktop's live send keeps building its turn from what is on screen: §9 lets
+drivers differ in how they build the request. What moves is the turn built from **stored**
+settings — a Channel message or Answer, a Scheduled Run, an Agent Run, a Follow-up — whose inputs
+are already files main reads (Session settings, the Agent's Settings Template, presets,
+`preferences.json`, the MCP config). Download consent, the speech engine, screenshot and
+web-browse stay in the window, asked for the way they are now.
+
+| Step | Done when | Why this order |
+| ---- | --------- | -------------- |
+| C1 | Agent turns persist their assembled reply in main, the way the chat engine does (`readUIMessageStream` over the chunks `piStreamTranslate.ts` already emits). No window saves an agent transcript | Smallest; closes the §8.2 "Agent UIMessage records still assemble in the renderer" gap, and a reply is no longer lost when the window that sent it goes away (remote-kernel thin client) |
+| C2 | A main-side builder turns stored settings into an `AgentModeTurnConfig`; Channel messages and Answers start their turns in main. The port's `send` and the mirror's turn activity go | Needs C1, or a main-started turn has no transcript |
+| C3 | Agent Run orchestration (start, Follow-up, waiting for a busy Session, active-run markers, outcomes, stop; Trial Runs the same) lives in `electron/agent/`, and the Agent Library projects it. The window port and mirror are deleted; `inFlightWork` stops reconciling the window's report against markers | Largest (`store/agentTasks.ts`, `agentTrialRuns.ts`); its rules move with their tests (`agentTaskRuns.test.ts`), not rewritten |
+
 ---
 
 ## 9. What this buys

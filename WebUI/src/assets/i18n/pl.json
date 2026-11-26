@@ -467,7 +467,7 @@
   "DECREASE_FONT_SIZE": "Zmniejsz tekst",
   "ANSWER_RAG_ENABLE": "Włącz zapytania do plików",
   "ANSWER_RAG_OPEN_DIALOG": "Otwórz narzędzie do przesyłania plików",
-  "ANSWER_FILE_OPEN_TOOLTIP": "Otwórz ten plik w aplikacji domyślnej",
+  "ANSWER_FILE_OPEN_TOOLTIP": "Otwórz plik",
   "ANSWER_CREATED_FILES": "Utworzone pliki",
   "ANSWER_FILE_PREVIEW_TOOLTIP": "Podejrzyj ten plik",
   "ANSWER_FILE_PREVIEW_TRUNCATED": "Podgląd skrócono — otwórz plik, aby zobaczyć resztę.",

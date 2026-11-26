@@ -467,7 +467,7 @@
   "DECREASE_FONT_SIZE": "文字を小さく",
   "ANSWER_RAG_ENABLE": "ファイルクエリを有効化",
   "ANSWER_RAG_OPEN_DIALOG": "ファイルアップローダーを開く",
-  "ANSWER_FILE_OPEN_TOOLTIP": "このファイルを既定のアプリケーションで開く",
+  "ANSWER_FILE_OPEN_TOOLTIP": "ファイルを開く",
   "ANSWER_CREATED_FILES": "作成されたファイル",
   "ANSWER_FILE_PREVIEW_TOOLTIP": "このファイルをプレビュー",
   "ANSWER_FILE_PREVIEW_TRUNCATED": "プレビューは省略されています — 残りを見るにはファイルを開いてください。",

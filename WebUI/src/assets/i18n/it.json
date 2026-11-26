@@ -467,7 +467,7 @@
   "DECREASE_FONT_SIZE": "Riduci testo",
   "ANSWER_RAG_ENABLE": "Abilita query sui file",
   "ANSWER_RAG_OPEN_DIALOG": "Apri il caricamento file",
-  "ANSWER_FILE_OPEN_TOOLTIP": "Apri questo file con l'applicazione predefinita",
+  "ANSWER_FILE_OPEN_TOOLTIP": "Apri file",
   "ANSWER_CREATED_FILES": "File creati",
   "ANSWER_FILE_PREVIEW_TOOLTIP": "Anteprima di questo file",
   "ANSWER_FILE_PREVIEW_TRUNCATED": "Anteprima troncata — apri il file per vedere il resto.",

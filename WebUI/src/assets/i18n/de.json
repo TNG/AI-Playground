@@ -467,7 +467,7 @@
   "DECREASE_FONT_SIZE": "Text verkleinern",
   "ANSWER_RAG_ENABLE": "Dateiabfrage aktivieren",
   "ANSWER_RAG_OPEN_DIALOG": "Datei-Uploader öffnen",
-  "ANSWER_FILE_OPEN_TOOLTIP": "Diese Datei mit der Standardanwendung öffnen",
+  "ANSWER_FILE_OPEN_TOOLTIP": "Datei öffnen",
   "ANSWER_CREATED_FILES": "Erstellte Dateien",
   "ANSWER_FILE_PREVIEW_TOOLTIP": "Vorschau dieser Datei",
   "ANSWER_FILE_PREVIEW_TRUNCATED": "Vorschau gekürzt — öffne die Datei, um den Rest zu sehen.",

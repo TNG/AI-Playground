@@ -467,7 +467,7 @@
   "DECREASE_FONT_SIZE": "ย่อข้อความ",
   "ANSWER_RAG_ENABLE": "เปิดใช้งานการค้นหาไฟล์",
   "ANSWER_RAG_OPEN_DIALOG": "เปิดตัวอัปโหลดไฟล์",
-  "ANSWER_FILE_OPEN_TOOLTIP": "เปิดไฟล์นี้ด้วยแอปพลิเคชันเริ่มต้น",
+  "ANSWER_FILE_OPEN_TOOLTIP": "เปิดไฟล์",
   "ANSWER_CREATED_FILES": "ไฟล์ที่สร้าง",
   "ANSWER_FILE_PREVIEW_TOOLTIP": "ดูตัวอย่างไฟล์นี้",
   "ANSWER_FILE_PREVIEW_TRUNCATED": "ตัวอย่างถูกตัดไปแล้ว — เปิดไฟล์เพื่อดูส่วนที่เหลือ",

@@ -467,7 +467,7 @@
   "DECREASE_FONT_SIZE": "텍스트 축소",
   "ANSWER_RAG_ENABLE": "파일 질의 사용",
   "ANSWER_RAG_OPEN_DIALOG": "파일 업로더 열기",
-  "ANSWER_FILE_OPEN_TOOLTIP": "기본 애플리케이션으로 이 파일 열기",
+  "ANSWER_FILE_OPEN_TOOLTIP": "파일 열기",
   "ANSWER_CREATED_FILES": "생성된 파일",
   "ANSWER_FILE_PREVIEW_TOOLTIP": "이 파일 미리보기",
   "ANSWER_FILE_PREVIEW_TRUNCATED": "미리보기가 잘렸습니다 — 나머지는 파일을 열어 확인하세요.",

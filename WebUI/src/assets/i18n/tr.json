@@ -467,7 +467,7 @@
   "DECREASE_FONT_SIZE": "Metni Küçült",
   "ANSWER_RAG_ENABLE": "Dosya Sorgusunu Etkinleştir",
   "ANSWER_RAG_OPEN_DIALOG": "Dosya Yükleyiciyi Aç",
-  "ANSWER_FILE_OPEN_TOOLTIP": "Bu dosyayı varsayılan uygulamayla aç",
+  "ANSWER_FILE_OPEN_TOOLTIP": "Dosyayı aç",
   "ANSWER_CREATED_FILES": "Oluşturulan dosyalar",
   "ANSWER_FILE_PREVIEW_TOOLTIP": "Bu dosyayı önizle",
   "ANSWER_FILE_PREVIEW_TRUNCATED": "Önizleme kesildi — gerisini görmek için dosyayı açın.",

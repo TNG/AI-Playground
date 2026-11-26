@@ -467,7 +467,7 @@
   "DECREASE_FONT_SIZE": "Reducir texto",
   "ANSWER_RAG_ENABLE": "Habilitar consulta de archivos",
   "ANSWER_RAG_OPEN_DIALOG": "Abrir el cargador de archivos",
-  "ANSWER_FILE_OPEN_TOOLTIP": "Abrir este archivo con la aplicación predeterminada",
+  "ANSWER_FILE_OPEN_TOOLTIP": "Abrir archivo",
   "ANSWER_CREATED_FILES": "Archivos creados",
   "ANSWER_FILE_PREVIEW_TOOLTIP": "Vista previa de este archivo",
   "ANSWER_FILE_PREVIEW_TRUNCATED": "Vista previa truncada — abre el archivo para ver el resto.",

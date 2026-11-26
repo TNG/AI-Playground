@@ -467,7 +467,7 @@
   "DECREASE_FONT_SIZE": "Shrink Text",
   "ANSWER_RAG_ENABLE": "Enable File Query",
   "ANSWER_RAG_OPEN_DIALOG": "Open File Uploader",
-  "ANSWER_FILE_OPEN_TOOLTIP": "Open this file with the default application",
+  "ANSWER_FILE_OPEN_TOOLTIP": "Open file",
   "ANSWER_CREATED_FILES": "Created files",
   "ANSWER_FILE_PREVIEW_TOOLTIP": "Preview this file",
   "ANSWER_FILE_PREVIEW_TRUNCATED": "Preview truncated — open the file to see the rest.",

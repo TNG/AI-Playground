@@ -467,7 +467,7 @@
   "DECREASE_FONT_SIZE": "Perkecil Teks",
   "ANSWER_RAG_ENABLE": "Aktifkan Kueri File",
   "ANSWER_RAG_OPEN_DIALOG": "Buka Pengunggah File",
-  "ANSWER_FILE_OPEN_TOOLTIP": "Buka file ini dengan aplikasi default",
+  "ANSWER_FILE_OPEN_TOOLTIP": "Buka file",
   "ANSWER_CREATED_FILES": "File yang dibuat",
   "ANSWER_FILE_PREVIEW_TOOLTIP": "Pratinjau file ini",
   "ANSWER_FILE_PREVIEW_TRUNCATED": "Pratinjau terpotong — buka file untuk melihat sisanya.",

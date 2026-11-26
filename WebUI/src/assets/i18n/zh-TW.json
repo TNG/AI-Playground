@@ -467,7 +467,7 @@
   "DECREASE_FONT_SIZE": "縮小文字",
   "ANSWER_RAG_ENABLE": "啟用檔案查詢",
   "ANSWER_RAG_OPEN_DIALOG": "開啟檔案上傳器",
-  "ANSWER_FILE_OPEN_TOOLTIP": "使用預設應用程式開啟此檔案",
+  "ANSWER_FILE_OPEN_TOOLTIP": "開啟檔案",
   "ANSWER_CREATED_FILES": "已建立的檔案",
   "ANSWER_FILE_PREVIEW_TOOLTIP": "預覽此檔案",
   "ANSWER_FILE_PREVIEW_TRUNCATED": "預覽已截斷 — 開啟檔案以檢視其餘內容。",

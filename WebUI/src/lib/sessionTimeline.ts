@@ -14,6 +14,7 @@ import { audioTurnArtifacts, pendingAudioArtifacts, ttsToolArtifacts } from '@/l
 import { messageText } from '@/lib/chatMessageText'
 import { isChatMediaToolPart } from '@/lib/chatToolParts'
 import { isHarnessChatPreset } from '@/lib/harnessChatPreset'
+import { harnessTurnEndOf } from '@/lib/harnessTurnEnd'
 import { mediaRerun } from '@/lib/mediaRerun'
 import { reasoningElapsedMsFromParts } from '@/lib/reasoningTimings'
 import { asChatTranscriptMessage, chatTranscriptOf } from '@/lib/sessionChat'
@@ -510,6 +511,15 @@ function withAnswers(
       const run = turn.runKey ? runs.get(turn.runKey) : undefined
       turn.hint = agentHint(run?.name ?? turn.presetName, turn.answers)
       if (run?.lastTurn === turn) turn.result = [...turn.result, ...runEndFailure(run.end)]
+      if (
+        turn.answers.some((answer) => harnessTurnEndOf(answer) === 'cancelled') &&
+        !turn.result.some((part) => part.kind === 'failure' && part.messageId === undefined)
+      ) {
+        turn.result = [
+          ...turn.result,
+          { kind: 'failure', ...generationFailure({ state: 'cancelled' }) },
+        ]
+      }
       turn.footer = agentFooter(resultText(turn), {
         answer: turn.answers.at(-1),
         harnessTurn: harnessTurnOf(turn),

@@ -17,6 +17,7 @@ import { unregisterAgentModeIpc } from './agentModeIpc'
 import { demoAwareStorage } from '../demoAwareStorage'
 import { makeForwardPersist } from '@/lib/ipcPersist'
 import { settleStreamingParts } from '@/lib/agentTranscript'
+import { stampHarnessTurnEnd } from '@/lib/harnessTurnEnd'
 import { applyEditedPrompt } from '@/lib/editedPrompt'
 import { fillTemplate } from '@/lib/fillTemplate'
 import { cloneForIpc } from '@/lib/cloneForIpc'
@@ -1437,6 +1438,18 @@ export const useAgentMode = defineStore(
       const stopped = stoppedByUser.delete(sessionId)
       const chat = turns.runtimeOf(sessionId)?.chat
       const failed = chat?.status === 'error'
+      if (stopped) {
+        if (chat) chat.messages = stampHarnessTurnEnd(chat.messages, 'cancelled')
+        const record = sessions.value[sessionId]
+        if (record) {
+          const ended = {
+            ...record,
+            messages: stampHarnessTurnEnd(record.messages as UIMessage[], 'cancelled'),
+          }
+          rewriteSession(sessionId, ended)
+          saveToSessionTimeline(ended)
+        }
+      }
       if (!stopped && sessionId !== openSessionId.value && sessions.value[sessionId]) {
         unseenTurns.value = { ...unseenTurns.value, [sessionId]: failed ? 'failed' : 'done' }
       }

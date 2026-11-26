@@ -1768,6 +1768,38 @@ describe('the footer of every Turn', () => {
     }
   }
 
+  it('says Cancelled on an Assistant Turn the user stopped', () => {
+    const items = sessionTimelineItems(
+      [
+        assistantMessage('u1', 'user', 'why?'),
+        assistantMessage('a1', 'assistant', 'The sky scatters blue', {
+          harnessTurnId: 't1',
+          harnessTurnEnd: 'cancelled',
+        }),
+      ],
+      {},
+    )
+
+    expect((items[0] as { result: object[] }).result).toContainEqual({
+      kind: 'failure',
+      state: 'cancelled',
+    })
+  })
+
+  it('says nothing extra on an Assistant Turn that completed', () => {
+    const items = sessionTimelineItems(
+      [
+        assistantMessage('u1', 'user', 'why?'),
+        assistantMessage('a1', 'assistant', 'The sky scatters blue.', { harnessTurnId: 't1' }),
+      ],
+      {},
+    )
+
+    expect(
+      (items[0] as { result: { kind: string }[] }).result.some((part) => part.kind === 'failure'),
+    ).toBe(false)
+  })
+
   it('offers Copy, Speak, Regenerate and Delete of its answer on an Assistant Turn', () => {
     const items = sessionTimelineItems(
       [

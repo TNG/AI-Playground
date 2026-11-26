@@ -56,17 +56,14 @@ describe('counting what a Session produced', () => {
     expect(foldOverviewWorkCounts(entries).transcriptions).toBe(2)
   })
 
-  it('counts a failed or cancelled transcription as a failed turn, not a transcription', () => {
+  it('counts a transcription only for a completed speech-to-text entry', () => {
     const entries = [
       historyEntry({ kind: 'stt', status: 'failed' }),
       historyEntry({ kind: 'stt', status: 'cancelled' }),
       historyEntry({ kind: 'stt', status: 'completed' }),
     ]
 
-    expect(foldOverviewWorkCounts(entries)).toMatchObject({
-      transcriptions: 1,
-      failedTurns: 2,
-    })
+    expect(foldOverviewWorkCounts(entries).transcriptions).toBe(1)
   })
 
   it('counts audio clips from recorded Artifacts, so an stt turn adds its own audio too', () => {
@@ -98,14 +95,14 @@ describe('counting what a Session produced', () => {
     expect(foldOverviewWorkCounts(entries).agentRuns).toBe(2)
   })
 
-  it('counts every failed or cancelled turn, and keeps only the media it recorded', () => {
+  it('counts the media a failed or cancelled turn recorded', () => {
     const entries = [
       historyEntry({ status: 'failed', artifacts: [artifact('kept.png', 'image')] }),
       historyEntry({ status: 'cancelled' }),
       historyEntry({ status: 'completed', artifacts: [artifact('done.png', 'image')] }),
     ]
 
-    expect(foldOverviewWorkCounts(entries)).toMatchObject({ failedTurns: 2, images: 2 })
+    expect(foldOverviewWorkCounts(entries).images).toBe(2)
   })
 
   it('leaves absent categories at zero', () => {
@@ -116,7 +113,6 @@ describe('counting what a Session produced', () => {
       audio: 0,
       transcriptions: 0,
       agentRuns: 0,
-      failedTurns: 0,
     })
   })
 
@@ -128,7 +124,6 @@ describe('counting what a Session produced', () => {
       'audio',
       'transcriptions',
       'agentRuns',
-      'failedTurns',
     ])
   })
 })

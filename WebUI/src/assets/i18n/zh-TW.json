@@ -171,7 +171,6 @@
   "OVERVIEW_COUNT_AUDIO": "音訊片段",
   "OVERVIEW_COUNT_TRANSCRIPTIONS": "轉錄",
   "OVERVIEW_COUNT_AGENT_RUNS": "智慧代理執行",
-  "OVERVIEW_COUNT_FAILED_TURNS": "失敗或已停止的輪次",
   "SESSIONS_SCHEDULE_PAUSED": "此工作階段中的代理程式有一個已暫停的排程",
   "SESSIONS_COLLAPSE": "收合工作階段面板",
   "SESSIONS_EXPAND": "展開工作階段面板",

@@ -171,7 +171,6 @@
   "OVERVIEW_COUNT_AUDIO": "Clips de audio",
   "OVERVIEW_COUNT_TRANSCRIPTIONS": "Transcripciones",
   "OVERVIEW_COUNT_AGENT_RUNS": "Ejecuciones de agentes",
-  "OVERVIEW_COUNT_FAILED_TURNS": "Turnos fallidos o detenidos",
   "SESSIONS_SCHEDULE_PAUSED": "Un agente de esta sesión tiene una programación en pausa",
   "SESSIONS_COLLAPSE": "Contraer el panel de sesiones",
   "SESSIONS_EXPAND": "Expandir el panel de sesiones",

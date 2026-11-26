@@ -309,7 +309,6 @@ describe('the cards', () => {
       transcriptions: 1,
       videos: 0,
       agentRuns: 0,
-      failedTurns: 0,
     })
   })
 })

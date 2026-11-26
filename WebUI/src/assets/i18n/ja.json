@@ -171,7 +171,6 @@
   "OVERVIEW_COUNT_AUDIO": "音声クリップ",
   "OVERVIEW_COUNT_TRANSCRIPTIONS": "文字起こし",
   "OVERVIEW_COUNT_AGENT_RUNS": "エージェント実行",
-  "OVERVIEW_COUNT_FAILED_TURNS": "失敗または停止したターン",
   "SESSIONS_SCHEDULE_PAUSED": "このセッションのエージェントのスケジュールは一時停止中です",
   "SESSIONS_COLLAPSE": "セッションパネルを折りたたむ",
   "SESSIONS_EXPAND": "セッションパネルを展開",

@@ -171,7 +171,6 @@
   "OVERVIEW_COUNT_AUDIO": "Audio clips",
   "OVERVIEW_COUNT_TRANSCRIPTIONS": "Transcriptions",
   "OVERVIEW_COUNT_AGENT_RUNS": "Agent runs",
-  "OVERVIEW_COUNT_FAILED_TURNS": "Failed or stopped turns",
   "SESSIONS_SCHEDULE_PAUSED": "An Agent in this Session has a paused schedule",
   "SESSIONS_COLLAPSE": "Collapse Sessions panel",
   "SESSIONS_EXPAND": "Expand Sessions panel",

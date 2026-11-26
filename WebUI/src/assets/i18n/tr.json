@@ -171,7 +171,6 @@
   "OVERVIEW_COUNT_AUDIO": "Ses klipleri",
   "OVERVIEW_COUNT_TRANSCRIPTIONS": "Transkripsiyonlar",
   "OVERVIEW_COUNT_AGENT_RUNS": "Aracı çalıştırmaları",
-  "OVERVIEW_COUNT_FAILED_TURNS": "Başarısız veya durdurulan turlar",
   "SESSIONS_SCHEDULE_PAUSED": "Bu oturumdaki bir ajanın zamanlaması duraklatıldı",
   "SESSIONS_COLLAPSE": "Oturumlar panelini daralt",
   "SESSIONS_EXPAND": "Oturumlar panelini genişlet",

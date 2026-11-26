@@ -54,7 +54,6 @@ function counts(overrides: Partial<OverviewWorkCounts> = {}): OverviewWorkCounts
     audio: 0,
     transcriptions: 0,
     agentRuns: 0,
-    failedTurns: 0,
     ...overrides,
   }
 }
@@ -164,7 +163,7 @@ describe('overview HTML renderer', () => {
     const html = renderOverviewHtml(
       documentOf([
         section({
-          counts: counts({ images: 4, transcriptions: 2, agentRuns: 1, failedTurns: 3 }),
+          counts: counts({ images: 4, transcriptions: 2, agentRuns: 1 }),
         }),
       ]),
       english,
@@ -177,22 +176,20 @@ describe('overview HTML renderer', () => {
     expect(html).toContain('<span class="count-value">2</span>')
     expect(html).toContain('<span class="count-label">Agent runs</span>')
     expect(html).toContain('<span class="count-value">1</span>')
-    expect(html).toContain('<span class="count-label">Failed or stopped turns</span>')
-    expect(html).toContain('<span class="count-value">3</span>')
 
     // Absent categories are not printed as zero.
     expect(html).not.toContain('Videos')
     expect(html).not.toContain('3D models')
     expect(html).not.toContain('Audio clips')
 
-    const order = ['Images', 'Transcriptions', 'Agent runs', 'Failed or stopped turns']
+    const order = ['Images', 'Transcriptions', 'Agent runs']
     const positions = order.map((label) => html.indexOf(`>${label}<`))
     expect(positions).toEqual([...positions].sort((a, b) => a - b))
   })
 
   it('keeps the category order whatever order the counts were set in', () => {
     const html = renderOverviewHtml(
-      documentOf([section({ counts: counts({ failedTurns: 1, images: 1, videos: 1 }) })]),
+      documentOf([section({ counts: counts({ images: 1, videos: 1 }) })]),
       english,
     )
 
@@ -203,10 +200,8 @@ describe('overview HTML renderer', () => {
       'audio',
       'transcriptions',
       'agentRuns',
-      'failedTurns',
     ])
     expect(html.indexOf('>Images<')).toBeLessThan(html.indexOf('>Videos<'))
-    expect(html.indexOf('>Videos<')).toBeLessThan(html.indexOf('>Failed or stopped turns<'))
   })
 
   it('leaves the work-counts line off entirely when every count is zero', () => {
@@ -301,7 +296,6 @@ describe('overview HTML renderer', () => {
                 audio: 1,
                 transcriptions: 1,
                 agentRuns: 1,
-                failedTurns: 1,
               }),
             }),
           ],

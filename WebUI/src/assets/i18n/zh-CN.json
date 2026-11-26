@@ -171,7 +171,6 @@
   "OVERVIEW_COUNT_AUDIO": "音频片段",
   "OVERVIEW_COUNT_TRANSCRIPTIONS": "转录",
   "OVERVIEW_COUNT_AGENT_RUNS": "智能体运行",
-  "OVERVIEW_COUNT_FAILED_TURNS": "失败或已停止的轮次",
   "SESSIONS_SCHEDULE_PAUSED": "此会话中的智能体有一个已暂停的计划",
   "SESSIONS_COLLAPSE": "折叠会话面板",
   "SESSIONS_EXPAND": "展开会话面板",

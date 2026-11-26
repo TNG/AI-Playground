@@ -171,7 +171,6 @@
   "OVERVIEW_COUNT_AUDIO": "Audioclips",
   "OVERVIEW_COUNT_TRANSCRIPTIONS": "Transkriptionen",
   "OVERVIEW_COUNT_AGENT_RUNS": "Agentenläufe",
-  "OVERVIEW_COUNT_FAILED_TURNS": "Fehlgeschlagene oder gestoppte Turns",
   "SESSIONS_SCHEDULE_PAUSED": "Ein Agent in dieser Sitzung hat einen pausierten Zeitplan",
   "SESSIONS_COLLAPSE": "Sitzungsbereich einklappen",
   "SESSIONS_EXPAND": "Sitzungsbereich ausklappen",

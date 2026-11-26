@@ -112,7 +112,6 @@ const COUNT_LABEL_KEY: Record<OverviewWorkCountCategory, OverviewChromeKey> = {
   audio: 'OVERVIEW_COUNT_AUDIO',
   transcriptions: 'OVERVIEW_COUNT_TRANSCRIPTIONS',
   agentRuns: 'OVERVIEW_COUNT_AGENT_RUNS',
-  failedTurns: 'OVERVIEW_COUNT_FAILED_TURNS',
 }
 
 /** One label and bare number per non-zero category, in the code-owned order. */

@@ -9,7 +9,6 @@ export const OVERVIEW_WORK_COUNT_ORDER = [
   'audio',
   'transcriptions',
   'agentRuns',
-  'failedTurns',
 ] as const
 
 export type OverviewWorkCountCategory = (typeof OVERVIEW_WORK_COUNT_ORDER)[number]
@@ -45,7 +44,6 @@ export function foldOverviewWorkCounts(entries: readonly HistoryEntry[]): Overvi
       if (entry.harnessSessionId) runs.add(entry.harnessSessionId)
       else preHarnessRuns += 1
     }
-    if (entry.status !== 'completed') counts.failedTurns += 1
   }
   counts.agentRuns = runs.size + preHarnessRuns
   return counts

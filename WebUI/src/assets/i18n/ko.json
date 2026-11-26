@@ -171,7 +171,6 @@
   "OVERVIEW_COUNT_AUDIO": "오디오 클립",
   "OVERVIEW_COUNT_TRANSCRIPTIONS": "전사",
   "OVERVIEW_COUNT_AGENT_RUNS": "에이전트 실행",
-  "OVERVIEW_COUNT_FAILED_TURNS": "실패하거나 중단된 턴",
   "SESSIONS_SCHEDULE_PAUSED": "이 세션의 에이전트 일정이 일시 중지되었습니다",
   "SESSIONS_COLLAPSE": "세션 패널 접기",
   "SESSIONS_EXPAND": "세션 패널 펼치기",

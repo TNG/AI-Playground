@@ -94,7 +94,6 @@ const CHROME: OverviewChrome = {
     OVERVIEW_COUNT_AUDIO: 'Audio clips',
     OVERVIEW_COUNT_TRANSCRIPTIONS: 'Transcriptions',
     OVERVIEW_COUNT_AGENT_RUNS: 'Agent runs',
-    OVERVIEW_COUNT_FAILED_TURNS: 'Failed or stopped turns',
   },
 }
 

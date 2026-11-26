@@ -77,7 +77,6 @@ const CHROME: OverviewChrome = {
     OVERVIEW_COUNT_AUDIO: 'Audio clips',
     OVERVIEW_COUNT_TRANSCRIPTIONS: 'Transcriptions',
     OVERVIEW_COUNT_AGENT_RUNS: 'Agent runs',
-    OVERVIEW_COUNT_FAILED_TURNS: 'Failed or stopped turns',
   },
 }
 
@@ -416,7 +415,6 @@ describe('the page', () => {
         OVERVIEW_COUNT_AUDIO: 'Audioclips',
         OVERVIEW_COUNT_TRANSCRIPTIONS: 'Transkriptionen',
         OVERVIEW_COUNT_AGENT_RUNS: 'Agentenläufe',
-        OVERVIEW_COUNT_FAILED_TURNS: 'Fehlgeschlagene oder gestoppte Turns',
       },
     }
 
@@ -448,7 +446,6 @@ describe('the work counts', () => {
 
     expect(html).toContain('<div class="counts">')
     expect(html).toMatch(/Images<\/span><span class="count-value">2</)
-    expect(html).toMatch(/Failed or stopped turns<\/span><span class="count-value">1</)
     expect(html).not.toContain('Videos')
   })
 
@@ -476,7 +473,6 @@ describe('the work counts', () => {
       'audio',
       'transcriptions',
       'agentRuns',
-      'failedTurns',
     ]) {
       expect(keys).not.toContain(category)
     }

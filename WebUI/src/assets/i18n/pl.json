@@ -171,7 +171,6 @@
   "OVERVIEW_COUNT_AUDIO": "Klipy audio",
   "OVERVIEW_COUNT_TRANSCRIPTIONS": "Transkrypcje",
   "OVERVIEW_COUNT_AGENT_RUNS": "Uruchomienia agentów",
-  "OVERVIEW_COUNT_FAILED_TURNS": "Nieudane lub zatrzymane tury",
   "SESSIONS_SCHEDULE_PAUSED": "Agent w tej sesji ma wstrzymany harmonogram",
   "SESSIONS_COLLAPSE": "Zwiń panel sesji",
   "SESSIONS_EXPAND": "Rozwiń panel sesji",

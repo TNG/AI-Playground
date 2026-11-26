@@ -137,7 +137,7 @@ _Avoid_: dashboard, digest, recap, session summary, report
 
 **Work counts**:
 What one Session produced, folded by code from its History Entries when an Overview is written:
-pictures, videos, 3D models, audio clips, transcriptions, Agent Runs, and failed or stopped turns.
+pictures, videos, 3D models, audio clips, transcriptions and Agent Runs.
 They describe the Session's whole work, not the requested range, and no model writes or sees them.
 _Avoid_: statistics, stats, metrics, KPIs
 

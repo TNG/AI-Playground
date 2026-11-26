@@ -171,7 +171,6 @@
   "OVERVIEW_COUNT_AUDIO": "Klip audio",
   "OVERVIEW_COUNT_TRANSCRIPTIONS": "Transkripsi",
   "OVERVIEW_COUNT_AGENT_RUNS": "Eksekusi agen",
-  "OVERVIEW_COUNT_FAILED_TURNS": "Giliran gagal atau dihentikan",
   "SESSIONS_SCHEDULE_PAUSED": "Sebuah agen di sesi ini memiliki jadwal yang dijeda",
   "SESSIONS_COLLAPSE": "Ciutkan panel Sesi",
   "SESSIONS_EXPAND": "Luaskan panel Sesi",

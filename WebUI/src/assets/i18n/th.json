@@ -171,7 +171,6 @@
   "OVERVIEW_COUNT_AUDIO": "คลิปเสียง",
   "OVERVIEW_COUNT_TRANSCRIPTIONS": "การถอดเสียง",
   "OVERVIEW_COUNT_AGENT_RUNS": "การทำงานของเอเจนต์",
-  "OVERVIEW_COUNT_FAILED_TURNS": "เทิร์นที่ล้มเหลวหรือหยุด",
   "SESSIONS_SCHEDULE_PAUSED": "เอเจนต์ในเซสชันนี้มีกำหนดเวลาที่หยุดชั่วคราว",
   "SESSIONS_COLLAPSE": "ยุบแผงเซสชัน",
   "SESSIONS_EXPAND": "ขยายแผงเซสชัน",

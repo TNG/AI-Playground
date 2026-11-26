@@ -52,6 +52,43 @@ export async function removeTimelineMessages(
   return file.timeline
 }
 
+type TurnStampedMessage = {
+  metadata?: {
+    harnessTurnId?: unknown
+    agentTurn?: { harnessSessionId?: unknown } | undefined
+  }
+}
+
+/** The answers one Harness turn wrote into the timeline; its prompt is not one of them. */
+function answersOfTurn(message: unknown, harnessSessionId: string, turnId: string): boolean {
+  const metadata = (message as TurnStampedMessage | null)?.metadata
+  return (
+    metadata?.harnessTurnId === turnId && metadata.agentTurn?.harnessSessionId === harnessSessionId
+  )
+}
+
+/** Takes a rewound turn's answers out of the Session file, whatever the re-run does. */
+export async function removeTimelineMessagesOfTurn(
+  sessionId: string,
+  harnessSessionId: string,
+  turnId: string,
+): Promise<unknown[]> {
+  const file = await mutateSession(sessionId, (current) => {
+    const gone = new Set(
+      current.timeline
+        .filter((message) => answersOfTurn(message, harnessSessionId, turnId))
+        .map((message) => idOf(message) ?? ''),
+    )
+    if (gone.size === 0) return current
+    return {
+      ...current,
+      timeline: current.timeline.filter((message) => !gone.has(idOf(message) ?? '')),
+      hiddenMessageIds: current.hiddenMessageIds.filter((id) => !gone.has(id)),
+    }
+  })
+  return file.timeline
+}
+
 /** Ids not in the file yet are kept too, so a live turn hides once it settles. */
 export async function addHiddenMessages(sessionId: string, messageIds: string[]): Promise<void> {
   const hidden = new Set(messageIds)

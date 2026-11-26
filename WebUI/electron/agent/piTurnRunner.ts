@@ -6,6 +6,7 @@ import {
   emitAgentChunk,
   emitAgentToolProgress,
   emitAgentTurnDone,
+  emitAgentTurnRewound,
   emitAgentTurnState,
 } from '../kernel/kernelBus.ts'
 import { closeAllBrowserSessions, closeBrowserSession } from './agentBrowser.ts'
@@ -84,6 +85,8 @@ import { turnAttachments, withAttachmentReferences } from './workspaceAttachment
 import { collectAgentCallTimings, turnTimings } from './piCallTiming.ts'
 import { markHarnessTurn, rewindHarnessTurn } from './harnessTurns.ts'
 import { removeHistoryEntries } from '../session/sessionHistory.ts'
+import { removeTimelineMessagesOfTurn } from '../session/sessionTimeline.ts'
+import { removeAgentSessionMessagesOfTurn } from '../persist/agentSessionFiles.ts'
 import {
   beginTurnJournal,
   deleteSessionJournals,
@@ -547,6 +550,9 @@ export async function startAgentTurn(
   let failedWith: string | undefined
   let missingWorkspace = false
   let reply: string | undefined
+  // Set once the rewind took the replaced turn off the branch: from there on,
+  // that turn's answers are gone from the model's memory, whatever happens next.
+  let rewoundTurn: string | undefined
   try {
     // Before the queue, so an unattended turn fails at once instead of pausing on a download.
     if (sessionRef) {
@@ -599,6 +605,12 @@ export async function startAgentTurn(
       throw new Error(HARNESS_TURN_REFUSALS.hostShell)
     }
     const rewound = rewindId ? rewindHarnessTurn(current.session, rewindId) : undefined
+    // The rewound turn's entries left the branch here: tell the renderer before
+    // anything else can fail, so a failed re-run cannot bring its answers back.
+    if (rewindId) {
+      rewoundTurn = rewindId
+      emitAgentTurnRewound(sessionId, turnId, rewindId)
+    }
     // The replaced turn's diary is spent here: the workspace goes back as that
     // turn found it before the re-run writes over it.
     if (rewindId) {
@@ -733,6 +745,33 @@ export async function startAgentTurn(
           : { sessionId, turnId, outcome: 'completed', reply }
     reportAgentTurnEnd(end)
     if (inSession) await inSession.settle(end)
+    // The answers of the turn a regenerate replaced leave the Session's timeline
+    // here too — success or failure, before the renderer's settle writes the file,
+    // so no fire-and-forget from the renderer has to carry them out.
+    if (sessionRef && rewoundTurn) {
+      try {
+        await removeTimelineMessagesOfTurn(sessionRef, sessionId, rewoundTurn)
+      } catch (error) {
+        logger.error(
+          `answers of the rewound turn ${rewoundTurn} stayed in the timeline: ${error}`,
+          LOG_SOURCE,
+        )
+      }
+    }
+    // The agent record can still carry them when the renderer died around the
+    // rewind, so main owns its honesty too — a stale record must not put the
+    // answers back at the renderer's next snapshot. Not only inside a Session:
+    // a standalone Agent panel session keeps its transcript in the record.
+    if (rewoundTurn) {
+      try {
+        await removeAgentSessionMessagesOfTurn(sessionId, rewoundTurn)
+      } catch (error) {
+        logger.error(
+          `answers of the rewound turn ${rewoundTurn} stayed in the agent record: ${error}`,
+          LOG_SOURCE,
+        )
+      }
+    }
     if (sessionRef) releaseSessionTurn(sessionRef, turnId)
     if (turn.live) await releaseTurnSession(turn.live)
     emitAgentTurnDone(sessionId, turnId)

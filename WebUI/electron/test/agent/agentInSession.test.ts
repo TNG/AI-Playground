@@ -67,6 +67,26 @@ vi.mock('../../chat/chatAsk.ts', async (importOriginal) => {
   }
 })
 
+// A delete's journal restore is the one step that can fail on a locked or
+// unreadable path; tests arm it to make the next restore throw instead.
+let journalRestoreFailure: string | null = null
+vi.mock('../../agent/workspaceJournal.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../agent/workspaceJournal.ts')>()
+  return {
+    ...actual,
+    restoreTurnJournal: async (
+      ...args: Parameters<typeof actual.restoreTurnJournal>
+    ): Promise<Awaited<ReturnType<typeof actual.restoreTurnJournal>>> => {
+      if (journalRestoreFailure) {
+        const message = journalRestoreFailure
+        journalRestoreFailure = null
+        throw new Error(message)
+      }
+      return actual.restoreTurnJournal(...args)
+    },
+  }
+})
+
 const BACKEND = 'http://fake-llm.test/v1'
 
 type Body = { messages?: Array<{ role: string; content?: unknown }> }
@@ -77,6 +97,8 @@ let bodies: Body[] = []
 let toolCall: { name: string; args: Record<string, unknown> } | null = null
 /** What the backend closes its stream with: llama.cpp's own timings, or only usage. */
 let finalChunkExtra: Record<string, unknown> = {}
+/** What the backend fails its requests with, in the response body; null answers normally. */
+let failWith: string | null = null
 /** Kernel events main sent the window. */
 let kernelEvents: { type?: string; turnId?: string; chunk?: Record<string, unknown> }[] = []
 /** What the renderer window is sent; a test answers the tool requests it cares about. */
@@ -136,6 +158,12 @@ beforeAll(() => {
     const text = await request.text()
     const body = text ? (JSON.parse(text) as Body) : {}
     bodies.push(body)
+    if (failWith) {
+      return new Response(JSON.stringify({ error: { message: failWith } }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
     return reply(body)
   }) as typeof fetch
 })
@@ -160,6 +188,7 @@ let harness: typeof import('../../session/sessionHarness')
 let history: typeof import('../../session/sessionHistory')
 let store: typeof import('../../agent/piSessionStore')
 let timeline: typeof import('../../session/sessionTimeline')
+let agentFiles: typeof import('../../persist/agentSessionFiles')
 
 beforeAll(async () => {
   manager = await import('../../agent/piAgentManager')
@@ -169,6 +198,7 @@ beforeAll(async () => {
   history = await import('../../session/sessionHistory')
   store = await import('../../agent/piSessionStore')
   timeline = await import('../../session/sessionTimeline')
+  agentFiles = await import('../../persist/agentSessionFiles')
   sessions.setSessionDeps({ isDemoMode: () => false })
   const fakeWindow = {
     isDestroyed: () => false,
@@ -192,6 +222,8 @@ beforeEach(() => {
   bodies = []
   toolCall = null
   finalChunkExtra = {}
+  failWith = null
+  journalRestoreFailure = null
   kernelEvents = []
   rendererSend = () => {}
 })
@@ -1025,6 +1057,73 @@ describe('the Assistant preset in a Session', () => {
       expect(transcriptText(bodies.at(-1))).toContain('pear')
     }, 30000)
 
+    it('regenerates the turn before one that was deleted', async () => {
+      const session = await sessions.createSession()
+      const config = await assistantConfig(session.id)
+      await manager.startAgentTurn('t1', 'remember the word plum', config)
+      await manager.startAgentTurn('t2', 'and the word pear', config)
+      const tag = { agentTurn: { presetName: 'Assistant', harnessSessionId: config.sessionId } }
+      await timeline.upsertTimelineMessages(session.id, [
+        { id: 'u1', role: 'user', parts: [], metadata: tag },
+        { id: 'a1', role: 'assistant', parts: [], metadata: { ...tag, harnessTurnId: 't1' } },
+        { id: 'u2', role: 'user', parts: [], metadata: tag },
+        { id: 'a2', role: 'assistant', parts: [], metadata: { ...tag, harnessTurnId: 't2' } },
+      ] as never)
+
+      await manager.deleteAgentTurns({
+        sessionRef: session.id,
+        harnessSessionId: config.sessionId,
+        turnIds: ['t2'],
+        messageIds: ['u2', 'a2'],
+      })
+      expect(
+        await manager.startAgentTurn('t3', 'remember the word plum', {
+          ...config,
+          rewindTurnId: 't1',
+        }),
+      ).toEqual({ success: true })
+
+      // The deleted turn's marker outlives its entries, yet the turn before it
+      // is the latest live one: the rewind drops both turns' entries.
+      const last = transcriptText(bodies.at(-1))
+      expect(last).toContain('remember the word plum')
+      expect(last).not.toContain('reply 1')
+      expect(last).not.toContain('and the word pear')
+      expect(last).not.toContain('reply 2')
+    }, 30000)
+
+    it('deletes the turn before one that was deleted', async () => {
+      const session = await sessions.createSession()
+      const config = await assistantConfig(session.id)
+      await manager.startAgentTurn('t1', 'remember the word plum', config)
+      await manager.startAgentTurn('t2', 'and the word pear', config)
+      const tag = { agentTurn: { presetName: 'Assistant', harnessSessionId: config.sessionId } }
+      await timeline.upsertTimelineMessages(session.id, [
+        { id: 'u1', role: 'user', parts: [], metadata: tag },
+        { id: 'a1', role: 'assistant', parts: [], metadata: { ...tag, harnessTurnId: 't1' } },
+        { id: 'u2', role: 'user', parts: [], metadata: tag },
+        { id: 'a2', role: 'assistant', parts: [], metadata: { ...tag, harnessTurnId: 't2' } },
+      ] as never)
+
+      await manager.deleteAgentTurns({
+        sessionRef: session.id,
+        harnessSessionId: config.sessionId,
+        turnIds: ['t2'],
+        messageIds: ['u2', 'a2'],
+      })
+      await manager.deleteAgentTurns({
+        sessionRef: session.id,
+        harnessSessionId: config.sessionId,
+        turnIds: ['t1'],
+        messageIds: ['u1', 'a1'],
+      })
+
+      const ids = (await sessions.readSession(session.id)).timeline.map(
+        (message) => (message as { id: string }).id,
+      )
+      expect(ids).toEqual([])
+    }, 30000)
+
     it('regenerates the latest turn from the Harness Session as it was before it', async () => {
       const session = await sessions.createSession()
       const config = await assistantConfig(session.id)
@@ -1111,6 +1210,228 @@ describe('the Assistant preset in a Session', () => {
       await manager.startAgentTurn('t2', 'which word?', config)
 
       expect(transcriptText(bodies.at(-1))).not.toContain('plum')
+    }, 30000)
+
+    it('takes the answers a regenerate replaced out of the timeline when the re-run settles', async () => {
+      const session = await sessions.createSession()
+      const config = await assistantConfig(session.id)
+      await manager.startAgentTurn('t1', 'remember the word plum', config)
+      await manager.startAgentTurn('t2', 'and the word pear', config)
+      const tag = { agentTurn: { presetName: 'Assistant', harnessSessionId: config.sessionId } }
+      await timeline.upsertTimelineMessages(session.id, [
+        { id: 'u1', role: 'user', parts: [], metadata: tag },
+        { id: 'a1', role: 'assistant', parts: [], metadata: { ...tag, harnessTurnId: 't1' } },
+        { id: 'u2', role: 'user', parts: [], metadata: tag },
+        { id: 'a2', role: 'assistant', parts: [], metadata: { ...tag, harnessTurnId: 't2' } },
+      ] as never)
+
+      expect(
+        await manager.startAgentTurn('t3', 'and the word pear', { ...config, rewindTurnId: 't2' }),
+      ).toEqual({ success: true })
+
+      // The rewind is announced before the re-run can fail, and the old
+      // answers are gone from the file once the turn settles: the prompt stays.
+      expect(kernelEvents).toContainEqual(
+        expect.objectContaining({ type: 'agent-turn-rewound', turnId: 't3', rewoundTurnId: 't2' }),
+      )
+      const ids = (await sessions.readSession(session.id)).timeline.map(
+        (message) => (message as { id: string }).id,
+      )
+      expect(ids).toEqual(['u1', 'a1', 'u2'])
+    }, 30000)
+
+    /** The agent record as it can go stale: last written before a rewind. */
+    async function seedStaleRecord(
+      config: AgentModeTurnConfig,
+      answer: string,
+      sessionRef?: string,
+    ): Promise<void> {
+      await agentFiles.saveAgentSession({
+        id: config.sessionId,
+        workspaceDir: config.workspaceDir,
+        title: 'Fruit',
+        createdAt: 1,
+        updatedAt: 2,
+        presetName: 'Assistant',
+        ...(sessionRef ? { sessionRef } : {}),
+        messages: [
+          { id: 'u1', role: 'user', parts: [{ type: 'text', text: 'name a fruit' }] },
+          {
+            id: 'a1',
+            role: 'assistant',
+            parts: [{ type: 'text', text: answer }],
+            metadata: { harnessTurnId: 't2' },
+          },
+        ],
+      })
+    }
+
+    async function recordMessagesOf(harnessSessionId: string): Promise<string> {
+      const boot = await agentFiles.bootstrapAgentSessions()
+      const record =
+        boot.status === 'ok'
+          ? boot.sessions.find((entry) => entry.id === harnessSessionId)
+          : undefined
+      return JSON.stringify(record?.messages ?? [])
+    }
+
+    it('takes the answers a regenerate replaced out of the agent record when the re-run settles', async () => {
+      const session = await sessions.createSession()
+      const config = await assistantConfig(session.id)
+      await manager.startAgentTurn('t1', 'remember the word plum', config)
+      await manager.startAgentTurn('t2', 'and the word pear', config)
+      await seedStaleRecord(config, 'the pear answer', session.id)
+
+      expect(
+        await manager.startAgentTurn('t3', 'and the word pear', { ...config, rewindTurnId: 't2' }),
+      ).toEqual({ success: true })
+
+      // A renderer that boots off this record must not see the replaced
+      // answer — and must not be able to upsert it back into the timeline.
+      const messages = await recordMessagesOf(config.sessionId)
+      expect(messages).not.toContain('the pear answer')
+      expect(messages).toContain('name a fruit')
+    }, 30000)
+
+    it('takes the replaced answers out of a standalone Agent record too', async () => {
+      const session = await sessions.createSession()
+      const config = await assistantConfig(session.id)
+      await manager.startAgentTurn('t1', 'remember the word plum', config)
+      // t1 titled the Session, which arms its Workspace's rename to that title
+      // in the background (appWorkspace.ts). A standalone turn neither claims
+      // the Session nor re-resolves the Workspace, so it must be given a
+      // current path, like every real session-less caller is: let the rename
+      // land, then carry on from the renamed folder.
+      const { settleWorkspaceRenames } = await import('../../session/appWorkspace')
+      await settleWorkspaceRenames()
+      const renamed = await assistantConfig(session.id)
+      await manager.startAgentTurn('t2', 'and the word pear', renamed)
+      await seedStaleRecord(renamed, 'the pear answer')
+
+      expect(
+        await manager.startAgentTurn('t3', 'and the word pear', {
+          ...renamed,
+          rewindTurnId: 't2',
+          sessionRef: undefined,
+        }),
+      ).toEqual({ success: true })
+
+      const messages = await recordMessagesOf(renamed.sessionId)
+      expect(messages).not.toContain('the pear answer')
+      expect(messages).toContain('name a fruit')
+    }, 30000)
+
+    it('keeps a failed re-run from bringing the replaced answers back', async () => {
+      const session = await sessions.createSession()
+      const config = await assistantConfig(session.id)
+      await manager.startAgentTurn('t1', 'remember the word plum', config)
+      await manager.startAgentTurn('t2', 'and the word pear', config)
+      const tag = { agentTurn: { presetName: 'Assistant', harnessSessionId: config.sessionId } }
+      await timeline.upsertTimelineMessages(session.id, [
+        { id: 'u1', role: 'user', parts: [], metadata: tag },
+        { id: 'a1', role: 'assistant', parts: [], metadata: { ...tag, harnessTurnId: 't1' } },
+        { id: 'u2', role: 'user', parts: [], metadata: tag },
+        { id: 'a2', role: 'assistant', parts: [], metadata: { ...tag, harnessTurnId: 't2' } },
+      ] as never)
+
+      failWith = 'backend exploded'
+      const result = await manager.startAgentTurn('t3', 'and the word pear', {
+        ...config,
+        rewindTurnId: 't2',
+      })
+      failWith = null
+      expect(result.success).toBe(false)
+
+      // The rewind already happened, so the old answer stays gone — the
+      // prompt is left without one, like a fresh message that failed.
+      const ids = (await sessions.readSession(session.id)).timeline.map(
+        (message) => (message as { id: string }).id,
+      )
+      expect(ids).toEqual(['u1', 'a1', 'u2'])
+      await manager.startAgentTurn('t4', 'which words?', config)
+      const last = transcriptText(bodies.at(-1))
+      expect(last).toContain('and the word pear')
+      expect(last).not.toContain('reply 2')
+    }, 30000)
+
+    it('keeps the answers of a turn whose regenerate was refused before the rewind', async () => {
+      const session = await sessions.createSession()
+      const config = await assistantConfig(session.id)
+      await manager.startAgentTurn('t1', 'remember the word plum', config)
+      await manager.startAgentTurn('t2', 'and the word pear', config)
+      const tag = { agentTurn: { presetName: 'Assistant', harnessSessionId: config.sessionId } }
+      await timeline.upsertTimelineMessages(session.id, [
+        { id: 'u1', role: 'user', parts: [], metadata: tag },
+        { id: 'a1', role: 'assistant', parts: [], metadata: { ...tag, harnessTurnId: 't1' } },
+        { id: 'u2', role: 'user', parts: [], metadata: tag },
+        { id: 'a2', role: 'assistant', parts: [], metadata: { ...tag, harnessTurnId: 't2' } },
+      ] as never)
+
+      const result = await manager.startAgentTurn('t3', 'remember the word plum', {
+        ...config,
+        rewindTurnId: 't1',
+      })
+      expect(result.success).toBe(false)
+
+      // Nothing was rewound, so the timeline and the branch both keep the turn.
+      expect(kernelEvents).not.toContainEqual(
+        expect.objectContaining({ type: 'agent-turn-rewound' }),
+      )
+      const ids = (await sessions.readSession(session.id)).timeline.map(
+        (message) => (message as { id: string }).id,
+      )
+      expect(ids).toEqual(['u1', 'a1', 'u2', 'a2'])
+      await manager.startAgentTurn('t4', 'which words?', config)
+      const last = transcriptText(bodies.at(-1))
+      expect(last).toContain('plum')
+      expect(last).toContain('reply 2')
+    }, 30000)
+
+    it('aborts a delete whose workspace restore fails, leaving the turn to delete again', async () => {
+      const session = await sessions.createSession()
+      const config = await assistantConfig(session.id)
+      await manager.startAgentTurn('t1', 'remember the word plum', config)
+      const tag = { agentTurn: { presetName: 'Assistant', harnessSessionId: config.sessionId } }
+      await timeline.upsertTimelineMessages(session.id, [
+        { id: 'u1', role: 'user', parts: [], metadata: tag },
+        { id: 'a1', role: 'assistant', parts: [], metadata: { ...tag, harnessTurnId: 't1' } },
+      ] as never)
+
+      journalRestoreFailure = 'EBUSY: resource locked'
+      await expect(
+        manager.deleteAgentTurns({
+          sessionRef: session.id,
+          harnessSessionId: config.sessionId,
+          turnIds: ['t1'],
+          messageIds: ['u1', 'a1'],
+        }),
+      ).rejects.toThrow('could not restore the workspace of turn t1')
+
+      // Nothing was committed: the entries stay on the branch and in the file.
+      const ids = (await sessions.readSession(session.id)).timeline.map(
+        (message) => (message as { id: string }).id,
+      )
+      expect(ids).toEqual(['u1', 'a1'])
+      await manager.startAgentTurn('t2', 'which word?', config)
+      expect(transcriptText(bodies.at(-1))).toContain('plum')
+      expect(transcriptText(bodies.at(-1))).toContain('reply 1')
+
+      // With the cause fixed, the retry deletes — the turn t2 ran in between goes too.
+      await manager.deleteAgentTurns({
+        sessionRef: session.id,
+        harnessSessionId: config.sessionId,
+        turnIds: ['t2', 't1'],
+        messageIds: ['u1', 'a1'],
+      })
+      const after = (await sessions.readSession(session.id)).timeline.map(
+        (message) => (message as { id: string }).id,
+      )
+      expect(after).toEqual([])
+      await manager.startAgentTurn('t3', 'which word?', config)
+      const last = transcriptText(bodies.at(-1))
+      expect(last).not.toContain('plum')
+      expect(last).not.toContain('reply 1')
+      expect(last).not.toContain('reply 2')
     }, 30000)
   })
 

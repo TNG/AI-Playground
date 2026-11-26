@@ -203,6 +203,12 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
   timeline: readonly unknown[],
   live: LiveTurns<M, A>,
   files: TimelineFiles = {},
+  /**
+   * False when the visible timeline ends before messages hiding removed: the turns
+   * before a hidden tail would either be refused by main (agent) or silently drop
+   * the hidden turns (chat regenerate), so they must not offer the actions.
+   */
+  atTrueEnd = true,
 ): SessionTimelineItem<M, A>[] {
   let merged = withLiveChatTurn(timeline, live.chat ?? [])
   for (const agent of live.agents ?? []) {
@@ -265,13 +271,14 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
   }
   const last = items.at(-1)
   // Redoing or deleting an earlier Agent Turn would rewind, or leave a gap under, the turns after it.
+  // A hidden tail makes the visible end lie about being the last turn: `atTrueEnd` false.
   for (const item of items) {
-    if (item.kind !== 'agent' || item === last) continue
+    if (item.kind !== 'agent' || (item === last && atTrueEnd)) continue
     item.footer.actions = item.footer.actions.filter(
       (action) => action !== 'regenerate' && action !== 'edit' && action !== 'delete',
     )
   }
-  if (last?.kind === 'chat') {
+  if (atTrueEnd && last?.kind === 'chat') {
     // An answer that settled empty (failed or interrupted) can still be deleted, unless replayed.
     const answer = last.answers.at(-1)
     const replayed = last.answers.some((message) =>
@@ -292,7 +299,7 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
       last.footer.actions = withEditAction(last.footer.actions)
     }
   }
-  if (last?.kind === 'media') {
+  if (atTrueEnd && last?.kind === 'media') {
     const rerun = mediaRerun(last)
     // A run that failed before recording its settings cannot rerun, but still deletes.
     last.footer = withHide(
@@ -305,7 +312,7 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
       last,
     )
   }
-  if (last?.kind === 'audio') {
+  if (atTrueEnd && last?.kind === 'audio') {
     const rerun = audioRerunOf(last)
     // STT's prompt is only the source clip's label: it reruns but cannot be edited.
     const actions: TurnFooterAction[] = [

@@ -1141,7 +1141,7 @@
   "AGENT_TURN_EDIT_RUNNING": "In questa conversazione è ancora in corso un turno.",
   "AGENT_REGENERATE_NOT_LATEST": "Si può rigenerare solo l'ultima risposta.",
   "AGENT_REGENERATE_NO_PROMPT": "La risposta da rigenerare non ha un prompt.",
-  "AGENT_DELETE_TURN_FAILED": "Impossibile eliminare il messaggio.",
+  "AGENT_DELETE_TURN_FAILED": "Impossibile eliminare il messaggio: {error}",
   "AGENT_TURN_EDIT_HOST_SHELL": "Questa risposta è stata eseguita con la shell di sistema reale, quindi non può essere eliminata né rigenerata.",
   "AGENT_TURN_RESTORE_UNRESTORABLE": "Il turno è stato eliminato, ma questi file non hanno potuto essere ripristinati: {files}",
   "AGENT_ATTACH_FAILED": "Impossibile allegare {file}.",

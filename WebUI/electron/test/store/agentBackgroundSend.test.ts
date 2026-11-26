@@ -137,6 +137,22 @@ const openRecord = {
 let pushKernelEvent: (event: KernelEvent) => void = () => {}
 let seq = 10
 
+/** The kernel snapshot a renderer boots from; tests swap in an in-flight turn. */
+const EMPTY_SNAPSHOT: KernelSnapshot = {
+  scope: { kind: 'global' },
+  sequence: 5,
+  state: {
+    services: [],
+    agentTurns: [],
+    activeArtifactRun: null,
+    chatTurns: [],
+    activities: [],
+    inferenceProfile: null,
+  },
+}
+
+const getKernelSnapshot = vi.fn(async (): Promise<KernelSnapshot> => EMPTY_SNAPSHOT)
+
 /** Faithful to main (electron/agent/harnessTurns.ts): a session with a turn in flight refuses deletions. */
 const runningSessions = new Set<string>()
 
@@ -171,6 +187,9 @@ beforeEach(() => {
       return { success: true, error: undefined }
     },
   )
+  // clearAllMocks keeps implementations, so a test's in-flight snapshot must
+  // not leak into the next one.
+  getKernelSnapshot.mockImplementation(async () => EMPTY_SNAPSHOT)
   const storage = new Map<string, string>()
   const storageShim = {
     getItem: (key: string) => storage.get(key) ?? null,
@@ -185,18 +204,7 @@ beforeEach(() => {
         pushKernelEvent = listener
         return () => {}
       }),
-      getKernelSnapshot: vi.fn(async (): Promise<KernelSnapshot> => ({
-        scope: { kind: 'global' },
-        sequence: 5,
-        state: {
-          services: [],
-          agentTurns: [],
-          activeArtifactRun: null,
-          chatTurns: [],
-          activities: [],
-          inferenceProfile: null,
-        },
-      })),
+      getKernelSnapshot,
       existsPath,
       isFolderPath: vi.fn(async () => true),
       sessions: { missingWorkspace: vi.fn(async () => ({ success: true, missing: null })) },
@@ -470,7 +478,41 @@ describe('regenerating the latest turn', () => {
     expect(JSON.stringify(lastSaved(id)?.messages)).toContain('plum')
   })
 
-  it('deletes the replaced answer only once the new turn settled', async () => {
+  it('keeps the truncated view when the turn was rewound before it failed', async () => {
+    const store = await readyStore()
+    const sessionsStore = useSessions()
+    const forgetSpy = vi.spyOn(sessionsStore, 'forgetTimelineMessages')
+    const restoreSpy = vi.spyOn(sessionsStore, 'restoreForgottenTimelineMessages')
+    const { id, outcomes, answer, ref } = await answeredInSession(store)
+
+    await store.regenerateTurn(ref)
+    // The replaced answers left the open timeline the moment the turn started.
+    expect(forgetSpy).toHaveBeenCalledWith('session-1', [answer.id])
+    const turnId = await turnIdOf(1)
+    // Main announces the rewind before anything else can fail.
+    pushEvent({
+      type: 'agent-turn-rewound',
+      sessionId: id,
+      turnId,
+      rewoundTurnId: ref.turnIds[0],
+    })
+    pushEvent({
+      type: 'agent-chunk',
+      sessionId: id,
+      turnId,
+      chunk: { type: 'error', errorText: 'The download was declined.' },
+    })
+    pushEvent({ type: 'agent-turn-done', sessionId: id, turnId })
+    await vi.waitFor(() => expect(outcomes).toHaveLength(2))
+
+    // The turn was rewound, so its answers are gone from what the model sees:
+    // the failed re-run does not bring them back into the view, and the
+    // renderer sends no delete of its own — main owns the file side.
+    expect(restoreSpy).not.toHaveBeenCalled()
+    expect(deleteTurns).not.toHaveBeenCalled()
+  })
+
+  it('sends no deletion of its own when a regenerate replaces an answer: main owns the file', async () => {
     const store = await readyStore()
     const sessionsStore = useSessions()
     const forgetSpy = vi.spyOn(sessionsStore, 'forgetTimelineMessages')
@@ -482,8 +524,7 @@ describe('regenerating the latest turn', () => {
     expect(forgetSpy).toHaveBeenCalledWith('session-1', [answer.id])
     expect(restoreSpy).not.toHaveBeenCalled()
     const turnId = await turnIdOf(1)
-    // The new answer is streaming, but the turn has not settled: main refuses
-    // deletions for a session with a turn in flight, so none may be sent yet.
+    // The new answer is streaming, and the view keeps the truncated state.
     for (const chunk of [
       { type: 'start' },
       { type: 'text-start', id: 't' },
@@ -498,12 +539,10 @@ describe('regenerating the latest turn', () => {
 
     pushEvent({ type: 'agent-turn-done', sessionId: id, turnId })
     await vi.waitFor(() => expect(outcomes).toHaveLength(2))
-    await vi.waitFor(() =>
-      expect(deleteTurns).toHaveBeenCalledWith(
-        expect.objectContaining({ sessionRef: 'session-1', messageIds: [answer.id], turnIds: [] }),
-      ),
-    )
-    expect(deleteTurns).toHaveBeenCalledTimes(1)
+    // The replaced answer is main's to take out of the Session's file when the
+    // turn settles; the renderer sends no delete of its own, and nothing is
+    // brought back into the view.
+    expect(deleteTurns).not.toHaveBeenCalled()
     expect(restoreSpy).not.toHaveBeenCalled()
     expect(JSON.stringify(lastSaved(id)?.messages)).not.toContain('plum')
   })
@@ -516,6 +555,125 @@ describe('regenerating the latest turn', () => {
     await turnIdOf(0)
 
     expect(sentConfig(0)).not.toHaveProperty('rewindTurnId')
+  })
+})
+
+describe('a renderer that reconnected mid-regenerate', () => {
+  // A record last written before the rewind still holds the answers the
+  // replacing turn owes its branch to; the kernel snapshot carries the rewind.
+  const staleRecord = {
+    id: 'agent-live',
+    workspaceDir: '/work/live',
+    title: 'the replaced answer',
+    createdAt: 1,
+    updatedAt: 2,
+    presetName: 'Agent',
+    sessionRef: 'session-1',
+    messages: [
+      { id: 'u1', role: 'user', parts: [{ type: 'text', text: 'name a fruit' }] },
+      {
+        id: 'a1',
+        role: 'assistant',
+        parts: [{ type: 'text', text: 'plum' }],
+        metadata: { harnessTurnId: 'h1' },
+      },
+    ],
+  }
+
+  /** The bootstrap mock as the vi.fn the window shim installs. */
+  const bootstrapMock = () =>
+    window.electronAPI.agentMode.bootstrapSessions as unknown as ReturnType<typeof vi.fn>
+
+  function bootStaleRecord() {
+    bootstrapMock().mockResolvedValue({
+      status: 'ok',
+      activeSessionId: 'agent-live',
+      sessions: [staleRecord],
+    })
+  }
+
+  /** The kernel snapshot as a reconnected renderer receives it: the replacing turn in flight. */
+  function inFlightSnapshot(): KernelSnapshot {
+    return {
+      scope: { kind: 'global' },
+      sequence: 5,
+      state: {
+        services: [],
+        agentTurns: [
+          {
+            sessionId: 'agent-live',
+            turnId: 't9',
+            state: 'running',
+            chunks: [],
+            toolProgress: {},
+            toolImages: {},
+            rewoundTurnId: 'h1',
+          },
+        ],
+        activeArtifactRun: null,
+        chatTurns: [],
+        activities: [],
+        inferenceProfile: null,
+      },
+    }
+  }
+
+  async function settleAdoptedTurn(store: Awaited<ReturnType<typeof readyStore>>): Promise<void> {
+    const outcomes = recordOutcomes(store)
+    pushEvent({ type: 'agent-turn-done', sessionId: 'agent-live', turnId: 't9' })
+    await vi.waitFor(() => expect(lastSaved('agent-live')).toBeTruthy())
+    expect(outcomes).toHaveLength(1)
+  }
+
+  it('drops the replaced answers out of the chat and the view it adopts', async () => {
+    bootStaleRecord()
+    // The snapshot arrives only after the records hydrated, so the adopted
+    // chat starts from the stale record.
+    let releaseSnapshot: (snapshot: KernelSnapshot) => void = () => {}
+    getKernelSnapshot.mockImplementation(
+      () => new Promise<KernelSnapshot>((resolve) => (releaseSnapshot = resolve)),
+    )
+    const sessionsStore = useSessions()
+    const forgetSpy = vi.spyOn(sessionsStore, 'forgetTimelineMessages')
+    const store = useAgentMode()
+    const initDone = store.init()
+    await vi.waitFor(() => expect(store.sessions['agent-live']).toBeTruthy())
+    releaseSnapshot(inFlightSnapshot())
+    await initDone
+
+    // The rewound turn's answer left the adopted chat; the prompt stayed.
+    await vi.waitFor(() => expect(JSON.stringify(store.messages)).not.toContain('plum'))
+    expect(JSON.stringify(store.messages)).toContain('name a fruit')
+    expect(forgetSpy).toHaveBeenCalledWith('session-1', ['a1'])
+
+    await settleAdoptedTurn(store)
+    // The record the settle rewrote carries no trace of the replaced answer.
+    expect(JSON.stringify(lastSaved('agent-live')?.messages)).not.toContain('plum')
+    expect(JSON.stringify(lastSaved('agent-live')?.messages)).toContain('name a fruit')
+  })
+
+  it('keeps a record hydrated after adoption from putting the answers back', async () => {
+    // The snapshot installs before the records hydrate: adoption commits
+    // against an empty chat, and the hydrated transcript is merged into it.
+    getKernelSnapshot.mockResolvedValue(inFlightSnapshot())
+    let releaseBootstrap: (value: unknown) => void = () => {}
+    bootstrapMock().mockImplementation(() => new Promise((resolve) => (releaseBootstrap = resolve)))
+    const store = useAgentMode()
+    const initDone = store.init()
+    // Adoption runs to its commit before hydration starts; there was nothing
+    // in the chat to drop yet, so the merge is what must keep the answer out.
+    await vi.waitFor(() => expect(store.isSessionProcessing('agent-live')).toBe(true))
+    releaseBootstrap({ status: 'ok', activeSessionId: 'agent-live', sessions: [staleRecord] })
+    await initDone
+
+    // The merge skips the rewound turn's answer — the model's branch does not
+    // have it, so the chat must not take it back from the stale record.
+    await vi.waitFor(() => expect(JSON.stringify(store.messages)).not.toContain('plum'))
+    expect(JSON.stringify(store.messages)).toContain('name a fruit')
+
+    await settleAdoptedTurn(store)
+    expect(JSON.stringify(lastSaved('agent-live')?.messages)).not.toContain('plum')
+    expect(JSON.stringify(lastSaved('agent-live')?.messages)).toContain('name a fruit')
   })
 })
 

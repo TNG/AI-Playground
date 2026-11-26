@@ -48,12 +48,41 @@ function omitHarnessTurns(manager: SessionManager, turnIds: ReadonlySet<string>)
   return omit.length > 0
 }
 
-/** The turn markers of a branch, in the order the turns ran. */
+/** The markers of a branch's live turns, in the order the turns ran. */
 function harnessTurnMarkers(manager: SessionManager): string[] {
-  return manager.getBranch().flatMap((entry) => {
+  return liveTurnMarkers(manager).ids
+}
+
+/** Live-turn markers with index; a marker outlives the delete that nulls its turn's entries. */
+function liveTurnMarkers(manager: SessionManager): { at: number[]; ids: string[] } {
+  const branch = manager.getBranch()
+  const nulled = new Set(
+    branch.flatMap((entry) =>
+      entry.type === 'context_edit' && entry.replacement === null ? [entry.targetId] : [],
+    ),
+  )
+  const at: number[] = []
+  const ids: string[] = []
+  let pending: { index: number; id: string } | undefined
+  let live = false
+  const flush = () => {
+    if (pending && live && pending.id !== '') {
+      at.push(pending.index)
+      ids.push(pending.id)
+    }
+  }
+  branch.forEach((entry, index) => {
     const marker = turnMarkerId(entry)
-    return marker === undefined || marker === '' ? [] : [marker]
+    if (marker !== undefined) {
+      flush()
+      pending = { index, id: marker }
+      live = false
+    } else if (pending && reachesModel(entry) && !nulled.has(entry.id)) {
+      live = true
+    }
   })
+  flush()
+  return { at, ids }
 }
 
 /**
@@ -82,13 +111,10 @@ type PromptImages = NonNullable<NonNullable<Parameters<AgentSession['prompt']>[1
 /** The user message a rewound turn opened with, exactly as the model was sent it. */
 export type RewoundPrompt = { text: string; images: PromptImages }
 
-/** Moves the leaf to just before the latest turn, leaving the history ahead untouched. */
+/** Moves the leaf to just before the latest live turn, leaving the history ahead untouched. */
 export function rewindHarnessTurn(session: AgentSession, turnId: string): RewoundPrompt {
   const branch = session.sessionManager.getBranch()
-  const markers = branch.flatMap((entry, index) =>
-    turnMarkerId(entry) === undefined ? [] : [index],
-  )
-  const at = markers.at(-1)
+  const at = liveTurnMarkers(session.sessionManager).at.at(-1)
   if (at === undefined || turnMarkerId(branch[at]) !== turnId) {
     throw new Error(HARNESS_TURN_REFUSALS.notLatest)
   }
@@ -120,37 +146,44 @@ export async function deleteAgentTurns(
   if (agentTurns.has(harnessSessionId)) throw new Error(HARNESS_TURN_REFUSALS.running)
   const turnIds = new Set(request.turnIds)
   const unrestorable: string[] = []
+  // Turns still on the branch after the deleted ones go: their workspaces are
+  // restored too, newest first, so each restore undoes the turn on top of it.
+  let trailing: string[] = []
   if (turnIds.size > 0) {
-    let trailing: string[] = []
-    if (active?.sessionId === harnessSessionId) {
-      const manager = active.session.sessionManager
-      trailing = trailingTurns(harnessTurnMarkers(manager), turnIds)
-      assertTurnsNotHostShell(harnessSessionId, turnIds)
-      if (omitHarnessTurns(manager, turnIds)) {
-        active.session.refreshContext()
-      }
+    const liveSession = active?.sessionId === harnessSessionId ? active.session : undefined
+    let manager: SessionManager | undefined
+    if (liveSession) {
+      manager = liveSession.sessionManager
     } else {
       const file = readSessionStore()[harnessSessionId]?.sessionFilePath
       if (file && fs.existsSync(file)) {
         const pi = await loadPi()
-        const manager = pi.SessionManager.open(file, piSessionDir())
-        trailing = trailingTurns(harnessTurnMarkers(manager), turnIds)
-        assertTurnsNotHostShell(harnessSessionId, turnIds)
-        omitHarnessTurns(manager, turnIds)
+        manager = pi.SessionManager.open(file, piSessionDir())
       }
     }
-    // The workspace goes back as the deleted turns found it, newest first, so
-    // each restore undoes the turn that ran on top of it.
-    for (const turnId of [...trailing].reverse()) {
-      const report = await restoreTurnJournal(harnessSessionId, turnId)
-      if (report?.unrestorable.length) {
-        unrestorable.push(...report.unrestorable)
-        logger.warn(
-          `journal restore of ${turnId} could not put back: ${report.unrestorable.join(', ')}`,
-          LOG_SOURCE,
+    if (manager) {
+      trailing = trailingTurns(harnessTurnMarkers(manager), turnIds)
+      assertTurnsNotHostShell(harnessSessionId, turnIds)
+      // The journal restore can fail on a locked path, so it runs before anything commits.
+      for (const turnId of [...trailing].reverse()) {
+        const report = await restoreTurnJournal(harnessSessionId, turnId).catch(
+          (error: unknown) => {
+            throw new Error(
+              `could not restore the workspace of turn ${turnId}: ` +
+                `${error instanceof Error ? error.message : String(error)}`,
+            )
+          },
         )
+        if (report?.unrestorable.length) {
+          unrestorable.push(...report.unrestorable)
+          logger.warn(
+            `journal restore of ${turnId} could not put back: ${report.unrestorable.join(', ')}`,
+            LOG_SOURCE,
+          )
+        }
+        deleteTurnJournal(harnessSessionId, turnId)
       }
-      deleteTurnJournal(harnessSessionId, turnId)
+      if (omitHarnessTurns(manager, turnIds)) liveSession?.refreshContext()
     }
   }
   if (sessionRef) {

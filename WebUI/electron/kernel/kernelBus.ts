@@ -230,6 +230,24 @@ export function emitAgentTurnDone(sessionId: string, turnId: string): void {
   if (agentTurnOf(sessionId, turnId)) agentTurns.delete(sessionId)
 }
 
+/** A rewound turn: the snapshot carries it so a reconnecting renderer drops the answers too. */
+export function emitAgentTurnRewound(
+  sessionId: string,
+  turnId: string,
+  rewoundTurnId: string,
+): void {
+  let turn = agentTurnOf(sessionId, turnId)
+  if (!turn) {
+    beginAgentTurnSnapshot(sessionId, turnId)
+    turn = agentTurns.get(sessionId)
+  }
+  if (turn) turn.rewoundTurnId = rewoundTurnId
+  emit(
+    { type: 'agent-turn-rewound', sessionId, turnId, rewoundTurnId },
+    { kind: 'run', runId: turnId },
+  )
+}
+
 function agentTurnSnapshots(): AgentTurnSnapshot[] {
   return [...agentTurns.values()].map((turn) => ({
     ...turn,

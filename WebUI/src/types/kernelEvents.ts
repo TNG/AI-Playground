@@ -71,6 +71,19 @@ export type KernelAgentTurnDoneEvent = {
   turnId: string
 }
 
+/**
+ * A regenerate took the turn's place in the model's memory: everything the rewound
+ * turn contributed is gone from the branch, so its answers must not come back
+ * into the view when the re-run that replaced it fails.
+ */
+export type KernelAgentTurnRewoundEvent = {
+  type: 'agent-turn-rewound'
+  sessionId: string
+  turnId: string
+  /** The harness turn the regenerate rewound to just before. */
+  rewoundTurnId: string
+}
+
 // ── Artifact (media generation) events, docs/architecture-target.md §4.1 ──────
 //
 // The artifact runner in main owns the run lifecycle; the renderer's
@@ -297,6 +310,7 @@ export type KernelEventPayload =
   | KernelAgentToolImageEvent
   | KernelAgentTurnStateEvent
   | KernelAgentTurnDoneEvent
+  | KernelAgentTurnRewoundEvent
   | KernelArtifactPhaseEvent
   | KernelArtifactItemEvent
   | KernelArtifactDoneEvent
@@ -339,6 +353,12 @@ export type AgentTurnSnapshot = {
   pauseReason?: PauseReason
   /** Its place in the Turn Queue while queued (1 = next to start). */
   queuePosition?: number
+  /**
+   * The turn this one replaced by rewinding it off the branch: a renderer that
+   * (re)connects mid-turn must drop that turn's answers instead of letting a
+   * stale record put them back. Only while this turn is in flight.
+   */
+  rewoundTurnId?: string
   chunks: unknown[]
   toolProgress: Record<string, string>
   toolImages: Record<string, KernelAgentToolImageEvent[]>

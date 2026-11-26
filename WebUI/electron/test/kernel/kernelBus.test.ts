@@ -15,6 +15,7 @@ const {
   emitAgentToolProgress,
   emitAgentToolImage,
   emitAgentTurnDone,
+  emitAgentTurnRewound,
   getKernelSnapshot,
   resetKernelBusForTest,
   beginChatTurnSnapshot,
@@ -154,6 +155,40 @@ describe('kernel bus', () => {
     // name the turn, or a reconnect would adopt a dead one.
     expect(sent.at(-1)?.type).toBe('agent-turn-done')
     expect(getKernelSnapshot().state.agentTurns).toEqual([])
+  })
+
+  it('carries the rewind in the turn snapshot while the replacing turn runs', () => {
+    beginAgentTurnSnapshot('s1', 'turn-2')
+    emitAgentTurnState('s1', 'turn-2', 'running')
+    emitAgentTurnRewound('s1', 'turn-2', 'turn-1')
+
+    expect(getKernelSnapshot().state.agentTurns).toEqual([
+      {
+        sessionId: 's1',
+        turnId: 'turn-2',
+        state: 'running',
+        rewoundTurnId: 'turn-1',
+        chunks: [],
+        toolProgress: {},
+        toolImages: {},
+      },
+    ])
+
+    // The rewind dies with the turn: a reconnect after it settled must not
+    // drop answers that were not replaced.
+    emitAgentTurnDone('s1', 'turn-2')
+    expect(getKernelSnapshot().state.agentTurns).toEqual([])
+  })
+
+  it('stamps the rewind even when the turn began before the bus knew it', () => {
+    // A rewind can be announced while the turn's registry entry is being set
+    // up; the entry must exist for the snapshot to carry the rewind.
+    emitAgentTurnRewound('s1', 'turn-2', 'turn-1')
+    expect(getKernelSnapshot().state.agentTurns[0]).toMatchObject({
+      turnId: 'turn-2',
+      state: 'queued',
+      rewoundTurnId: 'turn-1',
+    })
   })
 
   it('ignores chunks and progress that belong to no open turn', () => {

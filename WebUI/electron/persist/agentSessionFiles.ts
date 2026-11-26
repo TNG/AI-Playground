@@ -301,6 +301,26 @@ export async function saveAgentSessionActiveId(id: string | null): Promise<void>
   })
 }
 
+type TurnStampedMessage = { metadata?: { harnessTurnId?: unknown } }
+
+/** Drops a rewound turn's answers from the record so a stale snapshot can't bring them back. */
+export async function removeAgentSessionMessagesOfTurn(id: string, turnId: string): Promise<void> {
+  assertSafeFileId(id, 'agent session')
+  return serialize(id, async () => {
+    const doc = parseSessionDoc(await readJson(sessionFile(id), LOG_SCOPE))
+    if (!doc) return
+    const kept = doc.messages.filter(
+      (message) => (message as TurnStampedMessage | null)?.metadata?.harnessTurnId !== turnId,
+    )
+    if (kept.length === doc.messages.length) return
+    const next: AgentSessionFile = { ...doc, messages: sanitizeMessages(kept) }
+    await atomicWriteJson(sessionFile(id), next)
+    // The index stays as it was: a removal is not activity, and the record
+    // keeps its place in the list.
+    emitStored('session', id)
+  })
+}
+
 export async function deleteAgentSessionRecord(
   id: string,
 ): Promise<{ success: true } | { success: false; error: string }> {

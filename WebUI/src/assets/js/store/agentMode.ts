@@ -1095,6 +1095,14 @@ export const useAgentMode = defineStore(
         return context?.stored ? storedTurnConfig(sessionId, context) : liveTurnConfig(sessionId)
       },
       initialMessages: (sessionId) => [...(sessions.value[sessionId]?.messages ?? [])],
+      // A reconnected renderer adopted a regenerate in flight: the answers the
+      // rewind replaced leave the Session's view at once, like the live path.
+      onAdoptedRewound: (sessionId, messageIds) => {
+        const sessionRef = sessionRefOf(sessionId)
+        if (sessionRef && messageIds.length > 0) {
+          sessionsStore.forgetTimelineMessages(sessionRef, messageIds)
+        }
+      },
       // The sent message is on the record at once, so the session is in the history
       // even when the user moves on before the turn has run.
       onTurnSubmitted: (sessionId) => {
@@ -1596,7 +1604,14 @@ export const useAgentMode = defineStore(
         if (!runtime || !runtime.hasTurn()) continue
         const live = runtime.chat.messages
         const known = new Set(live.map((message) => message.id))
-        const earlier = record.messages.filter((message) => !known.has(message.id))
+        const earlier = record.messages.filter((message) => {
+          if (known.has(message.id)) return false
+          // A turn the adopted regenerate rewound is not "earlier context": a
+          // record written before the rewind must not put its answers back.
+          const rewound = (message.metadata as { harnessTurnId?: unknown } | undefined)
+            ?.harnessTurnId
+          return typeof rewound !== 'string' || !runtime.rewoundTurnIds.has(rewound)
+        })
         if (earlier.length > 0) runtime.chat.messages = [...earlier, ...live]
       }
     }
@@ -1830,10 +1845,15 @@ export const useAgentMode = defineStore(
       const sessionRef = sessionRefOf(id)
       const result = await requestTurnDeletion(id, ref.turnIds, ref.messageIds)
       if (!result.success) {
+        // Refusals have a translated line; anything else says what actually
+        // failed, so the user can fix the cause (say a locked file) and retry.
+        const refusal = harnessTurnRefusal(result.error)
         errors.report(new Error(result.error), {
           category: 'unknown',
           code: 'agent/delete-turn-failed',
-          userMessage: i18n.state[harnessTurnRefusal(result.error) ?? 'AGENT_DELETE_TURN_FAILED'],
+          userMessage: refusal
+            ? i18n.state[refusal]
+            : i18n.state.AGENT_DELETE_TURN_FAILED.replace('{error}', result.error),
         })
         return
       }
@@ -2371,10 +2391,7 @@ export const useAgentMode = defineStore(
       return stored.inference.modelSupportsVision
     }
 
-    /**
-     * The replaced answers leave the view at once (undone if nothing streams); main refuses
-     * deletions while a turn is in flight, so the file-side removal runs after the turn settles.
-     */
+    /** Replaced answers leave the view; a failed re-run restores them only if nothing rewound. */
     async function regenerateIn(
       chat: AgentSessionRuntime['chat'],
       promptId: string,
@@ -2384,6 +2401,9 @@ export const useAgentMode = defineStore(
       const before = chat.messages
       const known = new Set(before.map((message) => message.id))
       const sessionRef = sessionRefOf(redo.harnessSessionId)
+      // A turn ref always names its turns; `?? ''` only satisfies the body type,
+      // and main treats an empty rewind id as no rewind at all.
+      const rewindTurnId = redo.turnIds.at(-1) ?? ''
       const answerIds = redo.messageIds.filter((messageId) => messageId !== redo.promptId)
       if (sessionRef && answerIds.length > 0) {
         sessionsStore.forgetTimelineMessages(sessionRef, answerIds)
@@ -2401,47 +2421,23 @@ export const useAgentMode = defineStore(
         await chat.regenerate({
           messageId: promptId,
           body: {
-            rewindTurnId: redo.turnIds[0],
+            rewindTurnId,
             ...(edited ? { editedPrompt: true } : {}),
           } satisfies RegenerateBody,
         })
       } finally {
         stop()
         // Main deregisters the turn before it closes the stream this await
-        // resolved on, so the deletion is no longer refused as in-flight.
-        if (replaced) void forgetAnswers(redo)
-        else {
+        // resolved on, so its own removal of the old answers has settled too.
+        if (replaced) return
+        const runtime = turns.runtimeFor(redo.harnessSessionId)
+        const rewound = !!rewindTurnId && (runtime?.rewoundTurnIds.has(rewindTurnId) ?? false)
+        // Before the rewind nothing changed: restore the view. After it, the answers stay gone.
+        if (!rewound) {
           if (sessionRef) void sessionsStore.restoreForgottenTimelineMessages(sessionRef)
           chat.messages = before
         }
       }
-    }
-
-    /** The answers Regenerate replaces leave the Session's timeline; the new turn takes their place. */
-    async function forgetAnswers(ref: HarnessTurnRef): Promise<void> {
-      const id = ref.harnessSessionId
-      const sessionRef = sessionRefOf(id)
-      const answerIds = ref.messageIds.filter((messageId) => messageId !== ref.promptId)
-      if (!sessionRef || answerIds.length === 0) return
-      try {
-        const result = await requestTurnDeletion(id, [], answerIds)
-        if (!result.success) {
-          errors.report(new Error(result.error), {
-            category: 'unknown',
-            code: 'agent/regenerate-forget-failed',
-            surface: 'silent',
-          })
-          return
-        }
-      } catch (error) {
-        errors.report(error, {
-          category: 'unknown',
-          code: 'agent/regenerate-forget-failed',
-          surface: 'silent',
-        })
-        return
-      }
-      sessionsStore.forgetTimelineMessages(sessionRef, answerIds)
     }
 
     function isSessionProcessing(id: string): boolean {

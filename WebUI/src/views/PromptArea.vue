@@ -766,8 +766,13 @@ async function handleCancelClick() {
     return
   }
   if (plan.turn) sessions.markTurnStopping(plan.turn.turnId)
-  if (plan.kind === 'ledger' && (await sessionLifecycle.stopOpenTurn())) return
+  if (plan.kind === 'ledger') {
+    await sessionLifecycle.stopOpenTurn()
+    return
+  }
   promptStore.cancelProcessing()
+  // The mode's Stop can be a no-op before the engine knows its turn; the ledger does not.
+  await sessionLifecycle.stopOpenTurn()
 }
 
 async function handleRecordingClick() {

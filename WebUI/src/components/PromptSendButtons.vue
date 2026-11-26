@@ -56,10 +56,11 @@
         <TooltipTrigger as-child>
           <span class="inline-flex">
             <Button
-              disabled
+              aria-disabled="true"
+              tabindex="-1"
               :aria-label="labels?.stopping ?? languages?.SESSION_TURN_STOPPING ?? 'Stopping…'"
               aria-busy="true"
-              class="px-3 py-1.5 bg-red-600 cursor-not-allowed disabled:opacity-100! rounded-lg text-sm min-w-[44px] flex items-center justify-center"
+              class="pointer-events-none px-3 py-1.5 bg-red-600 cursor-not-allowed rounded-lg text-sm min-w-[44px] flex items-center justify-center"
             >
               <i class="svg-icon w-4 h-4 i-loading"></i>
             </Button>

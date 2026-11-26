@@ -404,10 +404,7 @@ function createSessionRuntime(options: {
         restoredImages[toolCallId] = [...images]
       }
       toolImages.value = restoredImages
-      // The adopted turn replaced one the rewind took off the branch: its
-      // answers are gone from what the model sees, so they leave this chat —
-      // built from a record that can predate the rewind — before anything
-      // streams, and the Session's view forgets them at once too.
+      // The adopted turn replaced a rewound one: its answers leave this chat before streaming.
       if (turn.rewoundTurnId) {
         rewoundTurnIds.add(turn.rewoundTurnId)
         const rewoundAnswers = chat.messages.filter(

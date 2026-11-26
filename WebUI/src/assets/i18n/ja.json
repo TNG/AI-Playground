@@ -1141,7 +1141,7 @@
   "AGENT_TURN_EDIT_RUNNING": "この会話ではまだターンが実行中です。",
   "AGENT_REGENERATE_NOT_LATEST": "再生成できるのは最新の返信だけです。",
   "AGENT_REGENERATE_NO_PROMPT": "再生成する返信にプロンプトがありません。",
-  "AGENT_DELETE_TURN_FAILED": "メッセージを削除できませんでした。",
+  "AGENT_DELETE_TURN_FAILED": "メッセージを削除できませんでした: {error}",
   "AGENT_TURN_EDIT_HOST_SHELL": "この返信は実際のシステムシェルで実行されたため、削除も再生成もできません。",
   "AGENT_TURN_RESTORE_UNRESTORABLE": "ターンは削除されましたが、次のファイルを復元できませんでした: {files}",
   "AGENT_ATTACH_FAILED": "{file} を添付できませんでした。",

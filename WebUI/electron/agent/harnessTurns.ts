@@ -53,12 +53,7 @@ function harnessTurnMarkers(manager: SessionManager): string[] {
   return liveTurnMarkers(manager).ids
 }
 
-/**
- * The markers of a branch's live turns, with their entries' index: a marker cannot be
- * context-edited away, so one outlives the delete that nulled its turn's entries. Only
- * a turn that still owns a model entry that no null edit removed is live; a deleted
- * turn is not, so the turns before it stay the latest for Regenerate and Delete.
- */
+/** Live-turn markers with index; a marker outlives the delete that nulls its turn's entries. */
 function liveTurnMarkers(manager: SessionManager): { at: number[]; ids: string[] } {
   const branch = manager.getBranch()
   const nulled = new Set(
@@ -169,10 +164,7 @@ export async function deleteAgentTurns(
     if (manager) {
       trailing = trailingTurns(harnessTurnMarkers(manager), turnIds)
       assertTurnsNotHostShell(harnessSessionId, turnIds)
-      // The journal restore is the one step a locked or unreadable path can
-      // fail, so it runs before anything is committed: a failure aborts with
-      // the turns still in place, and the user can fix the cause and delete
-      // again. Already-restored turns simply skip their restore on the retry.
+      // The journal restore can fail on a locked path, so it runs before anything commits.
       for (const turnId of [...trailing].reverse()) {
         const report = await restoreTurnJournal(harnessSessionId, turnId).catch(
           (error: unknown) => {

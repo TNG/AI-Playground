@@ -1853,7 +1853,7 @@ export const useAgentMode = defineStore(
           code: 'agent/delete-turn-failed',
           userMessage: refusal
             ? i18n.state[refusal]
-            : `${i18n.state.AGENT_DELETE_TURN_FAILED}: ${result.error}`,
+            : i18n.state.AGENT_DELETE_TURN_FAILED.replace('{error}', result.error),
         })
         return
       }
@@ -2391,12 +2391,7 @@ export const useAgentMode = defineStore(
       return stored.inference.modelSupportsVision
     }
 
-    /**
-     * The replaced answers leave the view at once. Main owns the file side: it
-     * takes them out of the timeline when the replacing turn settles, and the
-     * rewound turn leaves the model's branch for good — a failed re-run restores
-     * the view only when nothing was rewound yet.
-     */
+    /** Replaced answers leave the view; a failed re-run restores them only if nothing rewound. */
     async function regenerateIn(
       chat: AgentSessionRuntime['chat'],
       promptId: string,
@@ -2437,10 +2432,7 @@ export const useAgentMode = defineStore(
         if (replaced) return
         const runtime = turns.runtimeFor(redo.harnessSessionId)
         const rewound = !!rewindTurnId && (runtime?.rewoundTurnIds.has(rewindTurnId) ?? false)
-        // A refusal before the rewind changed nothing: put the view back. But
-        // once the turn was rewound, its answers are gone from what the model
-        // sees — a failed re-run leaves the honest prompt-without-answer, like
-        // a fresh message that failed, and the user can send a new one.
+        // Before the rewind nothing changed: restore the view. After it, the answers stay gone.
         if (!rewound) {
           if (sessionRef) void sessionsStore.restoreForgottenTimelineMessages(sessionRef)
           chat.messages = before

@@ -67,11 +67,7 @@ function answersOfTurn(message: unknown, harnessSessionId: string, turnId: strin
   )
 }
 
-/**
- * Takes the answers a rewound turn left in a Session's timeline out of the file:
- * a regenerate dropped them from what the model sees, and main — not a
- * fire-and-forget from the renderer — owns that they go whatever the re-run did.
- */
+/** Takes a rewound turn's answers out of the Session file, whatever the re-run does. */
 export async function removeTimelineMessagesOfTurn(
   sessionId: string,
   harnessSessionId: string,

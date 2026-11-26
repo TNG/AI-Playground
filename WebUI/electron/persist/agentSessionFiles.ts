@@ -303,13 +303,7 @@ export async function saveAgentSessionActiveId(id: string | null): Promise<void>
 
 type TurnStampedMessage = { metadata?: { harnessTurnId?: unknown } }
 
-/**
- * A regenerate rewound a turn out of its Harness Session's branch: its answers
- * have no business staying in the record's transcript either. Main takes them
- * out here, so a record last written before the rewind — the renderer died
- * around it, or reconnected mid-turn — cannot put them back at its next
- * snapshot. No-op (and no write) when the record already agrees.
- */
+/** Drops a rewound turn's answers from the record so a stale snapshot can't bring them back. */
 export async function removeAgentSessionMessagesOfTurn(id: string, turnId: string): Promise<void> {
   assertSafeFileId(id, 'agent session')
   return serialize(id, async () => {

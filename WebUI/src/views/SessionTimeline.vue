@@ -130,6 +130,13 @@ const mediaSteps = computed(() =>
   ),
 )
 
+/** Hiding a trailing turn leaves the visible end short of the file's: destructive actions belong to the true end. */
+const atTrueEnd = computed(() => {
+  const visible = sessions.openVisibleTimeline.at(-1) as { id?: string } | undefined
+  const full = sessions.openTimeline.at(-1) as { id?: string } | undefined
+  return visible?.id === full?.id
+})
+
 const items = computed(() => {
   const built = sessionTimelineItems(
     sessions.openVisibleTimeline,
@@ -144,6 +151,7 @@ const items = computed(() => {
       artifactRuns: artifactRuns.state,
     },
     { deletedUrls: sessions.openDeletedFiles },
+    atTrueEnd.value,
   )
   // Hiding is off: no Hide button, and no trace that it exists at all.
   // Already hidden messages stay hidden — that is the Session file's doing.

@@ -498,6 +498,28 @@ describe('Sessions store', () => {
     expect(store.isTurnStopping('t2')).toBe(true)
   })
 
+  it('ticks one shared clock only while a Turn is Stopping', async () => {
+    const store = useSessions()
+    await store.init()
+    vi.useFakeTimers()
+    try {
+      const asked = Date.now()
+      store.markTurnStopping('t1')
+      expect(store.stoppingNow).toBe(asked)
+
+      vi.advanceTimersByTime(5_000)
+      expect(store.stoppingNow).toBe(asked + 5_000)
+
+      store.stoppingTurns = {}
+      const settled = store.stoppingNow
+      vi.advanceTimersByTime(5_000)
+      expect(store.stoppingNow).toBe(settled)
+    } finally {
+      store.stoppingTurns = {}
+      vi.useRealTimers()
+    }
+  })
+
   it('keeps a stopping Turn across a Session switch', async () => {
     const store = useSessions()
     await store.init()

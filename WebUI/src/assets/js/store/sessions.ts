@@ -129,7 +129,7 @@ export const useSessions = defineStore('sessions', () => {
     }
   }
 
-  /** Marks a Turn Stopping until main releases it; only a chat Turn is marked today. */
+  /** Marks a Turn Stopping until main releases it. */
   function markTurnStopping(turnId: string): void {
     stoppingTurns.value = { ...stoppingTurns.value, [turnId]: Date.now() }
   }
@@ -137,6 +137,30 @@ export const useSessions = defineStore('sessions', () => {
   function isTurnStopping(turnId: string): boolean {
     return stoppingTurns.value[turnId] !== undefined
   }
+
+  /** One clock shared by every Stopping Turn, so no component owns a timer. */
+  const stoppingNow = ref(Date.now())
+  const STOPPING_CLOCK_MS = 1_000
+  let stoppingClock: ReturnType<typeof setInterval> | null = null
+
+  function runStoppingClock(stopping: boolean): void {
+    if (!stopping) {
+      if (stoppingClock !== null) clearInterval(stoppingClock)
+      stoppingClock = null
+      return
+    }
+    stoppingNow.value = Date.now()
+    if (stoppingClock === null) {
+      stoppingClock = setInterval(() => {
+        stoppingNow.value = Date.now()
+      }, STOPPING_CLOCK_MS)
+    }
+  }
+
+  watch(() => Object.keys(stoppingTurns.value).length > 0, runStoppingClock, {
+    immediate: true,
+    flush: 'sync',
+  })
 
   function applyTurns(next: SessionTurns): void {
     const ended = Object.keys(turns.value).filter(
@@ -171,7 +195,10 @@ export const useSessions = defineStore('sessions', () => {
   })
   projection.ready.catch((error: unknown) => errors.report(error, { surface: 'silent' }))
   if (import.meta.hot) {
-    import.meta.hot.dispose(() => projection.dispose())
+    import.meta.hot.dispose(() => {
+      projection.dispose()
+      if (stoppingClock !== null) clearInterval(stoppingClock)
+    })
   }
 
   /** The open Session, creating one when none is open yet. */
@@ -698,6 +725,7 @@ export const useSessions = defineStore('sessions', () => {
     pendingTurns,
     turns,
     stoppingTurns,
+    stoppingNow,
     markTurnStopping,
     isTurnStopping,
     unseen,

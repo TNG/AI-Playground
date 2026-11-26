@@ -291,14 +291,16 @@ export type LiveTurns<M extends PendingMedia, A extends PendingAudio> = {
   /** Run keys of the Agent Runs still in flight. */
   agentRunsInFlight?: readonly string[]
   chatStatus?: LiveChatStatus
-  /** The live chat Turn is Stopping: the user asked to stop it and main has not released it. */
-  chatStopping?: boolean
-  /** The Harness Session of a live agent Turn that is Stopping. */
-  agentStoppingHarnessId?: string
-  /** The live media Turn is Stopping: the user asked to stop it and main has not released it. */
-  mediaStopping?: boolean
-  /** The live audio Turn is Stopping: the user asked to stop it and main has not released it. */
-  audioStopping?: boolean
+  /** When the user asked to stop the live chat Turn, while main has not released it. */
+  chatStoppingAt?: number
+  /** A live Agent Turn that is Stopping: its Harness Session, and when the stop was asked for. */
+  agentStopping?: { harnessSessionId: string; at: number }
+  /** When the user asked to stop the live media Turn, while main has not released it. */
+  mediaStoppingAt?: number
+  /** When the user asked to stop the live audio Turn, while main has not released it. */
+  audioStoppingAt?: number
+  /** The time the Stopping escalation is measured against; a view supplies its ticking clock. */
+  now?: number
   media?: M | null
   mediaSteps?: Readonly<Record<string, MediaStepStatus>>
   audio?: A | null

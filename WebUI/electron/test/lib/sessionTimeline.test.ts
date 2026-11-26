@@ -4,6 +4,7 @@ import {
   agentRunControls,
   latestTurnOf,
   sessionTimelineItems,
+  STILL_STOPPING_AFTER_MS,
   timelineTurns,
   visibleLiveMessages,
   withLiveAgentTurn,
@@ -2387,7 +2388,8 @@ describe('the live status line of a running Turn', () => {
     const items = sessionTimelineItems([], {
       chat: [chatMessage('u1', 'user', 'hi'), chatAnswer([{ type: 'text', text: 'hel' }])],
       chatStatus: { running: false },
-      chatStopping: true,
+      chatStoppingAt: 1_000,
+      now: 2_000,
     })
 
     expect(detailsOf(items[0]).live).toEqual({ kind: 'stopping', stillStopping: false })
@@ -2398,7 +2400,7 @@ describe('the live status line of a running Turn', () => {
     const items = sessionTimelineItems([], {
       chat: [chatMessage('u1', 'user', 'hi'), chatAnswer([{ type: 'text', text: 'hel' }])],
       chatStatus: { running: false },
-      chatStopping: false,
+      now: 2_000,
     })
 
     expect(detailsOf(items[0]).live).toBeUndefined()
@@ -2409,12 +2411,44 @@ describe('the live status line of a running Turn', () => {
     expect(turnLiveText({ kind: 'stopping', stillStopping: true }, labels)).toBe('Still stopping…')
   })
 
+  it('escalates a chat Turn to Still stopping at ten seconds, not before', () => {
+    const at = 1_000
+    const build = (now: number) =>
+      sessionTimelineItems([], {
+        chat: [chatMessage('u1', 'user', 'hi'), chatAnswer([{ type: 'text', text: 'hel' }])],
+        chatStatus: { running: false },
+        chatStoppingAt: at,
+        now,
+      })
+
+    const before = build(at + STILL_STOPPING_AFTER_MS - 1)
+    expect(liveTextOf(before[0])).toBe('Stopping…')
+
+    const after = build(at + STILL_STOPPING_AFTER_MS)
+    expect(detailsOf(after[0]).live).toEqual({ kind: 'stopping', stillStopping: true })
+    expect(liveTextOf(after[0])).toBe('Still stopping…')
+  })
+
+  it('escalates a media Turn the same way', () => {
+    const at = 1_000
+    const build = (now: number) =>
+      sessionTimelineItems([], {
+        media: { runId: 'r2', prompt: 'a dragon', preset: 'Wan', mode: 'video' as const },
+        mediaStoppingAt: at,
+        now,
+      })
+
+    expect(liveTextOf(build(at + STILL_STOPPING_AFTER_MS - 1)[0])).toBe('Stopping…')
+    expect(liveTextOf(build(at + STILL_STOPPING_AFTER_MS)[0])).toBe('Still stopping…')
+  })
+
   it('says an Agent Turn is Stopping while it is still in the ledger', () => {
     const items = sessionTimelineItems([], {
       agents: [
         liveAgent([agentMessage('u1', 'user', 'go'), agentAnswer([{ type: 'text', text: 'hel' }])]),
       ],
-      agentStoppingHarnessId: 'aipg-agent-1',
+      agentStopping: { harnessSessionId: 'aipg-agent-1', at: 1_000 },
+      now: 2_000,
     })
 
     expect(detailsOf(items[0]).live).toEqual({ kind: 'stopping', stillStopping: false })
@@ -2434,7 +2468,8 @@ describe('the live status line of a running Turn', () => {
         liveAgent([agentMessage('u1', 'user', 'go')]),
         { tag: other, messages: [otherMessage], live: true },
       ],
-      agentStoppingHarnessId: 'aipg-agent-1',
+      agentStopping: { harnessSessionId: 'aipg-agent-1', at: 1_000 },
+      now: 2_000,
     })
 
     expect(detailsOf(items[0]).live).toEqual({ kind: 'stopping', stillStopping: false })
@@ -2444,7 +2479,8 @@ describe('the live status line of a running Turn', () => {
   it('says a media Turn is Stopping while it is still in the ledger', () => {
     const items = sessionTimelineItems([], {
       media: { runId: 'r2', prompt: 'a dragon', preset: 'Wan', mode: 'video' as const },
-      mediaStopping: true,
+      mediaStoppingAt: 1_000,
+      now: 2_000,
     })
 
     expect(detailsOf(items[0]).live).toEqual({ kind: 'stopping', stillStopping: false })
@@ -2454,7 +2490,8 @@ describe('the live status line of a running Turn', () => {
   it("keeps a media Turn Stopping through its run's settled phase", () => {
     const items = sessionTimelineItems([], {
       media: { runId: 'r2', prompt: 'a dragon', preset: 'Wan', mode: 'video' as const },
-      mediaStopping: true,
+      mediaStoppingAt: 1_000,
+      now: 2_000,
       artifactRuns: {
         runs: { r2: { runId: 'r2', phase: 'completed' as const, items: [], order: 0 } },
         nextOrder: 1,
@@ -2473,7 +2510,8 @@ describe('the live status line of a running Turn', () => {
         preset: 'Text to Speech',
         phase: 'generating' as const,
       },
-      audioStopping: true,
+      audioStoppingAt: 1_000,
+      now: 2_000,
     })
 
     expect(detailsOf(items[0]).live).toEqual({ kind: 'stopping', stillStopping: false })

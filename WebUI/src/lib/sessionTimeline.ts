@@ -86,6 +86,9 @@ import type {
 
 type AgentRun = { name: string; lastTurn: AgentTurn; end?: AgentRunTag['end'] }
 
+/** A stop that lasts this long says "Still stopping…" instead of "Stopping…". */
+export const STILL_STOPPING_AFTER_MS = 10_000
+
 function isMessageShaped(value: unknown): boolean {
   if (!value || typeof value !== 'object') return false
   const message = value as { id?: unknown; role?: unknown; parts?: unknown }
@@ -210,11 +213,12 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
   }
   const turns = timelineTurns(merged, files, live.artifactRuns)
   const mediaSteps = live.mediaSteps ?? {}
+  const now = live.now ?? Date.now()
   for (const agent of live.agents ?? [])
-    markLiveAgentTurns(turns, agent, mediaSteps, live.agentStoppingHarnessId)
+    markLiveAgentTurns(turns, agent, mediaSteps, live.agentStopping, now)
   markRunsInFlight(turns, live.agentRunsInFlight ?? [])
   for (const turn of turns) if (turn.kind === 'agent' && turn.streaming) turn.footer = noFooter()
-  markLiveChatTurn(turns, live.chatStatus, mediaSteps, live.chatStopping ?? false)
+  markLiveChatTurn(turns, live.chatStatus, mediaSteps, live.chatStoppingAt, now)
   const items: SessionTimelineItem<M, A>[] = [...turns]
   const media = live.media
   if (media && !turns.some((turn) => turn.kind === 'media' && turn.media.runId === media.runId)) {
@@ -227,8 +231,8 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
       details: {
         parts: [],
         summary: { kind: 'workflow', preset: media.preset },
-        ...(live.mediaStopping
-          ? { live: stoppingLive() }
+        ...(live.mediaStoppingAt !== undefined
+          ? { live: stoppingLive(live.mediaStoppingAt, now) }
           : run && isTerminalPhase(run.phase)
             ? {}
             : {
@@ -257,9 +261,10 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
       hint: audioHint(audio),
       details: {
         ...audioDetails(audio),
-        live: live.audioStopping
-          ? stoppingLive()
-          : { kind: 'audio', phase: audio.phase ?? 'generating' },
+        live:
+          live.audioStoppingAt !== undefined
+            ? stoppingLive(live.audioStoppingAt, now)
+            : { kind: 'audio', phase: audio.phase ?? 'generating' },
       },
       result: [{ kind: 'audio' }],
       prompt: textPrompt(audio.prompt ?? '', audio.preset),
@@ -748,20 +753,21 @@ function partsLiveStatus(
   }
 }
 
-function stoppingLive(): TurnLiveStatus {
-  return { kind: 'stopping', stillStopping: false }
+function stoppingLive(at: number, now: number): TurnLiveStatus {
+  return { kind: 'stopping', stillStopping: now - at >= STILL_STOPPING_AFTER_MS }
 }
 
 function markLiveChatTurn(
   entries: TimelineTurn[],
   status: LiveChatStatus | undefined,
   mediaSteps: Readonly<Record<string, MediaStepStatus>>,
-  stopping: boolean,
+  stoppingAt: number | undefined,
+  now: number,
 ): void {
   const turn = entries.findLast((entry) => entry.kind === 'chat')
   if (turn?.kind !== 'chat') return
-  if (stopping) {
-    turn.details = { ...turn.details, live: stoppingLive() }
+  if (stoppingAt !== undefined) {
+    turn.details = { ...turn.details, live: stoppingLive(stoppingAt, now) }
     if (status?.questionKey) turn.questionKey = status.questionKey
     return
   }
@@ -785,7 +791,8 @@ function markLiveAgentTurns(
   entries: TimelineTurn[],
   agent: LiveAgentTurn,
   mediaSteps: Readonly<Record<string, MediaStepStatus>>,
-  stoppingHarnessId: string | undefined,
+  stopping: { harnessSessionId: string; at: number } | undefined,
+  now: number,
 ): void {
   const id = agent.tag.harnessSessionId
   const turns = entries.filter(
@@ -799,14 +806,14 @@ function markLiveAgentTurns(
     turn.canResend = !!agent.canResend && turn.notRun && turn === last
   }
   if (last) {
-    const stopping = stoppingHarnessId !== undefined && id === stoppingHarnessId
-    const live: TurnLiveStatus | null = stopping
-      ? stoppingLive()
-      : !agent.live
-        ? null
-        : last.queued
-          ? { kind: 'queued' }
-          : (partsLiveStatus('agent', last.answers, mediaSteps) ?? { kind: 'working' })
+    const live: TurnLiveStatus | null =
+      stopping && id === stopping.harnessSessionId
+        ? stoppingLive(stopping.at, now)
+        : !agent.live
+          ? null
+          : last.queued
+            ? { kind: 'queued' }
+            : (partsLiveStatus('agent', last.answers, mediaSteps) ?? { kind: 'working' })
     const error = joinErrors([last.details.error, agent.error])
     const errorLine = oneLine(agent.error)
     last.details = {

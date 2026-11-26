@@ -203,6 +203,7 @@ async function stop(): Promise<void> {
               run: i18n.AGENT_LIBRARY_TRIAL_RUN_START,
               send: i18n.AGENT_LIBRARY_TRIAL_RUN_SEND,
               stop: i18n.AGENT_LIBRARY_TRIAL_RUN_STOP,
+              stopping: i18n.SESSION_TURN_STOPPING,
             }"
             @run-agent="requestRun"
             @send="sendFollowUp"

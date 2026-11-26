@@ -54,7 +54,7 @@
     <Button
       v-else
       disabled
-      :aria-label="languages?.SESSION_TURN_STOPPING"
+      :aria-label="labels?.stopping ?? languages?.SESSION_TURN_STOPPING"
       aria-busy="true"
       class="px-3 py-1.5 bg-red-400 cursor-not-allowed rounded-lg text-sm min-w-[44px] flex items-center justify-center"
     >
@@ -82,7 +82,7 @@ const props = defineProps<{
   isSlashCommand: boolean
   isStopping: boolean
   /** Outside the prompt bar: its own accessible names, and no tour anchor. */
-  labels?: { run: string; send: string; stop: string }
+  labels?: { run: string; send: string; stop: string; stopping: string }
 }>()
 
 const emit = defineEmits<{

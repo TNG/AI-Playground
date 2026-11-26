@@ -153,7 +153,6 @@ const partComponents: Record<AppSettingsPartId, Component> = {
   permissions: AppSettingsPermissions,
   hideMessages: AppSettingsHide,
   remoteKernel: AppSettingsRemoteKernel,
-  backendStatus: AppSettingsBackendStatus,
   developer: AppSettingsDeveloper,
   demoMode: DemoModeSettings,
 }

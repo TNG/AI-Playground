@@ -66,6 +66,20 @@ carrying its full context across its turns, plus a fresh one for each Agent Run,
 Follow-ups continue.
 _Avoid_: Pi session, agent session
 
+**Turn**:
+One preset's run in a Session: a single prompt and everything it does until it settles. A Session
+has at most one Turn at a time.
+_Avoid_: task, request, generation, message
+
+**Stopping**:
+A Turn whose cancellation the user has asked for but whose engine has not yet released it. It is
+still the Turn in flight, not a finished one.
+_Avoid_: cancelled, aborted, stopped
+
+**Cancelled**:
+A Turn that ended because the user stopped it, as opposed to one that failed or completed.
+_Avoid_: stopped, aborted
+
 **Session History**:
 The append-only record of everything that happened in a Session, in order — which preset ran, what
 it was asked, and what it produced.

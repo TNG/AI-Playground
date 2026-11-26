@@ -97,7 +97,9 @@ const belowHeader = computed(
 const stoppingAnnouncement = computed(() => {
   const live = props.details.live
   if (live?.kind !== 'stopping') return undefined
-  return live.stillStopping ? languages.SESSION_TURN_STILL_STOPPING : languages.SESSION_TURN_STOPPING
+  return live.stillStopping
+    ? languages.SESSION_TURN_STILL_STOPPING
+    : languages.SESSION_TURN_STOPPING
 })
 
 function toggleBrowserWindow() {

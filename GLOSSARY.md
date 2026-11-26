@@ -131,9 +131,15 @@ _Avoid_: session summary, recap
 
 **Overview**:
 A single HTML file about the Sessions that were active in one time range: for each, its Title, that
-Session's Overview Summary, and a picture when one fits. A snapshot taken when it is asked for, not
-a view that stays current; not an Artifact, and it shows no turns.
+Session's Overview Summary, its work counts, and a picture when one fits. A snapshot taken when it
+is asked for, not a view that stays current; not an Artifact, and it shows no turns.
 _Avoid_: dashboard, digest, recap, session summary, report
+
+**Work counts**:
+What one Session produced, folded by code from its History Entries when an Overview is written:
+pictures, videos, 3D models, audio clips, transcriptions, Agent Runs, and failed or stopped turns.
+They describe the Session's whole work, not the requested range, and no model writes or sees them.
+_Avoid_: statistics, stats, metrics, KPIs
 
 **Overview Summary**:
 The model-written account a Session keeps of its whole work while it is Included in Overviews,

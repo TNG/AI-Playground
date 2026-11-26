@@ -14,31 +14,30 @@ export const useSessionFiles = defineStore('sessionFiles', () => {
 
   const files = ref<SessionCreatedFile[]>([])
   const loading = ref(false)
-  // Click-discovered deletions: a chip whose preview read says the file is gone
-  // stays struck until a refresh proves it exists again.
-  const markedMissing = ref<Set<string>>(new Set())
+  // Click- and rewrite-discovered truth on top of the listing: a preview read
+  // that says a file is gone (or succeeds again), or a streaming turn's fresh
+  // write of a same-named deleted file, recorded until a refresh re-scans disk.
+  const presence = ref<Map<string, boolean>>(new Map())
 
   const missingFileKeys = computed<Set<string>>(() => {
-    const keys = new Set(markedMissing.value)
+    const keys = new Set<string>()
     for (const file of files.value) {
       if (!file.exists) keys.add(missingFileKey(file.harnessSessionId, file.file))
+    }
+    for (const [key, missing] of presence.value) {
+      if (missing) keys.add(key)
+      else keys.delete(key)
     }
     return keys
   })
 
   function markMissing(harnessSessionId: string, file: string): void {
     if (!harnessSessionId) return
-    const next = new Set(markedMissing.value)
-    next.add(missingFileKey(harnessSessionId, file))
-    markedMissing.value = next
+    presence.value = new Map(presence.value).set(missingFileKey(harnessSessionId, file), true)
   }
 
   function markPresent(harnessSessionId: string, file: string): void {
-    const key = missingFileKey(harnessSessionId, file)
-    if (!markedMissing.value.has(key)) return
-    const next = new Set(markedMissing.value)
-    next.delete(key)
-    markedMissing.value = next
+    presence.value = new Map(presence.value).set(missingFileKey(harnessSessionId, file), false)
   }
 
   function report(error: unknown, code: string): void {
@@ -51,15 +50,14 @@ export const useSessionFiles = defineStore('sessionFiles', () => {
       const result = await window.electronAPI.sessions.listCreatedFiles()
       if (result.success) {
         files.value = result.files
-        // A refresh is the disk-accurate word: only a file it reports existing
-        // gets its click-discovered mark cleared; unresolved pairs keep theirs.
-        const present = new Set(
-          result.files
-            .filter((file) => file.exists)
-            .map((file) => missingFileKey(file.harnessSessionId, file.file)),
+        // The fresh scan is the disk-accurate word for every key it resolved,
+        // so its truth replaces any recorded presence; keys it could not
+        // resolve keep their recorded truth, a click's included.
+        const resolved = new Set(
+          result.files.map((file) => missingFileKey(file.harnessSessionId, file.file)),
         )
-        if (present.size > 0)
-          markedMissing.value = new Set([...markedMissing.value].filter((key) => !present.has(key)))
+        if (resolved.size > 0)
+          presence.value = new Map([...presence.value].filter(([key]) => !resolved.has(key)))
       } else report(new Error(result.error), 'session-files/list-failed')
     } catch (error) {
       report(error, 'session-files/list-failed')

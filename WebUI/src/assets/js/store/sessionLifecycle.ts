@@ -1,4 +1,5 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
+import { watch } from 'vue'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useArtifactRuns } from '@/assets/js/store/artifactRuns'
 import { usePresets } from '@/assets/js/store/presets'
@@ -34,6 +35,17 @@ export const useSessionLifecycle = defineStore('sessionLifecycle', () => {
   const sessionAudio = useSessionAudio()
   const sessionFiles = useSessionFiles()
   const presetSwitch = usePromptBarPresetSwitch()
+
+  // The created-files listing is what the transcript chips read: re-scan it
+  // whenever the open Session's turn settles, wherever the user is — a
+  // same-named rewrite of a deleted file flips its entry back without the
+  // Artifacts tab having to be open for its own refresh.
+  watch(
+    () => sessions.openTurn,
+    (turn, previous) => {
+      if (previous && !turn) void sessionFiles.refresh()
+    },
+  )
 
   async function openSession(
     id: string,

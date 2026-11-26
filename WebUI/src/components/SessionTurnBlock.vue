@@ -105,6 +105,7 @@
             :session-id="harnessSessionIdOf()"
             @missing="markOpenFile(true)"
             @present="markOpenFile(false)"
+            @deleted="onPreviewDeleted"
           />
         </div>
       </div>
@@ -138,7 +139,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type { UIMessage } from 'ai'
 import { useAgentTasks } from '@/assets/js/store/agentTasks'
 import { useConfirmations } from '@/assets/js/store/confirmations'
@@ -257,6 +258,32 @@ function markOpenFile(missing: boolean): void {
   if (missing) sessionFiles.markMissing(harnessSessionId, file)
   else sessionFiles.markPresent(harnessSessionId, file)
 }
+
+// A delete from the chat strikes the chip at once and reconciles the listing,
+// so an open Artifacts tab drops the card without waiting for its own trigger.
+function onPreviewDeleted(): void {
+  markOpenFile(true)
+  void sessionFiles.refresh()
+}
+
+// A file a streaming turn just wrote is on disk again, so a same-named rewrite
+// of a deleted file must not keep (or pick up) the struck-out chip. Only files
+// newly appearing while the turn streams count: a settled turn's parts say
+// nothing about the file's existence now. `immediate` covers a remount
+// mid-turn, whose files this very turn wrote.
+watch(
+  turnFiles,
+  (files, previous) => {
+    if (props.item.kind !== 'agent' || !props.item.streaming) return
+    const harnessSessionId = harnessSessionIdOf()
+    if (!harnessSessionId) return
+    const seen = new Set(previous ?? [])
+    for (const file of files) {
+      if (!seen.has(file)) sessionFiles.markPresent(harnessSessionId, file)
+    }
+  },
+  { immediate: true },
+)
 
 function answerOf(messageId: string): UIMessage | undefined {
   return answersOf().find((answer) => answer.id === messageId)

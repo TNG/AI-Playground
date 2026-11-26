@@ -2275,6 +2275,8 @@ describe('the live status line of a running Turn', () => {
     working: 'Working…',
     runningTool: 'Running {tool}…',
     queued: 'Waiting for the running turn to finish…',
+    stopping: 'Stopping…',
+    stillStopping: 'Still stopping…',
     audioLoading: 'Loading voice…',
     audioGenerating: 'Generating speech…',
     audioTranscribing: 'Transcribing…',
@@ -2379,6 +2381,32 @@ describe('the live status line of a running Turn', () => {
 
     expect(detailsOf(items[0]).live).toBeUndefined()
     expect(items[0]).not.toHaveProperty('questionKey')
+  })
+
+  it('says a chat Turn is Stopping while it is still in the ledger', () => {
+    const items = sessionTimelineItems([], {
+      chat: [chatMessage('u1', 'user', 'hi'), chatAnswer([{ type: 'text', text: 'hel' }])],
+      chatStatus: { running: false },
+      chatStopping: true,
+    })
+
+    expect(detailsOf(items[0]).live).toEqual({ kind: 'stopping', stillStopping: false })
+    expect(liveTextOf(items[0])).toBe('Stopping…')
+  })
+
+  it('drops the Stopping line once the chat Turn settles', () => {
+    const items = sessionTimelineItems([], {
+      chat: [chatMessage('u1', 'user', 'hi'), chatAnswer([{ type: 'text', text: 'hel' }])],
+      chatStatus: { running: false },
+      chatStopping: false,
+    })
+
+    expect(detailsOf(items[0]).live).toBeUndefined()
+    expect(liveTextOf(items[0])).toBeUndefined()
+  })
+
+  it('escalates the Stopping line once the release takes a while', () => {
+    expect(turnLiveText({ kind: 'stopping', stillStopping: true }, labels)).toBe('Still stopping…')
   })
 
   it('says in its Result why a chat Turn failed before it produced anything', () => {

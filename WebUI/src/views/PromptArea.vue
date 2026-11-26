@@ -519,7 +519,11 @@ const isProcessing = computed(() =>
   }),
 )
 
-const isStopping = computed(() => imageGeneration.stopping)
+const isStopping = computed(
+  () =>
+    (sessions.openTurn ? sessions.isTurnStopping(sessions.openTurn.turnId) : false) ||
+    imageGeneration.stopping,
+)
 
 const readyForNewSubmit = computed(
   () => !promptStore.promptSubmitted && !isProcessing.value && !queuedBehindRun.value,
@@ -765,6 +769,7 @@ async function handleCancelClick() {
       turn.harnessSessionId === agentMode.openSessionId) ||
     (turn.kind === 'chat' && mode === 'chat') ||
     (turn.kind === 'media' && (mode === 'imageGen' || mode === 'imageEdit' || mode === 'video'))
+  if (turn?.kind === 'chat') sessions.markTurnStopping(turn.turnId)
   if (!ownTurn && (await sessionLifecycle.stopOpenTurn())) return
   promptStore.cancelProcessing()
   // The chat store can already count itself stopped while main still runs the turn.

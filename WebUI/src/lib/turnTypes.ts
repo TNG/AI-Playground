@@ -75,6 +75,7 @@ export type TurnLiveStatus =
   | { kind: 'writing' }
   | { kind: 'working' }
   | { kind: 'queued' }
+  | { kind: 'stopping'; stillStopping: boolean }
   | { kind: 'tool'; name: string; label?: string; progress?: number }
   | { kind: 'activity'; label: string; progress?: number; browsing?: boolean }
   | { kind: 'artifact'; phase: ArtifactPhase; progress?: ArtifactProgress }
@@ -290,6 +291,8 @@ export type LiveTurns<M extends PendingMedia, A extends PendingAudio> = {
   /** Run keys of the Agent Runs still in flight. */
   agentRunsInFlight?: readonly string[]
   chatStatus?: LiveChatStatus
+  /** The live chat Turn is Stopping: the user asked to stop it and main has not released it. */
+  chatStopping?: boolean
   media?: M | null
   mediaSteps?: Readonly<Record<string, MediaStepStatus>>
   audio?: A | null

@@ -116,14 +116,34 @@ export const useSessions = defineStore('sessions', () => {
 
   /** Each Session's turn in flight, as main's ledger has it. */
   const turns = ref<SessionTurns>({})
+  /** Turns the user asked to stop, by Turn id, with when they asked; renderer-only. */
+  const stoppingTurns = ref<Record<string, number>>({})
   /** Sessions whose turn ended while another was open; cleared when opened. */
   const unseen = ref<Record<string, true>>({})
+
+  function pruneStoppingTurns(next: SessionTurns): void {
+    const live = new Set(Object.values(next).map((turn) => turn.turnId))
+    const kept = Object.entries(stoppingTurns.value).filter(([turnId]) => live.has(turnId))
+    if (kept.length !== Object.keys(stoppingTurns.value).length) {
+      stoppingTurns.value = Object.fromEntries(kept)
+    }
+  }
+
+  /** Marks a Turn Stopping until main releases it; only a chat Turn is marked today. */
+  function markTurnStopping(turnId: string): void {
+    stoppingTurns.value = { ...stoppingTurns.value, [turnId]: Date.now() }
+  }
+
+  function isTurnStopping(turnId: string): boolean {
+    return stoppingTurns.value[turnId] !== undefined
+  }
 
   function applyTurns(next: SessionTurns): void {
     const ended = Object.keys(turns.value).filter(
       (id) => !next[id] && id !== openSessionId.value && sessions.value[id],
     )
     turns.value = next
+    pruneStoppingTurns(next)
     if (ended.length === 0) return
     unseen.value = { ...unseen.value, ...Object.fromEntries(ended.map((id) => [id, true])) }
   }
@@ -136,6 +156,7 @@ export const useSessions = defineStore('sessions', () => {
     },
     (snapshot) => {
       turns.value = { ...snapshot.state.sessionTurns }
+      pruneStoppingTurns(turns.value)
     },
   )
 
@@ -676,6 +697,9 @@ export const useSessions = defineStore('sessions', () => {
     openDeletedFiles,
     pendingTurns,
     turns,
+    stoppingTurns,
+    markTurnStopping,
+    isTurnStopping,
     unseen,
     openTurn,
     orderedSessions,

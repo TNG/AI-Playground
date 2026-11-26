@@ -116,6 +116,11 @@ const chatStatus = computed<LiveChatStatus>(() => {
   }
 })
 
+const chatStopping = computed(() => {
+  const turn = sessions.openTurn
+  return turn?.kind === 'chat' && sessions.isTurnStopping(turn.turnId)
+})
+
 const mediaSteps = computed(() =>
   Object.fromEntries(
     mediaRuns.runs.flatMap((run) => {
@@ -136,6 +141,7 @@ const items = computed(() => {
     {
       chat: chatLive.value,
       chatStatus: chatStatus.value,
+      chatStopping: chatStopping.value,
       agents: agentLive.value,
       agentRunsInFlight: agentTasks.firstTurnsInFlight,
       media: sessions.openSessionId ? sessions.pendingTurns[sessions.openSessionId] : null,

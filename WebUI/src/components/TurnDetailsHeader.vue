@@ -49,6 +49,8 @@ const liveText = computed(() =>
         working: languages.SESSION_TURN_LIVE_WORKING,
         runningTool: languages.COM_ACTIVITY_RUNNING_TOOL,
         queued: languages.AGENT_TURN_QUEUED_DETAIL,
+        stopping: languages.SESSION_TURN_STOPPING,
+        stillStopping: languages.SESSION_TURN_STILL_STOPPING,
         audioLoading: languages.SESSION_AUDIO_LOADING_VOICE,
         audioGenerating: languages.SESSION_AUDIO_GENERATING,
         audioTranscribing: languages.SESSION_AUDIO_TRANSCRIBING,

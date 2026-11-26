@@ -47,7 +47,6 @@
       v-else-if="!isStopping"
       @click="emit('cancel')"
       :aria-label="labels?.stop ?? languages?.SESSION_TURN_STOP"
-      aria-busy="true"
       class="px-3 py-1.5 bg-red-600 hover:bg-red-500 rounded-lg text-sm min-w-[44px] flex items-center justify-center"
     >
       <i class="svg-icon w-4 h-4 i-stop"></i>
@@ -55,7 +54,7 @@
     <Button
       v-else
       disabled
-      aria-label="Stopping"
+      :aria-label="languages?.SESSION_TURN_STOPPING"
       aria-busy="true"
       class="px-3 py-1.5 bg-red-400 cursor-not-allowed rounded-lg text-sm min-w-[44px] flex items-center justify-center"
     >

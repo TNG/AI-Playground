@@ -213,7 +213,7 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
   for (const agent of live.agents ?? []) markLiveAgentTurns(turns, agent, mediaSteps)
   markRunsInFlight(turns, live.agentRunsInFlight ?? [])
   for (const turn of turns) if (turn.kind === 'agent' && turn.streaming) turn.footer = noFooter()
-  markLiveChatTurn(turns, live.chatStatus, mediaSteps)
+  markLiveChatTurn(turns, live.chatStatus, mediaSteps, live.chatStopping ?? false)
   const items: SessionTimelineItem<M, A>[] = [...turns]
   const media = live.media
   if (media && !turns.some((turn) => turn.kind === 'media' && turn.media.runId === media.runId)) {
@@ -747,9 +747,16 @@ function markLiveChatTurn(
   entries: TimelineTurn[],
   status: LiveChatStatus | undefined,
   mediaSteps: Readonly<Record<string, MediaStepStatus>>,
+  stopping: boolean,
 ): void {
   const turn = entries.findLast((entry) => entry.kind === 'chat')
-  if (turn?.kind !== 'chat' || !status) return
+  if (turn?.kind !== 'chat') return
+  if (stopping) {
+    turn.details = { ...turn.details, live: { kind: 'stopping', stillStopping: false } }
+    if (status?.questionKey) turn.questionKey = status.questionKey
+    return
+  }
+  if (!status) return
   if (status.error && !status.running && turn.result.length === 0) {
     turn.result = [
       { kind: 'failure', ...generationFailure({ state: 'failed', error: status.error }) },

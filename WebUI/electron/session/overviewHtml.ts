@@ -1,5 +1,10 @@
 import { fillTemplate } from '@/lib/fillTemplate'
 import type { OverviewChrome, OverviewChromeKey } from '@/types/overviewChrome'
+import {
+  OVERVIEW_WORK_COUNT_ORDER,
+  type OverviewWorkCountCategory,
+  type OverviewWorkCounts,
+} from './overviewCounts'
 import type { OverviewWindow } from './overviewRange'
 
 // The page: fixed template, code-owned layout, every interpolation escaped.
@@ -7,6 +12,8 @@ import type { OverviewWindow } from './overviewRange'
 export type OverviewSection = {
   title: string
   summary: string
+  /** The Session's whole work, folded by code; zero categories are left off the line. */
+  counts?: OverviewWorkCounts
   /** A ready `data:image/…` URI, downscaled by the tool that read the file. */
   picture?: string
   /** What the Session worked on, as an emoji; the renderer only places it. */
@@ -98,7 +105,29 @@ function footnote(
   return `<p class="note ${kind}">${chromeHtml(chrome, key, { sessions })}</p>\n`
 }
 
-function sessionCard(session: OverviewSection): string {
+const COUNT_LABEL_KEY: Record<OverviewWorkCountCategory, OverviewChromeKey> = {
+  images: 'OVERVIEW_COUNT_IMAGES',
+  videos: 'OVERVIEW_COUNT_VIDEOS',
+  models3d: 'OVERVIEW_COUNT_MODELS_3D',
+  audio: 'OVERVIEW_COUNT_AUDIO',
+  transcriptions: 'OVERVIEW_COUNT_TRANSCRIPTIONS',
+  agentRuns: 'OVERVIEW_COUNT_AGENT_RUNS',
+  failedTurns: 'OVERVIEW_COUNT_FAILED_TURNS',
+}
+
+/** One label and bare number per non-zero category, in the code-owned order. */
+function countsHtml(counts: OverviewWorkCounts | undefined, chrome: OverviewChrome): string {
+  if (!counts) return ''
+  const parts = OVERVIEW_WORK_COUNT_ORDER.filter((category) => counts[category] > 0).map(
+    (category) =>
+      `<span class="count"><span class="count-label">` +
+      `${escapeHtml(chrome.strings[COUNT_LABEL_KEY[category]])}</span>` +
+      `<span class="count-value">${counts[category]}</span></span>`,
+  )
+  return parts.length > 0 ? `<div class="counts">${parts.join('')}</div>\n` : ''
+}
+
+function sessionCard(session: OverviewSection, chrome: OverviewChrome): string {
   // Only an inlined picture may reach the page: a URL scheme would not resolve
   // once the file is copied, and the CSP allows nothing but `data:`.
   const picture =
@@ -112,7 +141,9 @@ function sessionCard(session: OverviewSection): string {
     `<article class="card">\n` +
     `<header class="card-head"><p class="title">${icon}${escapeHtml(session.title)}</p></header>\n` +
     `<div class="card-body">\n<div class="text">\n` +
-    `<p class="summary">${escapeHtml(session.summary)}</p>\n</div>\n` +
+    `<p class="summary">${escapeHtml(session.summary)}</p>\n` +
+    countsHtml(session.counts, chrome) +
+    `</div>\n` +
     picture +
     `</div>\n</article>`
   )
@@ -134,6 +165,10 @@ h1 { margin: 0; font-size: 1.75rem; line-height: 1.25; font-weight: 650; letter-
 .text { flex: 1; min-width: 0; }
 .picture { flex: none; width: 7.5rem; height: 7.5rem; object-fit: cover; border-radius: .65rem; background: rgba(127, 127, 127, .12); }
 .summary { margin: 0; opacity: .92; white-space: pre-wrap; }
+.counts { display: flex; flex-wrap: wrap; gap: .35rem 1rem; margin-top: .85rem; font-size: .85rem; }
+.count { display: inline-flex; align-items: baseline; gap: .3rem; opacity: .85; }
+.count-label { opacity: .8; }
+.count-value { font-weight: 650; font-variant-numeric: tabular-nums; }
 .note { margin: 1.5rem 0 0; padding: .65rem .9rem; font-size: .9rem; border-left: .2rem solid rgba(127, 127, 127, .5); background: rgba(127, 127, 127, .08); }
 @media (max-width: 48rem) { .cards { grid-template-columns: minmax(0, 1fr); } }
 @media print { .cards { display: block; } .card { break-inside: avoid; margin-bottom: 1rem; } }
@@ -160,7 +195,7 @@ export function renderOverviewHtml(overview: OverviewDocument, chrome: OverviewC
 <main>
 <header class="head"><h1>${title}</h1></header>
 <div class="cards">
-${overview.sessions.map((session) => sessionCard(session)).join('\n')}
+${overview.sessions.map((session) => sessionCard(session, chrome)).join('\n')}
 </div>
 ${footnotes}</main>
 </body>

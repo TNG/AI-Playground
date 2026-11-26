@@ -9,6 +9,7 @@ import {
   type OverviewDocument,
   type OverviewSection,
 } from '../../session/overviewHtml'
+import { OVERVIEW_WORK_COUNT_ORDER, type OverviewWorkCounts } from '../../session/overviewCounts'
 
 // The Overview page is produced by code, never by the model: one resolved Overview
 // in, a self-contained HTML string out. One card per Session — its type icon, Title
@@ -40,6 +41,19 @@ function section(overrides: Partial<OverviewSection>): OverviewSection {
   return {
     title: 'A Session',
     summary: 'It did a thing.',
+    ...overrides,
+  }
+}
+
+function counts(overrides: Partial<OverviewWorkCounts> = {}): OverviewWorkCounts {
+  return {
+    images: 0,
+    videos: 0,
+    models3d: 0,
+    audio: 0,
+    transcriptions: 0,
+    agentRuns: 0,
+    failedTurns: 0,
     ...overrides,
   }
 }
@@ -145,6 +159,83 @@ describe('overview HTML renderer', () => {
     expect(html).not.toMatch(/<img\b/)
   })
 
+  it('renders one label and bare number per non-zero work count, in a stable order', () => {
+    const html = renderOverviewHtml(
+      documentOf([
+        section({
+          counts: counts({ images: 4, transcriptions: 2, agentRuns: 1, failedTurns: 3 }),
+        }),
+      ]),
+      english,
+    )
+
+    expect(html).toContain('<div class="counts">')
+    expect(html).toContain('<span class="count-label">Images</span>')
+    expect(html).toContain('<span class="count-value">4</span>')
+    expect(html).toContain('<span class="count-label">Transcriptions</span>')
+    expect(html).toContain('<span class="count-value">2</span>')
+    expect(html).toContain('<span class="count-label">Agent runs</span>')
+    expect(html).toContain('<span class="count-value">1</span>')
+    expect(html).toContain('<span class="count-label">Failed or stopped turns</span>')
+    expect(html).toContain('<span class="count-value">3</span>')
+
+    // Absent categories are not printed as zero.
+    expect(html).not.toContain('Videos')
+    expect(html).not.toContain('3D models')
+    expect(html).not.toContain('Audio clips')
+
+    const order = ['Images', 'Transcriptions', 'Agent runs', 'Failed or stopped turns']
+    const positions = order.map((label) => html.indexOf(`>${label}<`))
+    expect(positions).toEqual([...positions].sort((a, b) => a - b))
+  })
+
+  it('keeps the category order whatever order the counts were set in', () => {
+    const html = renderOverviewHtml(
+      documentOf([section({ counts: counts({ failedTurns: 1, images: 1, videos: 1 }) })]),
+      english,
+    )
+
+    expect(OVERVIEW_WORK_COUNT_ORDER).toEqual([
+      'images',
+      'videos',
+      'models3d',
+      'audio',
+      'transcriptions',
+      'agentRuns',
+      'failedTurns',
+    ])
+    expect(html.indexOf('>Images<')).toBeLessThan(html.indexOf('>Videos<'))
+    expect(html.indexOf('>Videos<')).toBeLessThan(html.indexOf('>Failed or stopped turns<'))
+  })
+
+  it('leaves the work-counts line off entirely when every count is zero', () => {
+    const html = renderOverviewHtml(documentOf([section({ counts: counts() })]), english)
+
+    expect(html).not.toContain('class="counts"')
+    expect(html).not.toContain('Images')
+  })
+
+  it('renders no work-counts line for a section without counts', () => {
+    const html = renderOverviewHtml(documentOf([section({})]), english)
+
+    expect(html).not.toContain('class="counts"')
+  })
+
+  it('escapes work-count labels like the rest of the chrome', () => {
+    const chrome: OverviewChrome = {
+      ...english,
+      strings: { ...english.strings, OVERVIEW_COUNT_IMAGES: 'Bilder <b>4</b>' },
+    }
+
+    const html = renderOverviewHtml(
+      documentOf([section({ counts: counts({ images: 1 }) })]),
+      chrome,
+    )
+
+    expect(html).toContain('Bilder &lt;b&gt;4&lt;/b&gt;')
+    expect(html).not.toContain('<b>4</b>')
+  })
+
   it('footnotes omitted Sessions by Title, with the strings escaped', () => {
     const html = renderOverviewHtml(
       documentOf([section({ title: 'Kept', summary: 'Kept work.' })], {
@@ -203,11 +294,28 @@ describe('overview HTML renderer', () => {
       const locale = file.replace(/\.json$/, '')
       const chrome = chromeOf(locale, readLocale(file))
       const html = renderOverviewHtml(
-        documentOf([section({ title: 'A Session', summary: 'A summary.' })], {
-          locale,
-          omitted: ['An Omitted Session'],
-          behind: ['A Behind Session'],
-        }),
+        documentOf(
+          [
+            section({
+              title: 'A Session',
+              summary: 'A summary.',
+              counts: counts({
+                images: 1,
+                videos: 1,
+                models3d: 1,
+                audio: 1,
+                transcriptions: 1,
+                agentRuns: 1,
+                failedTurns: 1,
+              }),
+            }),
+          ],
+          {
+            locale,
+            omitted: ['An Omitted Session'],
+            behind: ['A Behind Session'],
+          },
+        ),
         chrome,
       )
 

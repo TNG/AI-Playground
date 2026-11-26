@@ -4,6 +4,7 @@ import {
   type OverviewWindow,
 } from './overviewRange'
 import { readHistoryEntries } from './sessionHistory'
+import { foldOverviewWorkCounts, type OverviewWorkCounts } from './overviewCounts'
 import { storedPictureHostPath } from './overviewPicture'
 import { autoTitle } from './sessionTitle'
 import { listSessions, readSession } from './sessions'
@@ -20,6 +21,8 @@ export type OverviewSessionCard = {
   summary: string
   /** What the Session worked on, from its stored picture or its newest turn's output. */
   icon: string
+  /** The whole Session's work, folded from its History and never from the window. */
+  counts: OverviewWorkCounts
   /** The stored picture's file on disk; the tool inlines it under the page budget. */
   picturePath?: string
 }
@@ -140,6 +143,7 @@ export async function selectOverviewSessions(query: OverviewQuery): Promise<Over
       title: row.title.trim() || autoTitle(newest),
       summary: usable ? summary : '',
       icon: iconOf(stored, newest),
+      counts: foldOverviewWorkCounts(entries),
       ...(picturePath ? { picturePath } : {}),
       newest: newest.timestamp,
       usable,

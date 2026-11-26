@@ -88,6 +88,13 @@ const CHROME: OverviewChrome = {
     OVERVIEW_PAGE_TITLE: 'Sessions active {from} to {to}',
     OVERVIEW_OMITTED_NOTE: 'Omitted: {sessions}',
     OVERVIEW_BEHIND_NOTE: 'Behind: {sessions}',
+    OVERVIEW_COUNT_IMAGES: 'Images',
+    OVERVIEW_COUNT_VIDEOS: 'Videos',
+    OVERVIEW_COUNT_MODELS_3D: '3D models',
+    OVERVIEW_COUNT_AUDIO: 'Audio clips',
+    OVERVIEW_COUNT_TRANSCRIPTIONS: 'Transcriptions',
+    OVERVIEW_COUNT_AGENT_RUNS: 'Agent runs',
+    OVERVIEW_COUNT_FAILED_TURNS: 'Failed or stopped turns',
   },
 }
 

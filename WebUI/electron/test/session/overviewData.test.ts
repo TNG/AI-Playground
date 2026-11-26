@@ -277,8 +277,40 @@ describe('the cards', () => {
 
     const [card] = (await query()).sessions
 
-    expect(Object.keys(card).sort()).toEqual(['icon', 'id', 'summary', 'title'])
+    expect(Object.keys(card).sort()).toEqual(['counts', 'icon', 'id', 'summary', 'title'])
     expect(JSON.stringify(card)).not.toContain('a secret prompt')
+  })
+
+  it('folds the whole Session’s work even when only its newest entry is in the window', async () => {
+    const from = new Date(2026, 10, 23, 10).getTime()
+    const to = new Date(2026, 10, 24, 10).getTime()
+    const id = await seedSession(
+      [
+        historyEntry({
+          timestamp: from - HOUR,
+          artifacts: [
+            { path: 'a.png', mediaType: 'image' },
+            { path: 'b.png', mediaType: 'image' },
+          ],
+        }),
+        historyEntry({ kind: 'stt', timestamp: from - 2 * HOUR }),
+        historyEntry({ timestamp: to - HOUR }),
+      ],
+      { summary: 'A windowed card.' },
+    )
+
+    const [card] = (
+      await query({ range: { from: '2026-11-23T10:00:00', to: '2026-11-24T10:00:00' } })
+    ).sessions
+
+    expect(card.id).toBe(id)
+    expect(card.counts).toMatchObject({
+      images: 2,
+      transcriptions: 1,
+      videos: 0,
+      agentRuns: 0,
+      failedTurns: 0,
+    })
   })
 })
 

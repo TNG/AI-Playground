@@ -239,6 +239,7 @@ async function sectionsWithPictures(
       title: session.title,
       summary: session.summary,
       icon: session.icon,
+      counts: session.counts,
       ...(picture ? { picture } : {}),
     })
   }
@@ -264,8 +265,8 @@ async function buildOverviewTools(host: CapabilityHost): Promise<ToolDefinition[
         '`omitted` Titles and `omittedCount`, and `behind` Titles and `behindCount` (active ' +
         'Sessions with no usable summary, and summaries that stop at an older entry) so you can ' +
         'relay what the page leaves out or marks. It ' +
-        'never returns History Entries or summary text. Relay the window and the link unchanged; ' +
-        'never summarise a Session, write markup, or compute a timestamp.',
+        'never returns History Entries, work counts or summary text. Relay the window and the link ' +
+        'unchanged; never summarise a Session, write markup, or compute a timestamp.',
       parameters: jsonSchemaParameters(OVERVIEW_SCHEMA),
       execute: async (_toolCallId, params) => {
         if (!host.sessionRef) return textResult(overviewMissingSession())

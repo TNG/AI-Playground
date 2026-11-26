@@ -71,6 +71,13 @@ const CHROME: OverviewChrome = {
     OVERVIEW_PAGE_TITLE: 'Sessions active {from} to {to}',
     OVERVIEW_OMITTED_NOTE: 'Omitted: {sessions}',
     OVERVIEW_BEHIND_NOTE: 'Behind: {sessions}',
+    OVERVIEW_COUNT_IMAGES: 'Images',
+    OVERVIEW_COUNT_VIDEOS: 'Videos',
+    OVERVIEW_COUNT_MODELS_3D: '3D models',
+    OVERVIEW_COUNT_AUDIO: 'Audio clips',
+    OVERVIEW_COUNT_TRANSCRIPTIONS: 'Transcriptions',
+    OVERVIEW_COUNT_AGENT_RUNS: 'Agent runs',
+    OVERVIEW_COUNT_FAILED_TURNS: 'Failed or stopped turns',
   },
 }
 
@@ -403,6 +410,13 @@ describe('the page', () => {
         OVERVIEW_PAGE_TITLE: 'Aktive Sitzungen {from} bis {to}',
         OVERVIEW_OMITTED_NOTE: 'Ausgelassen: {sessions}',
         OVERVIEW_BEHIND_NOTE: 'Zurück: {sessions}',
+        OVERVIEW_COUNT_IMAGES: 'Bilder',
+        OVERVIEW_COUNT_VIDEOS: 'Videos',
+        OVERVIEW_COUNT_MODELS_3D: '3D-Modelle',
+        OVERVIEW_COUNT_AUDIO: 'Audioclips',
+        OVERVIEW_COUNT_TRANSCRIPTIONS: 'Transkriptionen',
+        OVERVIEW_COUNT_AGENT_RUNS: 'Agentenläufe',
+        OVERVIEW_COUNT_FAILED_TURNS: 'Fehlgeschlagene oder gestoppte Turns',
       },
     }
 
@@ -412,6 +426,64 @@ describe('the page', () => {
     expect(html).toContain('<html lang="de">')
     expect(html).toContain('<h1>Aktive Sitzungen 2026-11-23 15:30 bis 2026-11-24 15:30</h1>')
     expect(String(result.windowLabel)).not.toMatch(/\d{2}:\d{2} (AM|PM)/)
+  })
+})
+
+describe('the work counts', () => {
+  it('renders the whole Session’s counts on the card even when only its newest entry is in the window', async () => {
+    const older = historyEntry({
+      timestamp: NOW - 2 * DAY,
+      status: 'failed',
+      artifacts: [
+        { path: 'a.png', mediaType: 'image' },
+        { path: 'b.png', mediaType: 'image' },
+      ],
+    })
+    const newest = historyEntry({ timestamp: NOW - HOUR })
+    const id = await seedSession([older, newest], { summary: 'It produced things.' })
+    await mutateSession(id, (file) => ({ ...file, title: 'Producer', renamed: true }))
+
+    const result = await call(hostFor(), { range: 'last-24h' })
+    const html = await htmlAt(result.path)
+
+    expect(html).toContain('<div class="counts">')
+    expect(html).toMatch(/Images<\/span><span class="count-value">2</)
+    expect(html).toMatch(/Failed or stopped turns<\/span><span class="count-value">1</)
+    expect(html).not.toContain('Videos')
+  })
+
+  it('returns no counts, History Entries or summaries to the model', async () => {
+    const id = await seedSession(
+      [
+        historyEntry({
+          prompt: 'a secret prompt',
+          artifacts: [{ path: 'a.png', mediaType: 'image' }],
+        }),
+      ],
+      { summary: 'A stored account.' },
+    )
+    await mutateSession(id, (file) => ({ ...file, title: 'Secret Session', renamed: true }))
+
+    const result = await call(hostFor(), { range: 'last-24h' })
+    const keys = Object.keys(result)
+
+    expect(keys).not.toContain('counts')
+    expect(keys).not.toContain('workCounts')
+    for (const category of [
+      'images',
+      'videos',
+      'models3d',
+      'audio',
+      'transcriptions',
+      'agentRuns',
+      'failedTurns',
+    ]) {
+      expect(keys).not.toContain(category)
+    }
+    const serialized = JSON.stringify(result)
+    expect(serialized).not.toContain('a secret prompt')
+    expect(serialized).not.toContain('A stored account.')
+    expect(serialized).not.toContain('Secret Session')
   })
 })
 

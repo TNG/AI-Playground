@@ -1117,16 +1117,37 @@ only take effect on new VM sessions — a running VM will not pick up changes.
 
 A Channel reaches ordinary Sessions (ADR 0010): the user marks a Session reachable, its Agent
 Notifications fan out to every active Channel, an Answer goes back to the Session it came from, and
-a plain message goes to that Channel's Channel Session. The renderer half is the Channels store
-(`store/channels.ts`, `useChannels`: polling, the title-bar master toggle, per-Channel
-enabled/verified state, remote speech) and the router in `store/channels/` (`answerRouter.ts`,
-the command table, the per-Session queue, `channelInbound.ts` for files and voice before routing,
-`downloadConsent.ts` for remote download consent); the desktop's copy of the queue is
-`store/queuedChannelMessages.ts`. Only a Reachable Session reaches a Channel; Channels off, or a
-Channel off or unverified, sends nothing. The internal service is still named
-`home-agent-backend` and lives in `home-agent/`.
+a plain message goes to that Channel's Channel Session. Only a Reachable Session reaches a
+Channel; Channels off, or a Channel off or unverified, sends nothing. The internal service is still
+named `home-agent-backend` and lives in `home-agent/`.
 
-Each channel is one renderer `ChannelAdapter` (`src/assets/js/store/channels/`) plus one Python
+**The kernel reads and routes every Channel message** (`electron/channels/`), so there is one
+dispatcher however many windows are open (a remote-kernel thin client included):
+
+- `channelState.ts` owns the title-bar switch (`preferences.json` section `channels`), each
+  Channel's verified/enabled/identity, injecting credentials into the backend, and which Channels
+  are active; every window projects it from the `channels-state` kernel event and changes it
+  through the `channelHost:*` rows.
+- `channelHost.ts` polls each active Channel and runs the router from `store/channels/`
+  (`answerRouter.ts`, the command table, the per-Session queue, `channelInbound.ts`) in main. It
+  keeps the Channel Session pointers (`preferences.json` section `channelSessions`) and publishes
+  the queue as `channel-queues`, which `store/queuedChannelMessages.ts` projects; the close
+  question and the quit notice read the queue from main.
+- **Sessions are still reached through the workstation's window** (`windowPort.ts` ↔
+  `src/lib/channelWindowPort.ts`), because sending a turn, starting an Agent Run and the speech
+  engine live in Agent Mode's renderer stores. What the router reads synchronously (activity,
+  labels, Trial Runs, real-shell folders, Agent names, open typed questions) is a mirror the window
+  sends whenever it changes and with every answer, so a send that started a turn already reads
+  busy; anything that changes a Session is a `channelHost:portAsk` call to that window. Main
+  compares mirrors to tell the router a Session settled, lost reachability or was deleted. Nothing
+  is polled until the window has sent its first mirror: the backend's queue is cleared on read.
+- The window keeps what only a window can do for a Channel turn it runs: download consent
+  (`downloadConsent.ts`, `channelQuestions.ts` — a tap or typed yes/no is forwarded to it) and
+  voice (`remoteSpeech.ts`), sending through its own adapters.
+
+The adapters send through `channelTransport.ts`, which main points at the backend and the window
+leaves on the IPC bridge. Each channel is one `ChannelAdapter` (`src/assets/js/store/channels/`)
+plus one Python
 module (`home-agent/channels/`), wired together by `ChannelKind` in both languages and dispatched
 through the generic `/channel/<kind>/*` Flask routes — adding a platform touches no shared logic.
 
@@ -1418,6 +1439,10 @@ the client's paired host are three files in userData (`remote-kernel-tls.json`, 
   windows build one message; only the sending window saves it. Agent Mode's event listeners are
   registered once per renderer, so an HMR of that store keeps the old handlers — restart the window
   after changing them.
+- **Channels run on the workstation only.** Its kernel polls them and routes their messages
+  (see Channels); a client's `channel:*`, `channelHost:*` and `safeStorage:*` rows are `remote`,
+  so setting up LAN chat or flipping the switch on the client configures the workstation's bots,
+  and the client sees the same state through `channels-state`.
 - **A device set to client mode starts no backends and reaps no orphans**, paired or not
   (`isThinClientDevice`) — on one box the reap would kill the workstation's processes — and once
   connected its kernel bus only relays (`setKernelRelayOnly`).

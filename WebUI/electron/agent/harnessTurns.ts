@@ -151,37 +151,47 @@ export async function deleteAgentTurns(
   if (agentTurns.has(harnessSessionId)) throw new Error(HARNESS_TURN_REFUSALS.running)
   const turnIds = new Set(request.turnIds)
   const unrestorable: string[] = []
+  // Turns still on the branch after the deleted ones go: their workspaces are
+  // restored too, newest first, so each restore undoes the turn on top of it.
+  let trailing: string[] = []
   if (turnIds.size > 0) {
-    let trailing: string[] = []
-    if (active?.sessionId === harnessSessionId) {
-      const manager = active.session.sessionManager
-      trailing = trailingTurns(harnessTurnMarkers(manager), turnIds)
-      assertTurnsNotHostShell(harnessSessionId, turnIds)
-      if (omitHarnessTurns(manager, turnIds)) {
-        active.session.refreshContext()
-      }
+    const liveSession = active?.sessionId === harnessSessionId ? active.session : undefined
+    let manager: SessionManager | undefined
+    if (liveSession) {
+      manager = liveSession.sessionManager
     } else {
       const file = readSessionStore()[harnessSessionId]?.sessionFilePath
       if (file && fs.existsSync(file)) {
         const pi = await loadPi()
-        const manager = pi.SessionManager.open(file, piSessionDir())
-        trailing = trailingTurns(harnessTurnMarkers(manager), turnIds)
-        assertTurnsNotHostShell(harnessSessionId, turnIds)
-        omitHarnessTurns(manager, turnIds)
+        manager = pi.SessionManager.open(file, piSessionDir())
       }
     }
-    // The workspace goes back as the deleted turns found it, newest first, so
-    // each restore undoes the turn that ran on top of it.
-    for (const turnId of [...trailing].reverse()) {
-      const report = await restoreTurnJournal(harnessSessionId, turnId)
-      if (report?.unrestorable.length) {
-        unrestorable.push(...report.unrestorable)
-        logger.warn(
-          `journal restore of ${turnId} could not put back: ${report.unrestorable.join(', ')}`,
-          LOG_SOURCE,
+    if (manager) {
+      trailing = trailingTurns(harnessTurnMarkers(manager), turnIds)
+      assertTurnsNotHostShell(harnessSessionId, turnIds)
+      // The journal restore is the one step a locked or unreadable path can
+      // fail, so it runs before anything is committed: a failure aborts with
+      // the turns still in place, and the user can fix the cause and delete
+      // again. Already-restored turns simply skip their restore on the retry.
+      for (const turnId of [...trailing].reverse()) {
+        const report = await restoreTurnJournal(harnessSessionId, turnId).catch(
+          (error: unknown) => {
+            throw new Error(
+              `could not restore the workspace of turn ${turnId}: ` +
+                `${error instanceof Error ? error.message : String(error)}`,
+            )
+          },
         )
+        if (report?.unrestorable.length) {
+          unrestorable.push(...report.unrestorable)
+          logger.warn(
+            `journal restore of ${turnId} could not put back: ${report.unrestorable.join(', ')}`,
+            LOG_SOURCE,
+          )
+        }
+        deleteTurnJournal(harnessSessionId, turnId)
       }
-      deleteTurnJournal(harnessSessionId, turnId)
+      if (omitHarnessTurns(manager, turnIds)) liveSession?.refreshContext()
     }
   }
   if (sessionRef) {

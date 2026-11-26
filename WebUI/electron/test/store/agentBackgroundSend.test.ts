@@ -470,7 +470,41 @@ describe('regenerating the latest turn', () => {
     expect(JSON.stringify(lastSaved(id)?.messages)).toContain('plum')
   })
 
-  it('deletes the replaced answer only once the new turn settled', async () => {
+  it('keeps the truncated view when the turn was rewound before it failed', async () => {
+    const store = await readyStore()
+    const sessionsStore = useSessions()
+    const forgetSpy = vi.spyOn(sessionsStore, 'forgetTimelineMessages')
+    const restoreSpy = vi.spyOn(sessionsStore, 'restoreForgottenTimelineMessages')
+    const { id, outcomes, answer, ref } = await answeredInSession(store)
+
+    await store.regenerateTurn(ref)
+    // The replaced answers left the open timeline the moment the turn started.
+    expect(forgetSpy).toHaveBeenCalledWith('session-1', [answer.id])
+    const turnId = await turnIdOf(1)
+    // Main announces the rewind before anything else can fail.
+    pushEvent({
+      type: 'agent-turn-rewound',
+      sessionId: id,
+      turnId,
+      rewoundTurnId: ref.turnIds[0],
+    })
+    pushEvent({
+      type: 'agent-chunk',
+      sessionId: id,
+      turnId,
+      chunk: { type: 'error', errorText: 'The download was declined.' },
+    })
+    pushEvent({ type: 'agent-turn-done', sessionId: id, turnId })
+    await vi.waitFor(() => expect(outcomes).toHaveLength(2))
+
+    // The turn was rewound, so its answers are gone from what the model sees:
+    // the failed re-run does not bring them back into the view, and the
+    // renderer sends no delete of its own — main owns the file side.
+    expect(restoreSpy).not.toHaveBeenCalled()
+    expect(deleteTurns).not.toHaveBeenCalled()
+  })
+
+  it('sends no deletion of its own when a regenerate replaces an answer: main owns the file', async () => {
     const store = await readyStore()
     const sessionsStore = useSessions()
     const forgetSpy = vi.spyOn(sessionsStore, 'forgetTimelineMessages')
@@ -482,8 +516,7 @@ describe('regenerating the latest turn', () => {
     expect(forgetSpy).toHaveBeenCalledWith('session-1', [answer.id])
     expect(restoreSpy).not.toHaveBeenCalled()
     const turnId = await turnIdOf(1)
-    // The new answer is streaming, but the turn has not settled: main refuses
-    // deletions for a session with a turn in flight, so none may be sent yet.
+    // The new answer is streaming, and the view keeps the truncated state.
     for (const chunk of [
       { type: 'start' },
       { type: 'text-start', id: 't' },
@@ -498,12 +531,10 @@ describe('regenerating the latest turn', () => {
 
     pushEvent({ type: 'agent-turn-done', sessionId: id, turnId })
     await vi.waitFor(() => expect(outcomes).toHaveLength(2))
-    await vi.waitFor(() =>
-      expect(deleteTurns).toHaveBeenCalledWith(
-        expect.objectContaining({ sessionRef: 'session-1', messageIds: [answer.id], turnIds: [] }),
-      ),
-    )
-    expect(deleteTurns).toHaveBeenCalledTimes(1)
+    // The replaced answer is main's to take out of the Session's file when the
+    // turn settles; the renderer sends no delete of its own, and nothing is
+    // brought back into the view.
+    expect(deleteTurns).not.toHaveBeenCalled()
     expect(restoreSpy).not.toHaveBeenCalled()
     expect(JSON.stringify(lastSaved(id)?.messages)).not.toContain('plum')
   })

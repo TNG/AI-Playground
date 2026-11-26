@@ -230,6 +230,22 @@ export function emitAgentTurnDone(sessionId: string, turnId: string): void {
   if (agentTurnOf(sessionId, turnId)) agentTurns.delete(sessionId)
 }
 
+/**
+ * A regenerate rewound the branch to just before `rewoundTurnId`: the turn's
+ * entries left the model's context, so a failed re-run must not bring its
+ * answers back into the view.
+ */
+export function emitAgentTurnRewound(
+  sessionId: string,
+  turnId: string,
+  rewoundTurnId: string,
+): void {
+  emit(
+    { type: 'agent-turn-rewound', sessionId, turnId, rewoundTurnId },
+    { kind: 'run', runId: turnId },
+  )
+}
+
 function agentTurnSnapshots(): AgentTurnSnapshot[] {
   return [...agentTurns.values()].map((turn) => ({
     ...turn,

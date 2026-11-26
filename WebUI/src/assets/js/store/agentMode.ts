@@ -1830,10 +1830,15 @@ export const useAgentMode = defineStore(
       const sessionRef = sessionRefOf(id)
       const result = await requestTurnDeletion(id, ref.turnIds, ref.messageIds)
       if (!result.success) {
+        // Refusals have a translated line; anything else says what actually
+        // failed, so the user can fix the cause (say a locked file) and retry.
+        const refusal = harnessTurnRefusal(result.error)
         errors.report(new Error(result.error), {
           category: 'unknown',
           code: 'agent/delete-turn-failed',
-          userMessage: i18n.state[harnessTurnRefusal(result.error) ?? 'AGENT_DELETE_TURN_FAILED'],
+          userMessage: refusal
+            ? i18n.state[refusal]
+            : `${i18n.state.AGENT_DELETE_TURN_FAILED}: ${result.error}`,
         })
         return
       }
@@ -2372,8 +2377,10 @@ export const useAgentMode = defineStore(
     }
 
     /**
-     * The replaced answers leave the view at once (undone if nothing streams); main refuses
-     * deletions while a turn is in flight, so the file-side removal runs after the turn settles.
+     * The replaced answers leave the view at once. Main owns the file side: it
+     * takes them out of the timeline when the replacing turn settles, and the
+     * rewound turn leaves the model's branch for good — a failed re-run restores
+     * the view only when nothing was rewound yet.
      */
     async function regenerateIn(
       chat: AgentSessionRuntime['chat'],
@@ -2384,6 +2391,9 @@ export const useAgentMode = defineStore(
       const before = chat.messages
       const known = new Set(before.map((message) => message.id))
       const sessionRef = sessionRefOf(redo.harnessSessionId)
+      // A turn ref always names its turns; `?? ''` only satisfies the body type,
+      // and main treats an empty rewind id as no rewind at all.
+      const rewindTurnId = redo.turnIds.at(-1) ?? ''
       const answerIds = redo.messageIds.filter((messageId) => messageId !== redo.promptId)
       if (sessionRef && answerIds.length > 0) {
         sessionsStore.forgetTimelineMessages(sessionRef, answerIds)
@@ -2401,47 +2411,26 @@ export const useAgentMode = defineStore(
         await chat.regenerate({
           messageId: promptId,
           body: {
-            rewindTurnId: redo.turnIds[0],
+            rewindTurnId,
             ...(edited ? { editedPrompt: true } : {}),
           } satisfies RegenerateBody,
         })
       } finally {
         stop()
         // Main deregisters the turn before it closes the stream this await
-        // resolved on, so the deletion is no longer refused as in-flight.
-        if (replaced) void forgetAnswers(redo)
-        else {
+        // resolved on, so its own removal of the old answers has settled too.
+        if (replaced) return
+        const runtime = turns.runtimeFor(redo.harnessSessionId)
+        const rewound = !!rewindTurnId && (runtime?.rewoundTurnIds.has(rewindTurnId) ?? false)
+        // A refusal before the rewind changed nothing: put the view back. But
+        // once the turn was rewound, its answers are gone from what the model
+        // sees — a failed re-run leaves the honest prompt-without-answer, like
+        // a fresh message that failed, and the user can send a new one.
+        if (!rewound) {
           if (sessionRef) void sessionsStore.restoreForgottenTimelineMessages(sessionRef)
           chat.messages = before
         }
       }
-    }
-
-    /** The answers Regenerate replaces leave the Session's timeline; the new turn takes their place. */
-    async function forgetAnswers(ref: HarnessTurnRef): Promise<void> {
-      const id = ref.harnessSessionId
-      const sessionRef = sessionRefOf(id)
-      const answerIds = ref.messageIds.filter((messageId) => messageId !== ref.promptId)
-      if (!sessionRef || answerIds.length === 0) return
-      try {
-        const result = await requestTurnDeletion(id, [], answerIds)
-        if (!result.success) {
-          errors.report(new Error(result.error), {
-            category: 'unknown',
-            code: 'agent/regenerate-forget-failed',
-            surface: 'silent',
-          })
-          return
-        }
-      } catch (error) {
-        errors.report(error, {
-          category: 'unknown',
-          code: 'agent/regenerate-forget-failed',
-          surface: 'silent',
-        })
-        return
-      }
-      sessionsStore.forgetTimelineMessages(sessionRef, answerIds)
     }
 
     function isSessionProcessing(id: string): boolean {

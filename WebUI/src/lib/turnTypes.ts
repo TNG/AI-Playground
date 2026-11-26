@@ -293,6 +293,12 @@ export type LiveTurns<M extends PendingMedia, A extends PendingAudio> = {
   chatStatus?: LiveChatStatus
   /** The live chat Turn is Stopping: the user asked to stop it and main has not released it. */
   chatStopping?: boolean
+  /** The Harness Session of a live agent Turn that is Stopping. */
+  agentStoppingHarnessId?: string
+  /** The live media Turn is Stopping: the user asked to stop it and main has not released it. */
+  mediaStopping?: boolean
+  /** The live audio Turn is Stopping: the user asked to stop it and main has not released it. */
+  audioStopping?: boolean
   media?: M | null
   mediaSteps?: Readonly<Record<string, MediaStepStatus>>
   audio?: A | null

@@ -460,6 +460,26 @@ describe('Sessions store', () => {
     expect(store.stoppingTurns).toEqual({})
   })
 
+  it.each(['media', 'agent', 'audio'] as const)(
+    'marks a stopping %s Turn until it is released',
+    async (kind) => {
+      const store = useSessions()
+      await store.init()
+      const session = store.openSessionId!
+      const turnId = `${kind}-turn`
+      ledger.claimSessionTurn(session, { turnId, kind })
+      await vi.waitFor(() => expect(store.openTurn?.turnId).toBe(turnId))
+
+      store.markTurnStopping(turnId)
+      expect(store.isTurnStopping(turnId)).toBe(true)
+
+      ledger.releaseSessionTurn(session, turnId)
+      await vi.waitFor(() => expect(store.openTurn).toBeNull())
+
+      expect(store.isTurnStopping(turnId)).toBe(false)
+    },
+  )
+
   it('tracks Stopping Turns in different Sessions independently', async () => {
     const store = useSessions()
     await store.init()

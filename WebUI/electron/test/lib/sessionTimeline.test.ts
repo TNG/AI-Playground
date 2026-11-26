@@ -2409,6 +2409,77 @@ describe('the live status line of a running Turn', () => {
     expect(turnLiveText({ kind: 'stopping', stillStopping: true }, labels)).toBe('Still stopping…')
   })
 
+  it('says an Agent Turn is Stopping while it is still in the ledger', () => {
+    const items = sessionTimelineItems([], {
+      agents: [
+        liveAgent([agentMessage('u1', 'user', 'go'), agentAnswer([{ type: 'text', text: 'hel' }])]),
+      ],
+      agentStoppingHarnessId: 'aipg-agent-1',
+    })
+
+    expect(detailsOf(items[0]).live).toEqual({ kind: 'stopping', stillStopping: false })
+    expect(liveTextOf(items[0])).toBe('Stopping…')
+  })
+
+  it('leaves another Harness Session running while one Agent Turn is Stopping', () => {
+    const other = { presetName: 'Agent', harnessSessionId: 'aipg-agent-2' }
+    const otherMessage = {
+      id: 'u2',
+      role: 'user',
+      parts: [{ type: 'text', text: 'go' }],
+      metadata: { agentTurn: other },
+    }
+    const items = sessionTimelineItems([], {
+      agents: [
+        liveAgent([agentMessage('u1', 'user', 'go')]),
+        { tag: other, messages: [otherMessage], live: true },
+      ],
+      agentStoppingHarnessId: 'aipg-agent-1',
+    })
+
+    expect(detailsOf(items[0]).live).toEqual({ kind: 'stopping', stillStopping: false })
+    expect(detailsOf(items[1]).live).toEqual({ kind: 'working' })
+  })
+
+  it('says a media Turn is Stopping while it is still in the ledger', () => {
+    const items = sessionTimelineItems([], {
+      media: { runId: 'r2', prompt: 'a dragon', preset: 'Wan', mode: 'video' as const },
+      mediaStopping: true,
+    })
+
+    expect(detailsOf(items[0]).live).toEqual({ kind: 'stopping', stillStopping: false })
+    expect(liveTextOf(items[0])).toBe('Stopping…')
+  })
+
+  it("keeps a media Turn Stopping through its run's settled phase", () => {
+    const items = sessionTimelineItems([], {
+      media: { runId: 'r2', prompt: 'a dragon', preset: 'Wan', mode: 'video' as const },
+      mediaStopping: true,
+      artifactRuns: {
+        runs: { r2: { runId: 'r2', phase: 'completed' as const, items: [], order: 0 } },
+        nextOrder: 1,
+      },
+    })
+
+    expect(detailsOf(items[0]).live).toEqual({ kind: 'stopping', stillStopping: false })
+    expect(liveTextOf(items[0])).toBe('Stopping…')
+  })
+
+  it('says an audio Turn is Stopping while it is still in the ledger', () => {
+    const items = sessionTimelineItems([], {
+      audio: {
+        kind: 'tts' as const,
+        prompt: 'hi',
+        preset: 'Text to Speech',
+        phase: 'generating' as const,
+      },
+      audioStopping: true,
+    })
+
+    expect(detailsOf(items[0]).live).toEqual({ kind: 'stopping', stillStopping: false })
+    expect(liveTextOf(items[0])).toBe('Stopping…')
+  })
+
   it('says in its Result why a chat Turn failed before it produced anything', () => {
     const error = 'HTTP 500: the model crashed\n  at llama-server'
     const items = sessionTimelineItems([], {

@@ -10,6 +10,7 @@ import { useOpenAiCompatibleChat } from '@/assets/js/store/openAiCompatibleChat'
 import { usePresets } from '@/assets/js/store/presets'
 import { usePromptStore } from '@/assets/js/store/promptArea'
 import { useSessionAudio } from '@/assets/js/store/sessionAudio'
+import { useSessions } from '@/assets/js/store/sessions'
 import { useTextInference } from '@/assets/js/store/textInference'
 import { ensureMediaAgentEventWiring } from '@/assets/js/agents/mediaAgentProgress'
 import { createAppError, isCancellation } from '@/assets/js/errors/appError'
@@ -36,6 +37,7 @@ export function useModePromptHandlers(options: { scrollToBottom: () => void }) {
   const imageGeneration = useImageGenerationPresets()
   const presets = usePresets()
   const sessionAudio = useSessionAudio()
+  const sessions = useSessions()
   const afterAgentRun = useAgentRunHold()
   const errors = useErrors()
   const languages = useI18N().state
@@ -98,6 +100,11 @@ export function useModePromptHandlers(options: { scrollToBottom: () => void }) {
 
   function cancelAgent(): void {
     void agentMode.stop()
+  }
+
+  function cancelAudio(): void {
+    const sessionId = sessions.openSessionId
+    if (sessionId) sessionAudio.cancel(sessionId)
   }
 
   function generateMedia(mode: WorkflowModeType) {
@@ -192,6 +199,7 @@ export function useModePromptHandlers(options: { scrollToBottom: () => void }) {
     promptStore.registerSubmitCallback('agent', heldBehindAgentRun(submitAgent))
     promptStore.registerCancelCallback('agent', cancelAgent)
     promptStore.registerSubmitCallback('audio', heldBehindAgentRun(synthesize))
+    promptStore.registerCancelCallback('audio', cancelAudio)
     for (const mode of MEDIA_MODES) {
       promptStore.registerSubmitCallback(mode, heldBehindAgentRun(generateMedia(mode)))
       promptStore.registerCancelCallback(mode, () => imageGeneration.stopGeneration())

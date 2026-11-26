@@ -222,6 +222,22 @@ describe('imageGenerationPresets.generate (UI wrapper)', () => {
     expect(store.processing).toBe(false)
   })
 
+  it('ignores a repeat Stop while the first cancel is still settling', async () => {
+    let settle: () => void = () => {}
+    cancelIpcMock.mockClear()
+    cancelIpcMock.mockReturnValueOnce(new Promise<void>((resolve) => (settle = resolve)))
+    const store = useImageGenerationPresets()
+    store.trackArtifactRun('panel-1')
+
+    store.stopGeneration()
+    store.stopGeneration()
+
+    expect(store.stopping).toBe(true)
+    expect(cancelIpcMock).toHaveBeenCalledTimes(1)
+    settle()
+    await vi.waitFor(() => expect(store.stopping).toBe(false))
+  })
+
   it('stop aborts a generate that has not reached the runner yet', async () => {
     activePresetWithVariant.value = comfyPresetFixture()
     let signal: AbortSignal | undefined

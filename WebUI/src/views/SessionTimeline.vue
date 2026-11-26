@@ -116,10 +116,18 @@ const chatStatus = computed<LiveChatStatus>(() => {
   }
 })
 
-const chatStopping = computed(() => {
+const stoppingTurn = computed(() => {
   const turn = sessions.openTurn
-  return turn?.kind === 'chat' && sessions.isTurnStopping(turn.turnId)
+  return turn && sessions.isTurnStopping(turn.turnId) ? turn : null
 })
+
+const chatStopping = computed(() => stoppingTurn.value?.kind === 'chat')
+const agentStoppingHarnessId = computed(() => {
+  const turn = stoppingTurn.value
+  return turn?.kind === 'agent' ? turn.harnessSessionId : undefined
+})
+const mediaStopping = computed(() => stoppingTurn.value?.kind === 'media')
+const audioStopping = computed(() => stoppingTurn.value?.kind === 'audio')
 
 const mediaSteps = computed(() =>
   Object.fromEntries(
@@ -142,6 +150,9 @@ const items = computed(() => {
       chat: chatLive.value,
       chatStatus: chatStatus.value,
       chatStopping: chatStopping.value,
+      agentStoppingHarnessId: agentStoppingHarnessId.value,
+      mediaStopping: mediaStopping.value,
+      audioStopping: audioStopping.value,
       agents: agentLive.value,
       agentRunsInFlight: agentTasks.firstTurnsInFlight,
       media: sessions.openSessionId ? sessions.pendingTurns[sessions.openSessionId] : null,

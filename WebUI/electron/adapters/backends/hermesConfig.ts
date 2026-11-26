@@ -1,11 +1,12 @@
+import { HERMES_MIN_CONTEXT } from '@/lib/agentHarness'
+
+export { HERMES_MIN_CONTEXT }
+
 /** The model id Hermes sends; the LLM proxy replaces it with the model AIPG has loaded. */
 export const HERMES_PROXY_MODEL = 'aipg-local'
 
 /** Name of the AIPG MCP server inside Hermes' config, and so the prefix of its tools there. */
 export const HERMES_AIPG_MCP_SERVER = 'aipg'
-
-/** Hermes refuses an agent session below this window. */
-export const HERMES_MIN_CONTEXT = 64_000
 
 export type HermesEndpoint = { url: string; key: string }
 
@@ -14,7 +15,19 @@ export type HermesConfigInput = {
   mcp?: HermesEndpoint
   contextLength: number
   workspaceDir?: string
+  /** Absent means on, which is what Pi gives a preset that does not own its prompt. */
+  fileTools?: boolean
 }
+
+/** `hermes-acp` minus everything that reads or writes the disk or runs code. */
+const HERMES_TOOLSETS_WITHOUT_FILES = [
+  'web',
+  'vision',
+  'skills',
+  'todo',
+  'memory',
+  'session_search',
+]
 
 /**
  * Hermes' `config.yaml`, which it re-reads for every run, so the workspace and window
@@ -30,7 +43,10 @@ export function buildHermesConfig(input: HermesConfigInput): Record<string, unkn
       context_length: Math.max(input.contextLength, HERMES_MIN_CONTEXT),
     },
     platform_toolsets: {
-      api_server: input.mcp ? ['hermes-acp', HERMES_AIPG_MCP_SERVER] : ['hermes-acp', 'no_mcp'],
+      api_server: [
+        ...(input.fileTools === false ? HERMES_TOOLSETS_WITHOUT_FILES : ['hermes-acp']),
+        input.mcp ? HERMES_AIPG_MCP_SERVER : 'no_mcp',
+      ],
     },
   }
   if (input.workspaceDir) config.terminal = { cwd: input.workspaceDir }

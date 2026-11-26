@@ -57,6 +57,8 @@ export const AgentSessionSettingsSchema = z.object({
   thinkingEnabled: z.boolean().optional(),
   planningThinkingOnly: z.boolean().optional(),
   capabilities: z.array(z.string()).optional(),
+  /** Absent means Pi. Fixed once the Session has run a turn: the two keep separate histories. */
+  harness: z.enum(['pi', 'hermes']).optional(),
   embeddingModel: z.string().optional(),
   toolDelegationEnabled: z.boolean().optional(),
   builtinToolEnablement: z.record(z.string(), z.boolean()).optional(),

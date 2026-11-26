@@ -174,7 +174,7 @@ describe('buildTurnConfig readiness (step 15)', () => {
       buildTurnConfig({
         sessionId: 'aipg-agent-1',
         workspaceDir: '/tmp/ws',
-        presetName: 'Hermes Agent',
+        presetName: 'Assistant',
         instructions: '',
         harness,
         capabilities: ['media'],

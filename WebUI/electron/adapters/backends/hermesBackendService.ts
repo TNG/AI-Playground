@@ -27,7 +27,12 @@ const DASHBOARD_READY_TIMEOUT_MS = 5 * 60_000
 /** Where AIPG's own endpoints are, for Hermes to call back into. Set by the integration wiring. */
 export type HermesIntegrationEndpoints = { llm: HermesEndpoint; mcp?: HermesEndpoint }
 
-export type HermesRunSettings = { workspaceDir?: string; contextLength?: number }
+export type HermesRunSettings = {
+  workspaceDir?: string
+  contextLength?: number
+  /** Hermes' own file and terminal toolsets, which run outside any sandbox. */
+  fileTools?: boolean
+}
 
 export class HermesBackendService extends LongLivedPythonApiService {
   readonly serviceFolder = 'hermes-agent'
@@ -46,6 +51,9 @@ export class HermesBackendService extends LongLivedPythonApiService {
   private endpointProvider: (() => Promise<HermesIntegrationEndpoints>) | null = null
   private dashboard: { process: ChildProcess; url: string } | null = null
   private dashboardStarting: Promise<string> | null = null
+  private pendingToolCatalog = ''
+  private gatewayToolCatalog: string | null = null
+  private runSettings: HermesRunSettings = {}
 
   constructor(name: BackendServiceName, port: number, win: BrowserWindow, settings: LocalSettings) {
     super(name, port, win, settings)
@@ -172,8 +180,15 @@ export class HermesBackendService extends LongLivedPythonApiService {
     await this.git.run(['-C', this.serviceDir, 'checkout', '--force', this.revision])
   }
 
+  /** Writes the next run's `config.yaml`, also used when the gateway has to start for it. */
+  async prepareRun(run: HermesRunSettings): Promise<void> {
+    this.runSettings = run
+    await this.resolveEndpoints()
+    this.writeRuntimeConfig(run)
+  }
+
   /** Rewrites `config.yaml`; Hermes reads it per run, so a turn can set its own workspace. */
-  writeRuntimeConfig(run: HermesRunSettings = {}): void {
+  private writeRuntimeConfig(run: HermesRunSettings): void {
     if (!this.endpoints) throw new Error('Hermes integration endpoints are not configured')
     fs.mkdirSync(this.hermesHome, { recursive: true })
     const config = buildHermesConfig({
@@ -181,6 +196,7 @@ export class HermesBackendService extends LongLivedPythonApiService {
       mcp: this.endpoints.mcp,
       contextLength: run.contextLength ?? HERMES_MIN_CONTEXT * 2,
       workspaceDir: run.workspaceDir,
+      fileTools: run.fileTools,
     })
     fs.writeFileSync(path.join(this.hermesHome, 'config.yaml'), JSON.stringify(config, null, 2))
   }
@@ -207,10 +223,11 @@ export class HermesBackendService extends LongLivedPythonApiService {
     didProcessExitEarlyTracker: Promise<boolean>
   }> {
     this.apiKey = randomBytes(32).toString('hex')
+    this.gatewayToolCatalog = this.pendingToolCatalog
     await this.resolveEndpoints()
     fs.mkdirSync(this.hermesHome, { recursive: true })
     fs.writeFileSync(path.join(this.hermesHome, '.env'), buildHermesEnv(this.port, this.apiKey))
-    this.writeRuntimeConfig()
+    this.writeRuntimeConfig(this.runSettings)
 
     const apiProcess = spawnBackend(this.hermesBin, ['gateway', 'run'], {
       cwd: this.hermesHome,
@@ -241,7 +258,7 @@ export class HermesBackendService extends LongLivedPythonApiService {
   private async startDashboard(): Promise<string> {
     if (!(await this.serviceIsSetUp())) throw new Error('Hermes Agent is not installed')
     await this.resolveEndpoints()
-    this.writeRuntimeConfig()
+    this.writeRuntimeConfig(this.runSettings)
     const port = await getPort({ port: portNumbers(19100, 19199) })
     const url = `http://127.0.0.1:${port}`
     const child = spawnBackend(
@@ -276,6 +293,16 @@ export class HermesBackendService extends LongLivedPythonApiService {
     if (dashboard) {
       await terminateProcessTree(dashboard.process, { name: this.name, appLogger: this.appLogger })
     }
+  }
+
+  /** Hermes discovers MCP tools when its gateway starts, so a different tool set needs a new gateway. */
+  async startWithToolCatalog(catalog: string): Promise<BackendStatus> {
+    if (this.currentStatus === 'running' && this.gatewayToolCatalog !== catalog) {
+      this.appLogger.info('AIPG tool set changed; restarting the Hermes gateway', this.name)
+      await super.stop()
+    }
+    this.pendingToolCatalog = catalog
+    return this.start()
   }
 
   async stop(): Promise<BackendStatus> {

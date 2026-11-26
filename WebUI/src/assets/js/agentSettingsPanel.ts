@@ -4,10 +4,12 @@ import { useI18N } from '@/assets/js/store/i18n'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useAgentTasks } from '@/assets/js/store/agentTasks'
 import { useCloudMode } from '@/assets/js/store/cloudMode'
+import { useBackendServices } from '@/assets/js/store/backendServices'
 import { useAgentBackendItems } from '@/assets/js/agentBackendItems'
 import { useCapabilityCatalog } from '@/assets/js/capabilityCatalog'
 import { useEmbeddingModelPicker } from '@/assets/js/embeddingModelPicker'
 import type { AgentSettingsBinding } from '@/lib/agentSettingsBinding'
+import { gateCatalogForHarness, hermesInstalled } from '@/lib/agentHarness'
 import { agentSettingsSections } from '@/lib/agentSettingsSections'
 import { storeMediaToolSettings } from '@/lib/mediaToolSettings'
 import { catalogModelToolUse, gateCapabilityCatalog } from '@/lib/modelToolUse'
@@ -20,6 +22,7 @@ export function useAgentSettingsPanel() {
   const textInference = useTextInference()
   const i18nState = useI18N().state
   const cloudMode = useCloudMode()
+  const backendServices = useBackendServices()
 
   const readOnly = computed(() => agentMode.sessionScoped && agentTasks.openSessionSettingsReadOnly)
 
@@ -50,10 +53,14 @@ export function useAgentSettingsPanel() {
     textInference.llmModels.find((m) => m.active && m.type === textInference.backend),
   )
   const gatedCatalog = computed(() =>
-    gateCapabilityCatalog(
-      capabilityCatalog.value,
-      catalogModelToolUse(textInference.backend, currentModel.value),
-      (reason) => i18nState[reason],
+    gateCatalogForHarness(
+      gateCapabilityCatalog(
+        capabilityCatalog.value,
+        catalogModelToolUse(textInference.backend, currentModel.value),
+        (reason) => i18nState[reason],
+      ),
+      agentMode.harness,
+      i18nState.AGENT_HARNESS_CAPABILITY_UNSUPPORTED,
     ),
   )
 
@@ -75,7 +82,9 @@ export function useAgentSettingsPanel() {
     setThinkingEnabled: (enabled: boolean) => {
       textInference.thinkingEnabled = enabled
     },
-    planningPhaseSupported: computed(() => agentMode.planningPhaseSupported),
+    planningPhaseSupported: computed(
+      () => agentMode.planningPhaseSupported && agentMode.harness !== 'hermes',
+    ),
     planningThinkingOnly: computed(() => agentMode.effectivePlanningThinkingOnly),
     setPlanningThinkingOnly: agentMode.setPlanningThinkingOnly,
     maxTokens: computed(() => textInference.maxTokens),
@@ -108,6 +117,14 @@ export function useAgentSettingsPanel() {
     setSystemPrompt: (prompt: string) => {
       textInference.systemPrompt = prompt
     },
+    harnessSupported: computed(
+      () =>
+        agentMode.sessionScoped &&
+        (hermesInstalled(backendServices.info) || agentMode.harness === 'hermes'),
+    ),
+    harness: computed(() => agentMode.harness),
+    harnessLocked: computed(() => agentMode.harnessLocked),
+    setHarness: agentMode.setHarness,
     capabilities: computed(() => agentMode.capabilities),
     setCapabilities: agentMode.setCapabilities,
     capabilityCatalog: gatedCatalog,

@@ -31,6 +31,13 @@ export function harnessTurnIds(answers: UIMessage[]): string[] {
   })
 }
 
+/** Hermes keeps its own history, which Regenerate and Delete cannot rewind. */
+export function answeredByHermes(answers: UIMessage[]): boolean {
+  return answers.some(
+    (answer) => (answer.metadata as { harness?: unknown } | undefined)?.harness === 'hermes',
+  )
+}
+
 /** An agent Turn's Copy takes its answer, not the text it wrote between tool calls. */
 export function agentFooter(
   answerText: string,

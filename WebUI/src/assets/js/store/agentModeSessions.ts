@@ -58,6 +58,8 @@ export type AgentSessionRecord = {
  */
 export const GAME_AGENT_PRESET = 'Game Agent'
 export const QUICK_CODER_PRESET = 'Quick Coder'
+/** The retired Hermes preview preset; its sessions continue as Assistant Sessions on Hermes. */
+export const HERMES_PREVIEW_PRESET = 'Hermes Agent'
 
 function isGamesPreset(name: string): boolean {
   const current = currentPresetName(name)
@@ -172,8 +174,18 @@ export function applySessionPresetNames(
     (session) => session.presetName && currentPresetName(session.presetName) !== session.presetName,
   )
   const legacy = Object.values(sessions).filter((session) => !session.presetName)
-  if (legacy.length === 0 && renamed.length === 0) return sessions
+  const hermes = Object.values(sessions).filter(
+    (session) => session.presetName === HERMES_PREVIEW_PRESET,
+  )
+  if (legacy.length === 0 && renamed.length === 0 && hermes.length === 0) return sessions
   const next = { ...sessions }
+  for (const session of hermes) {
+    next[session.id] = {
+      ...session,
+      presetName: HARNESS_CHAT_PRESET,
+      settings: { ...session.settings, harness: 'hermes' },
+    }
+  }
   for (const session of renamed) {
     next[session.id] = {
       ...session,

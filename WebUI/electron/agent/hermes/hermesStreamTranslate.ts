@@ -55,7 +55,19 @@ export function createHermesStreamTranslator(
   options: HermesStreamTranslatorOptions,
 ): HermesStreamTranslator {
   const pi = createStreamTranslator({
-    emit: options.emit,
+    // Stamped so the timeline can withhold Regenerate and Delete, which rewind a Pi session.
+    emit: (chunk) =>
+      options.emit(
+        chunk.type === 'start'
+          ? {
+              ...chunk,
+              messageMetadata: {
+                ...(chunk.messageMetadata as Record<string, unknown> | undefined),
+                harness: 'hermes',
+              },
+            }
+          : chunk,
+      ),
     model: options.model,
     turnId: options.turnId,
   })

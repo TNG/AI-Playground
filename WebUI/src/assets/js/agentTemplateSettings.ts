@@ -4,10 +4,17 @@ import { useI18N } from '@/assets/js/store/i18n'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { HARNESS_CHAT_PRESET, isHarnessChatPreset } from '@/lib/harnessChatPreset'
 import { usePresets, type ChatPreset } from '@/assets/js/store/presets'
+import { useBackendServices } from '@/assets/js/store/backendServices'
 import { useAgentBackendItems } from '@/assets/js/agentBackendItems'
 import { useCapabilityCatalog } from '@/assets/js/capabilityCatalog'
 import { useEmbeddingModelPicker } from '@/assets/js/embeddingModelPicker'
 import type { AgentSettingsBinding } from '@/lib/agentSettingsBinding'
+import {
+  gateCatalogForHarness,
+  hermesInstalled,
+  sessionHarness,
+  type AgentHarness,
+} from '@/lib/agentHarness'
 import { agentSettingsSections } from '@/lib/agentSettingsSections'
 import { sessionSettingsToBag } from '@/lib/agentSessionSettings'
 import { normalizeNumAssistantTokens } from '@/lib/ovmsMtp'
@@ -34,6 +41,7 @@ export function useTemplateSettingsBinding(source: TemplateSettingsSource) {
   const i18nState = useI18N().state
   const agentMode = useAgentMode()
   const presets = usePresets()
+  const backendServices = useBackendServices()
 
   const edit = (change: AgentSessionSettings) => source.edit?.(change)
   const template = computed(() => source.template())
@@ -101,8 +109,10 @@ export function useTemplateSettingsBinding(source: TemplateSettingsSource) {
     thinkingToggleSupported: computed(() => resolved.value.inference.modelSupportsThinkingToggle),
     thinkingEnabled: computed(() => resolved.value.inference.thinkingEnabled),
     setThinkingEnabled: (thinkingEnabled: boolean) => edit({ thinkingEnabled }),
-    planningPhaseSupported: computed(() =>
-      capabilities.value.some((id) => PLANNING_PHASE_CAPABILITY_IDS.includes(id)),
+    planningPhaseSupported: computed(
+      () =>
+        sessionHarness(template.value) !== 'hermes' &&
+        capabilities.value.some((id) => PLANNING_PHASE_CAPABILITY_IDS.includes(id)),
     ),
     planningThinkingOnly: computed(
       () => template.value.planningThinkingOnly ?? defaults.value.planningThinkingOnly,
@@ -136,13 +146,23 @@ export function useTemplateSettingsBinding(source: TemplateSettingsSource) {
     ),
     presetSystemPrompt: computed(() => agentPreset.value?.systemPrompt ?? ''),
     setSystemPrompt: (systemPrompt: string) => edit({ systemPrompt }),
+    harnessSupported: computed(
+      () => hermesInstalled(backendServices.info) || template.value.harness === 'hermes',
+    ),
+    harness: computed(() => sessionHarness(template.value)),
+    harnessLocked: false,
+    setHarness: (harness: AgentHarness) => edit({ harness }),
     capabilities,
     setCapabilities: (next: string[]) => edit({ capabilities: next }),
     capabilityCatalog: computed(() =>
-      gateCapabilityCatalog(
-        capabilityCatalog.value,
-        catalogModelToolUse(backend.value, resolved.value.inference.activeLlmModel),
-        (reason) => i18nState[reason],
+      gateCatalogForHarness(
+        gateCapabilityCatalog(
+          capabilityCatalog.value,
+          catalogModelToolUse(backend.value, resolved.value.inference.activeLlmModel),
+          (reason) => i18nState[reason],
+        ),
+        sessionHarness(template.value),
+        i18nState.AGENT_HARNESS_CAPABILITY_UNSUPPORTED,
       ),
     ),
     folderOverrides: computed(() => template.value.folderOverrides ?? {}),

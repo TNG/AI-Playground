@@ -37,6 +37,7 @@ import {
   audioFooter,
   chatAnswerFooter,
   harnessTurnIds,
+  answeredByHermes,
   noFooter,
 } from '@/lib/turnFooter'
 import { agentTurnHasChatAffordances } from '@/lib/chatAffordances'
@@ -487,7 +488,7 @@ function withAnswers(
 
 /** An Agent Run's turns live in a Harness Session of their own, which Delete leaves alone. */
 function harnessTurnOf(turn: AgentTurn): HarnessTurnRef | undefined {
-  if (turn.runKey) return undefined
+  if (turn.runKey || answeredByHermes(turn.answers)) return undefined
   return {
     harnessSessionId: turn.harnessSessionId,
     ...(turn.prompt ? { promptId: turn.id } : {}),

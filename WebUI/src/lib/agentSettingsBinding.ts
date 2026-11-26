@@ -1,4 +1,5 @@
 import type { LlmBackend, LlmModel } from '@/assets/js/store/textInference'
+import type { AgentHarness } from '@/lib/agentHarness'
 import type { AgentSettingsSections } from '@/lib/agentSettingsSections'
 import type { MediaToolSettings } from '@/lib/mediaToolSettings'
 import type { SessionSettingsProblem } from '@/lib/sessionSettingsProblems'
@@ -42,6 +43,12 @@ export type AgentSettingsBinding = {
   systemPrompt: string
   presetSystemPrompt: string
   setSystemPrompt: (prompt: string) => void
+  /** Hermes is installed and this preset lets its Sessions choose. */
+  harnessSupported: boolean
+  harness: AgentHarness
+  /** The Session has run a turn on `harness`, so the choice is fixed. */
+  harnessLocked: boolean
+  setHarness: (harness: AgentHarness) => void
   capabilities: string[]
   setCapabilities: (ids: string[]) => void
   capabilityCatalog: AgentCapabilityInfo[]

@@ -53,6 +53,7 @@ import {
   usesSessionSettings,
 } from '@/lib/agentSessionSettings'
 import { HARNESS_CHAT_PRESET } from '@/lib/harnessChatPreset'
+import { sessionHarness, type AgentHarness } from '@/lib/agentHarness'
 import { hasChatAffordances } from '@/lib/chatAffordances'
 import { harnessInstructions } from '@/lib/presetPrompt'
 import {
@@ -500,10 +501,12 @@ export const useAgentMode = defineStore(
      */
     function resetToDefault(): void {
       if (!sessionScoped.value) return
+      const keptHarness = sessionSent.value ? openSettings.value?.harness : undefined
       if (heldBySession()) {
         settingsPort.value?.drop(agentPresetName.value)
         openSettings.value = null
         textInference.loadSettingsForActivePreset()
+        if (keptHarness) updateOpenSettings({ harness: keptHarness })
         return
       }
       openSettings.value = null
@@ -512,7 +515,9 @@ export const useAgentMode = defineStore(
       const reset = openSettings.value as AgentSessionSettings | null
       const session = sessions.value[openSessionId.value]
       if (!session || !reset) return
-      rewriteSession(openSessionId.value, { ...session, settings: { ...reset } })
+      const settings = keptHarness ? { ...reset, harness: keptHarness } : { ...reset }
+      openSettings.value = settings
+      rewriteSession(openSessionId.value, { ...session, settings })
     }
 
     /**
@@ -901,6 +906,17 @@ export const useAgentMode = defineStore(
       else planningThinkingOnly.value = value
     }
 
+    /** Only the Assistant's Sessions choose; other agent presets run where the preset says. */
+    const harness = computed<AgentHarness>(() =>
+      sessionHarness(sessionScoped.value ? openSettings.value : null, activeAgentPreset.value),
+    )
+    const harnessLocked = computed(() => sessionSent.value)
+
+    function setHarness(next: AgentHarness): void {
+      if (!sessionScoped.value || harnessLocked.value || next === harness.value) return
+      updateOpenSettings({ harness: next })
+    }
+
     function migratePlanningThinkingOnly(): void {
       const bags = textInference.settingsPerPreset
       if (!bags) return
@@ -981,7 +997,10 @@ export const useAgentMode = defineStore(
       record: AgentSessionRecord,
       settingsOverride?: AgentSessionSettings,
     ): TurnContext {
-      const settings = settingsOverride ?? record.settings ?? {}
+      const chosen = settingsOverride ?? record.settings ?? {}
+      // A run's Settings Template may have changed harness since this Session's first turn.
+      const pinned = record.messages.length > 0 ? record.settings?.harness : undefined
+      const settings = pinned ? { ...chosen, harness: pinned } : chosen
       return {
         workspaceDir: record.workspaceDir,
         presetName: record.presetName ?? HARNESS_CHAT_PRESET,
@@ -1024,7 +1043,7 @@ export const useAgentMode = defineStore(
           chatAware.responseLanguage(sessionResponseLocale(sessionId)),
         ),
         ownsPrompt: activeAgentPreset.value?.agentOwnsPrompt === true,
-        harness: activeAgentPreset.value?.harness,
+        harness: harness.value,
         userSampling: hasChatAffordances(activeAgentPreset.value),
         capabilities: [...capabilities.value],
         unsandboxed: unsandboxed.value,
@@ -1064,7 +1083,12 @@ export const useAgentMode = defineStore(
           chatAware.responseLanguage(sessionResponseLocale(sessionId)),
         ),
         ownsPrompt: chatPreset?.agentOwnsPrompt === true,
-        harness: chatPreset?.harness,
+        harness: sessionHarness(
+          presetNameUsesSessionSettings(context.presetName) || context.taskRun || context.followUp
+            ? settings
+            : null,
+          chatPreset,
+        ),
         userSampling: hasChatAffordances(chatPreset),
         capabilities: [...context.capabilities],
         unsandboxed: isUnsandboxed(context.workspaceDir),
@@ -2489,6 +2513,9 @@ export const useAgentMode = defineStore(
       planningThinkingOnly,
       effectivePlanningThinkingOnly,
       setPlanningThinkingOnly,
+      harness,
+      harnessLocked,
+      setHarness,
       openSessionSettings,
       bindSessionSettingsPort,
       reloadOpenSessionSettings,

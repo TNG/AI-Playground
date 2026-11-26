@@ -275,6 +275,29 @@ describe('agentMode sessions', () => {
     expect(store.presetSessions.map((session) => session.id)).toEqual(['game'])
   })
 
+  it('lets an unsent Assistant Session pick Hermes, then holds the choice once it has run', async () => {
+    const store = useAgentMode()
+    seedSessions(store)
+    await store.switchSession('agent-1')
+    expect(store.harness).toBe('pi')
+    expect(store.harnessLocked).toBe(false)
+
+    store.setHarness('hermes')
+    expect(store.harness).toBe('hermes')
+    expect(store.sessions['agent-1'].settings?.harness).toBe('hermes')
+
+    store.sessions = {
+      ...store.sessions,
+      'agent-1': {
+        ...store.sessions['agent-1'],
+        messages: [{ id: 'm1', role: 'user', parts: [] }],
+      },
+    }
+    expect(store.harnessLocked).toBe(true)
+    store.setHarness('pi')
+    expect(store.harness).toBe('hermes')
+  })
+
   it('starts a new game under Game Agent and a new conversation otherwise', async () => {
     const store = useAgentMode()
     seedSessions(store)

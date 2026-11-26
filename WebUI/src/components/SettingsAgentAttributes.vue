@@ -6,6 +6,68 @@
       :template="!!template"
       @reset="template || panel.onPresetReset()"
     >
+      <section v-if="binding.harnessSupported" class="flex flex-col gap-2">
+        <SettingsHeading>{{ languages.AGENT_SETTINGS_HARNESS }}</SettingsHeading>
+        <RadioGroup
+          :model-value="binding.harness"
+          :disabled="binding.harnessLocked"
+          :aria-label="languages.AGENT_SETTINGS_HARNESS"
+          class="gap-3"
+          @update:model-value="(value) => binding.setHarness(value as AgentHarness)"
+        >
+          <label
+            v-for="option in harnessOptions"
+            :key="option.value"
+            class="flex items-start gap-2 text-sm"
+            :class="{ 'opacity-50': option.disabled }"
+          >
+            <RadioGroupItem :value="option.value" :disabled="option.disabled" class="mt-0.5" />
+            <span class="flex flex-col">
+              <span class="text-foreground">{{ option.label }}</span>
+              <span class="text-xs text-muted-foreground">{{ option.hint }}</span>
+            </span>
+          </label>
+        </RadioGroup>
+        <p v-if="binding.harnessLocked" class="text-xs text-muted-foreground italic">
+          {{ languages.AGENT_SETTINGS_HARNESS_LOCKED }}
+        </p>
+        <template v-if="binding.harness === 'hermes'">
+          <p v-if="binding.backend === 'cloud'" class="text-xs text-warning">
+            {{ languages.AGENT_SETTINGS_HARNESS_HERMES_LOCAL_ONLY }}
+          </p>
+          <p v-if="hermesHasShell" class="text-xs text-warning">
+            {{ languages.AGENT_SETTINGS_HARNESS_HERMES_UNSANDBOXED }}
+          </p>
+          <p
+            v-if="binding.contextSizeSupported && binding.contextSize < HERMES_MIN_CONTEXT"
+            class="text-xs text-warning"
+          >
+            {{
+              languages.AGENT_SETTINGS_HARNESS_HERMES_CONTEXT.replace(
+                '{tokens}',
+                String(HERMES_MIN_CONTEXT),
+              )
+            }}
+          </p>
+          <div v-if="!template" class="flex items-center gap-2">
+            <Button variant="outline" class="px-3 py-1.5 text-sm" @click="openHermesDashboard">
+              {{ languages.SETTINGS_OPEN_HERMES }}
+            </Button>
+            <Tooltip>
+              <TooltipTrigger as-child>
+                <span
+                  class="svg-icon i-info w-4 h-4 shrink-0 opacity-50 cursor-help"
+                  :aria-label="languages.SETTINGS_OPEN_HERMES_INFO"
+                />
+              </TooltipTrigger>
+              <TooltipContent side="right" class="max-w-[300px] text-sm">
+                {{ languages.SETTINGS_OPEN_HERMES_INFO }}
+              </TooltipContent>
+            </Tooltip>
+          </div>
+        </template>
+      </section>
+
       <SettingsRow v-if="binding.sections.systemPrompt" align="start">
         <template #label>
           <Label for="agent-system-prompt" class="whitespace-nowrap pt-2">{{
@@ -45,7 +107,12 @@
         </p>
       </section>
 
-      <SessionFolderList v-else-if="!template" />
+      <template v-else-if="!template">
+        <SessionFolderList />
+        <p v-if="binding.harness === 'hermes'" class="text-xs text-muted-foreground">
+          {{ languages.AGENT_SETTINGS_HARNESS_HERMES_FOLDERS }}
+        </p>
+      </template>
 
       <!-- Consent is stored per workspace folder, so it only ever affects the folder shown above. -->
       <section v-if="showShellOption" class="flex flex-col gap-2">
@@ -179,10 +246,12 @@ import { computed, onMounted } from 'vue'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { developerMode } from '@/assets/js/store/debugSettings'
 import { useI18N } from '@/assets/js/store/i18n'
+import { useErrors } from '@/assets/js/store/errors'
 import { useMcp } from '@/assets/js/store/mcp'
 import { useSessions } from '@/assets/js/store/sessions'
 import AgentFolderOverrides from '@/components/AgentFolderOverrides.vue'
@@ -199,12 +268,15 @@ import { useAgentSettingsPanel } from '@/assets/js/agentSettingsPanel'
 import type { AgentSettingsBinding } from '@/lib/agentSettingsBinding'
 import { checklistCapabilities } from '@/lib/agentSettingsSections'
 import { FILES_CAPABILITY_ID } from '@/types/agentCapabilities'
+import { HERMES_MIN_CONTEXT, type AgentHarness } from '@/lib/agentHarness'
+import { createAppError } from '@/assets/js/errors/appError'
 import { useSettingsProblemMarks } from '@/assets/js/settingsProblemMarks'
 
 const languages = useI18N().state
 const agentMode = useAgentMode()
 const mcp = useMcp()
 const sessions = useSessions()
+const errors = useErrors()
 
 const props = defineProps<{
   /** An Agent's Settings Template instead of the open Session's settings. */
@@ -226,9 +298,47 @@ const showShellOption = computed(
   () =>
     !props.template &&
     !isManagedWorkspace.value &&
+    binding.value.harness !== 'hermes' &&
     developerMode() &&
     binding.value.capabilities.includes(FILES_CAPABILITY_ID),
 )
+
+// Like Pi, a preset that does not own its prompt always has file and shell tools.
+const hermesHasShell = computed(
+  () =>
+    !binding.value.sections.filesCapability ||
+    binding.value.capabilities.includes(FILES_CAPABILITY_ID),
+)
+
+const harnessOptions = computed(() => [
+  {
+    value: 'pi',
+    label: languages.AGENT_SETTINGS_HARNESS_PI,
+    hint: languages.AGENT_SETTINGS_HARNESS_PI_HINT,
+    disabled: false,
+  },
+  {
+    value: 'hermes',
+    label: languages.AGENT_SETTINGS_HARNESS_HERMES,
+    hint: languages.AGENT_SETTINGS_HARNESS_HERMES_HINT,
+    disabled: binding.value.backend === 'cloud' && binding.value.harness !== 'hermes',
+  },
+])
+
+async function openHermesDashboard() {
+  const result = await window.electronAPI.hermes.openDashboard()
+  if (!result.success) {
+    errors.report(
+      createAppError({
+        category: 'backend',
+        code: 'hermes/open-dashboard-failed',
+        severity: 'error',
+        surface: 'toast',
+        userMessage: result.error ?? languages.SETTINGS_HERMES_OPEN_FAILED,
+      }),
+    )
+  }
+}
 
 function toggleUnsandboxed(event: Event): void {
   agentMode.setUnsandboxed((event.target as HTMLInputElement).checked)

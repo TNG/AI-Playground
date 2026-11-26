@@ -33,6 +33,14 @@ export const PLANNING_PHASE_CAPABILITY_IDS: readonly string[] = [
   GAME_STUDIO_QUICK_ID,
 ]
 
+/** Capabilities a Hermes turn cannot carry: Pi extensions and Pi-only session shapes. */
+export const HERMES_UNSUPPORTED_CAPABILITY_IDS: readonly string[] = [
+  'memory',
+  'web-debug',
+  GAME_STUDIO_ID,
+  GAME_STUDIO_QUICK_ID,
+]
+
 /**
  * Renderer-side name of the tool Quick Coder offers the switch to Game Agent
  * with. The offer is a card in the transcript and the switch is Pinia state, so

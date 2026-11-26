@@ -21,8 +21,9 @@ import { agentTurns, type AgentTurn } from '../piAgentState.ts'
 import { sessionMediaOf } from '../piSessionLifecycle.ts'
 import { piAgentDir } from '../piSessionStore.ts'
 import { chatModelFromAgentConfig } from '../chatModelFromAgent.ts'
-import { mediaCapability } from '../capabilities/media.ts'
+import { resolveCapabilities } from '../capabilities/index.ts'
 import type { CapabilityHost } from '../capabilities/types.ts'
+import type { SkillSource } from '../piCustomTools.ts'
 import { downloadedMissingReadinessModels } from '../agentModelConsent.ts'
 import { reportAgentTurnEnd, type AgentTurnEnd } from '../agentTurnOutcome.ts'
 import { trackAgentTurnInSession } from '../../session/sessionAgentTurns.ts'
@@ -33,6 +34,9 @@ import {
 } from '../../session/sessionTurns.ts'
 import { HERMES_MIN_CONTEXT } from '../../adapters/backends/hermesConfig.ts'
 import type { AgentModeTurnConfig } from '@/types/agentIpc'
+import { enabledCapabilityIds } from '@/types/agentCapabilities'
+import { hermesFileTools, hermesSupportsCapability } from '@/lib/agentHarness'
+import { turnModelToolUse } from '@/lib/modelToolUse'
 import type { IpcMutationResult } from '@/types/ipcChannels'
 import { hermesIntegration, hermesService, type HermesIntegration } from './hermesIntegration.ts'
 import {
@@ -45,14 +49,21 @@ const LOG_SOURCE = 'hermes-agent'
 const logger = appLoggerInstance
 
 const HERMES_TOOLS_NOTE =
-  "AI Playground's own tools are available as MCP tools of the `aipg` server: use them to " +
-  'generate or edit images. Their results are saved into the working directory and shown to ' +
-  'the user; mention the saved paths in your reply.'
+  "AI Playground's own tools are available as MCP tools of the `aipg` server. Media they " +
+  'create is saved into the working directory and shown to the user; mention the saved paths ' +
+  'in your reply.'
 
-/** AIPG's media tools for this turn, as the Pi definitions an agent session would build. */
-async function aipgToolsFor(config: AgentModeTurnConfig, workspaceDir: string) {
+type AipgTurnTools = { tools: ToolDefinition[]; skills: SkillSource[]; catalog: string }
+
+/** The enabled capabilities Hermes can carry, built as the Pi definitions an agent session would get. */
+async function aipgToolsFor(
+  config: AgentModeTurnConfig,
+  workspaceDir: string,
+): Promise<AipgTurnTools> {
+  const local = config.modelConfig.source === 'local' ? config.modelConfig : {}
   const host: CapabilityHost = {
     sessionId: config.sessionId,
+    modelToolUse: turnModelToolUse(local),
     workspaceDir,
     toolSpecs: config.toolSpecs ?? [],
     mediaAgent: config.mediaAgent,
@@ -62,9 +73,37 @@ async function aipgToolsFor(config: AgentModeTurnConfig, workspaceDir: string) {
     supportsVision: config.modelConfig.supportsVision === true,
     keepModelsLoaded: config.keepModelsLoaded ?? false,
     sessionMedia: sessionMediaOf(config.sessionRef, workspaceDir),
+    ...(config.embeddingModel
+      ? {
+          embeddingModel: config.embeddingModel,
+          embeddingBackend: config.embeddingBackend ?? 'llamaCPP',
+        }
+      : {}),
   }
-  if (mediaCapability.unavailableReason?.(host)) return []
-  return (await mediaCapability.buildTools?.(host)) ?? []
+  const ids = enabledCapabilityIds(config).filter(hermesSupportsCapability)
+  const { resolved } = await resolveCapabilities(host, ids)
+  const carried = resolved.filter(({ capability }) => hermesSupportsCapability(capability.id))
+  const tools = carried.flatMap((entry) => entry.tools)
+  const skills = carried.flatMap((entry) => entry.skills)
+  const catalog = JSON.stringify(
+    tools
+      .map((tool) => [tool.name, tool.description, tool.parameters] as const)
+      .sort(([a], [b]) => a.localeCompare(b)),
+  )
+  logger.info(
+    `hermes capabilities: ${carried.map(({ capability }) => capability.id).join(', ') || 'none'}`,
+    LOG_SOURCE,
+  )
+  return { tools, skills, catalog }
+}
+
+/** Hermes has no Pi skill loader, so a capability's workflow notes ride in the instructions. */
+function skillsSection(skills: SkillSource[]): string {
+  if (skills.length === 0) return ''
+  return [
+    '# AI Playground skills',
+    ...skills.map((skill) => `## ${skill.name}\n${skill.description}\n\n${skill.body}`),
+  ].join('\n\n')
 }
 
 async function hermesFetch(baseUrl: string, key: string, route: string, init: RequestInit = {}) {
@@ -131,6 +170,7 @@ export async function startHermesTurn(
 
   const aipgResults = new Map<string, unknown[]>()
   let aipgTools: ToolDefinition[] = []
+  let aipgSkills: SkillSource[] = []
   const translator = createHermesStreamTranslator({
     emit: (chunk) => emitAgentChunk(sessionId, turnId, chunk),
     model: config.readiness?.llmModelName ?? modelConfig.model,
@@ -223,7 +263,9 @@ export async function startHermesTurn(
           contextWindow,
         ),
     })
-    aipgTools = await aipgToolsFor(config, workspaceDir)
+    const turnTools = await aipgToolsFor(config, workspaceDir)
+    aipgTools = turnTools.tools
+    aipgSkills = turnTools.skills
     mcp.setTurn({
       tools: aipgTools,
       signal: abortController.signal,
@@ -231,11 +273,21 @@ export async function startHermesTurn(
         aipgResults.set(toolName, [...(aipgResults.get(toolName) ?? []), result]),
     })
 
-    if ((await service.start()) !== 'running') throw new Error('Hermes Agent failed to start.')
-    service.writeRuntimeConfig({ workspaceDir, contextLength: contextWindow })
+    await service.prepareRun({
+      workspaceDir,
+      contextLength: contextWindow,
+      fileTools: hermesFileTools(config),
+    })
+    if ((await service.startWithToolCatalog(turnTools.catalog)) !== 'running') {
+      throw new Error('Hermes Agent failed to start.')
+    }
     gateway = { baseUrl: service.baseUrl, key: service.getApiKey() }
 
-    const instructions = [config.instructions, aipgTools.length > 0 ? HERMES_TOOLS_NOTE : '']
+    const instructions = [
+      config.instructions,
+      aipgTools.length > 0 ? HERMES_TOOLS_NOTE : '',
+      skillsSection(aipgSkills),
+    ]
       .filter(Boolean)
       .join('\n\n')
     const created = await hermesFetch(gateway.baseUrl, gateway.key, '/v1/runs', {

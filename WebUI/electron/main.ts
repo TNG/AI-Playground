@@ -141,7 +141,12 @@ import {
   refreshWhileAsking,
   showRefreshedCloseQuestion,
 } from './kernel/closeAsk'
-import { createInFlightWork, queuedChannelMessages } from './kernel/inFlightWork'
+import { createInFlightWork } from './kernel/inFlightWork'
+import { createChannelsKernel, type ChannelBackend } from './channels/channelsKernel'
+import {
+  buildChannelHostRegistry,
+  buildChannelHostSendRegistry,
+} from './kernel/registries/channelHost'
 import { createComponentChanges } from './kernel/componentChanges'
 import type { HeldComponent } from '@/types/componentChange'
 import { openAgentTaskFolder } from './agent/agentTaskFolders.ts'
@@ -609,6 +614,12 @@ function quitApp(): void {
   app.quit()
 }
 
+let channelBackend: ChannelBackend | null = null
+const channelsKernel = createChannelsKernel({
+  backend: () => channelBackend,
+  window: getKernelEventWindow,
+})
+
 const inFlightWork = createInFlightWork({
   openAgentTurnSessionIds,
   readAgentSessionTitle,
@@ -616,6 +627,7 @@ const inFlightWork = createInFlightWork({
   openTextRequests,
   openArtifactRuns,
   readAgentTasks,
+  channelQueues: () => channelsKernel.host.queuedWork(),
 })
 
 /** Components the window reports holding (speech turns, model downloads), as last heard. */
@@ -965,6 +977,7 @@ async function createWindow() {
   // renderer cannot leave an invisible queue draining.
   rejectAllMediaRequests('The app window was replaced')
   rejectAllChatAsks('The app window was replaced')
+  channelsKernel.windowPort.reset('The app window was replaced')
   rejectAllPermissionPrompts('The app window was replaced')
   clearRendererWaits()
   cancelAllArtifactRuns('The app window was replaced')
@@ -1296,8 +1309,9 @@ setRagAccess({
 // First, while the Channels' backend still runs: the window's queue dies with it.
 appShutdown.register({
   name: 'channel queues',
-  run: () => tellQueuesDroppedOnQuit(queuedChannelMessages(inFlightWork.rendererWork())),
+  run: () => tellQueuesDroppedOnQuit(channelsKernel.host.queuedWork()),
 })
+appShutdown.register({ name: 'channels', run: () => channelsKernel.stop() })
 appShutdown.register({ name: 'task runs', run: (cause) => settleTaskRunsOnQuit(cause) })
 appShutdown.register({ name: 'agent mode', run: () => shutdownAgentMode() })
 // After the agent, so no Trial Run turn still writes into a folder being removed.
@@ -1427,6 +1441,24 @@ async function initServiceRegistry(win: BrowserWindow, settings: LocalSettings) 
         homeAgent.channelSend(kind, action, payload),
       ),
     )
+    if (!remoteKernel.isThinClientDevice()) {
+      channelBackend = {
+        loadConfig: (kind) => homeAgent.loadChannelConfig(kind),
+        saveConfig: (kind, config) => homeAgent.saveChannelConfig(kind, config),
+        clearConfig: (kind) => homeAgent.clearChannelConfig(kind),
+        loadPrefs: (kind) => homeAgent.loadChannelPrefs(kind),
+        savePrefs: (kind, prefs) => homeAgent.saveChannelPrefs(kind, prefs),
+        inject: (kind, config) => homeAgent.channelSetConfig(kind, config),
+        poll: (kind) => homeAgent.channelPoll(kind),
+        send: (kind, action, payload) => homeAgent.channelSend(kind, action, payload),
+        running: () => homeAgent.currentStatus === 'running',
+      }
+      void channelsKernel
+        .start()
+        .catch((error: unknown) =>
+          appLogger.warn(`Channels did not start: ${String(error)}`, 'channels'),
+        )
+    }
   }
   wireArtifactRunner(settings)
   wireConversations(settings)
@@ -1807,6 +1839,8 @@ function initEventHandle() {
   // sequence (docs/architecture-target.md §4.6).
   registerInvokeHandlers(buildKernelRegistry({ getKernelSnapshot }))
   registerInvokeHandlers(buildRemoteKernelRegistry({ remoteKernel }))
+  registerInvokeHandlers(buildChannelHostRegistry(channelsKernel))
+  registerSendHandlers(buildChannelHostSendRegistry(channelsKernel))
 
   const pathsManager = new PathsManager(
     // Packaged: the per-user writable copy (seeded from the shared default on

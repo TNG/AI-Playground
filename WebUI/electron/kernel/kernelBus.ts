@@ -22,6 +22,7 @@ import type {
   KernelSnapshot,
   KernelStoredEvent,
 } from '@/types/kernelEvents'
+import type { ChannelQueuesState, ChannelsState } from '@/types/channelHostIpc'
 import type { SessionDocument, SessionGroupsState, SessionTurns } from '@/types/sessionIpc'
 import type { HeldComponent } from '@/types/componentChange'
 import type { MediaItem } from '@/types/mediaItem'
@@ -490,6 +491,19 @@ export function setComponentHolds(holds: HeldComponent[], inFlight: boolean): vo
   )
 }
 
+let channelsState: ChannelsState | null = null
+let channelQueues: ChannelQueuesState = { queued: {}, sending: [] }
+
+export function emitChannelsState(state: ChannelsState): void {
+  channelsState = state
+  emit({ type: 'channels-state', state }, { kind: 'global' })
+}
+
+export function emitChannelQueues(queues: ChannelQueuesState): void {
+  channelQueues = queues
+  emit({ type: 'channel-queues', queues }, { kind: 'global' })
+}
+
 export function setInferenceProfileSnapshot(profile: KernelInferenceProfile | null): void {
   inferenceProfile = profile
   emitStored('inference-profile', undefined, profile)
@@ -672,6 +686,8 @@ export function getKernelSnapshot(): KernelSnapshot {
       sessionTurns: { ...sessionTurns },
       componentHolds: [...componentHolds],
       anyInFlightWork,
+      channels: channelsState,
+      channelQueues,
     },
   }
 }
@@ -699,4 +715,6 @@ export function resetKernelBusForTest(): void {
   componentHolds = []
   anyInFlightWork = false
   componentHoldsSignature = ''
+  channelsState = null
+  channelQueues = { queued: {}, sending: [] }
 }

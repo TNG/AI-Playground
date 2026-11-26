@@ -10,6 +10,7 @@ import type { ActivityCategory, ActivityScope, ActivityState } from '@/assets/js
 import type { SerializedAppError } from '@/assets/js/errors/types'
 import type { SessionDocument, SessionGroupsState, SessionTurns } from './sessionIpc'
 import type { HeldComponent } from './componentChange'
+import type { ChannelQueuesState, ChannelsState } from './channelHostIpc'
 
 export type KernelEventScope =
   { kind: 'global' } | { kind: 'chat'; conversationKey: string } | { kind: 'run'; runId: string }
@@ -298,6 +299,18 @@ export type KernelComponentHoldsEvent = {
   anyInFlightWork: boolean
 }
 
+/** Whether Channels run, as the kernel decided it; every window shows the same. */
+export type KernelChannelsStateEvent = {
+  type: 'channels-state'
+  state: ChannelsState
+}
+
+/** What the Channels' router has queued per Session, the whole map on every change. */
+export type KernelChannelQueuesEvent = {
+  type: 'channel-queues'
+  queues: ChannelQueuesState
+}
+
 /** Last successful local chat load — kernel memory, not the settings dropdown. */
 export type KernelInferenceProfile = {
   serviceName: string
@@ -331,6 +344,8 @@ export type KernelEventPayload =
   | KernelSessionGroupsChangedEvent
   | KernelSessionTurnsEvent
   | KernelComponentHoldsEvent
+  | KernelChannelsStateEvent
+  | KernelChannelQueuesEvent
 
 export type KernelEvent = KernelEventPayload & KernelEventEnvelope
 
@@ -420,6 +435,9 @@ export type KernelSnapshotState = {
   componentHolds?: HeldComponent[]
   /** Whether any In-flight Work exists; a Hardware Mode change waits for it. */
   anyInFlightWork?: boolean
+  /** Null on a machine whose kernel runs no Channels. */
+  channels?: ChannelsState | null
+  channelQueues?: ChannelQueuesState
 }
 
 export type KernelSnapshot = {

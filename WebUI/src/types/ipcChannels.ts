@@ -28,6 +28,13 @@ import type { GroupNameProblem } from '../lib/sessionGroupName'
 import type { ConversationBootstrap, ConversationSaveRequest } from './conversationIpc'
 import type { DemoConfigSaveResult, DemoConfigUpdate } from './demoModeIpc'
 import type { ChannelInboundMessage } from './channelIpc'
+import type {
+  ChannelPortAnswer,
+  ChannelPortAsk,
+  ChannelPortState,
+  ChannelsLegacyState,
+  ChannelsState,
+} from './channelHostIpc'
 import type { KernelEvent, KernelSnapshot, PauseReason } from './kernelEvents'
 import type { CloseAnswerPayload, CloseAskPayload, InFlightWorkItem } from './lifecycleIpc'
 import type { ComponentChangeRefusal, HeldComponent } from './componentChange'
@@ -2277,6 +2284,83 @@ export const CHANNELS = {
     owner: 'main',
     payload: null as unknown as WebBrowserState,
     raw: true as const,
+  },
+
+  // ── Channels in the kernel: one dispatcher, every window a view of it ──
+
+  /** Whether Channels run: the switch, each Channel's setup, and which are fielding traffic. */
+  'channelHost:getState': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as ChannelsState,
+  },
+  /** The title-bar switch. */
+  'channelHost:setMaster': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [boolean],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Turns one verified Channel on or off. */
+  'channelHost:setEnabled': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [ChannelKind, boolean],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Marks a Channel's saved credentials tested; it starts running (switch permitting). */
+  'channelHost:setVerified': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [ChannelKind],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Saves a Channel's config; changed credentials need testing again. */
+  'channelHost:saveConfig': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [ChannelKind, Record<string, string>],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Forgets a Channel's config and setup. */
+  'channelHost:clearConfig': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [ChannelKind],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** The window's legacy switch and prefs, applied only where main has none. */
+  'channelHost:migrate': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [ChannelsLegacyState],
+    result: null as unknown as void,
+  },
+  /** Points a Channel at a Session, or at none. */
+  'channelHost:setChannelSession': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [ChannelKind, string | null],
+    result: null as unknown as void,
+  },
+  /** Main asks the window holding Agent Mode to reach a Session for a Channel. */
+  'channelHost:portAsk': {
+    kind: 'push',
+    owner: 'main',
+    payload: null as unknown as ChannelPortAsk,
+  },
+  /** The window's answer, with a fresh mirror of what the router reads. */
+  'channelHost:portAnswer': {
+    kind: 'send',
+    owner: 'main',
+    args: [] as unknown as readonly [ChannelPortAnswer],
+  },
+  /** The window's mirror, whenever it changes. */
+  'channelHost:portState': {
+    kind: 'send',
+    owner: 'main',
+    args: [] as unknown as readonly [ChannelPortState],
   },
 
   // ── LAN chat and Channel dispatch (batch 9c) ──

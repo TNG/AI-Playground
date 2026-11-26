@@ -53,6 +53,8 @@ export type ChannelQuestionRegistry = {
   isOpen: (id: string) => boolean
   /** True when the message answered a question, or tapped a closed one, and must not be routed on. */
   handleInbound: (adapter: ChannelAdapter, msg: InboundAnswer, meta?: InboundMeta) => boolean
+  /** Channels with an open question a typed yes/no answers. */
+  typedKinds: () => ChannelKind[]
 }
 
 type OpenQuestion = {
@@ -83,11 +85,19 @@ export function createChannelQuestionRegistry(deps?: {
   newId?: () => string
   log?: (message: string, error: unknown) => void
   staleReply?: () => string
+  /** Called whenever a question opens or closes. */
+  onChange?: () => void
 }): ChannelQuestionRegistry {
   const newId = deps?.newId ?? randomId
   const staleReply = deps?.staleReply ?? (() => STALE_REPLY)
   const log = deps?.log ?? ((message, error) => console.error(message, error))
   const open = new Map<string, OpenQuestion>()
+  const changed = deps?.onChange ?? (() => {})
+
+  function close(id: string): void {
+    open.delete(id)
+    changed()
+  }
 
   function editInPlace(q: OpenQuestion, outcome: string): void {
     const ref = q.ref
@@ -114,7 +124,7 @@ export function createChannelQuestionRegistry(deps?: {
   function settle(id: string, answer: boolean, outcomeNote?: string): boolean {
     const q = open.get(id)
     if (!q) return false
-    open.delete(id)
+    close(id)
     clearTimeout(q.timeoutId)
     q.outcome = outcomeNote ?? (answer ? q.labels.confirmed : q.labels.cancelled)
     editInPlace(q, q.outcome)
@@ -125,7 +135,7 @@ export function createChannelQuestionRegistry(deps?: {
   function retire(id: string, note: string): boolean {
     const q = open.get(id)
     if (!q) return false
-    open.delete(id)
+    close(id)
     clearTimeout(q.timeoutId)
     q.outcome = note
     editInPlace(q, note)
@@ -141,7 +151,7 @@ export function createChannelQuestionRegistry(deps?: {
   function expire(id: string): void {
     const q = open.get(id)
     if (!q) return
-    open.delete(id)
+    close(id)
     const outcome = '⌛ No response — cancelled.'
     if (q.ref) editInPlace(q, outcome)
     else
@@ -171,6 +181,7 @@ export function createChannelQuestionRegistry(deps?: {
         asked.timeoutId = setTimeout(() => expire(id), question.timeoutMs)
       }
       open.set(id, asked)
+      changed()
       const buttons: KeyboardButton[][] = [
         [
           { text: labels.confirm, callbackData: confirmCallback(id, true) },
@@ -217,5 +228,17 @@ export function createChannelQuestionRegistry(deps?: {
     return answer !== null
   }
 
-  return { ask, settle, retire, retireOutside, isOpen: (id) => open.has(id), handleInbound }
+  const typedKinds = () => [
+    ...new Set([...open.values()].filter((q) => q.typedReply).map((q) => q.adapter.kind)),
+  ]
+
+  return {
+    ask,
+    settle,
+    retire,
+    retireOutside,
+    isOpen: (id) => open.has(id),
+    handleInbound,
+    typedKinds,
+  }
 }

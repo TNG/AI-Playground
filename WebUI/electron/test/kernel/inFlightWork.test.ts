@@ -17,6 +17,7 @@ function sources(overrides: Partial<InFlightWorkSources>): InFlightWorkSources {
     artifactRuns: [],
     tasks: [],
     rendererWork: [],
+    channelQueues: [],
     ...overrides,
   }
 }
@@ -37,13 +38,13 @@ const runningTaskRun = (sessionId: string): InFlightWorkItem => ({
 })
 
 describe('collectInFlightWork', () => {
-  it('lists the Channel messages the window has queued', () => {
+  it("lists the Channels' queued messages", () => {
     const queued: InFlightWorkItem = {
       kind: 'channel-queue',
       channel: 'telegram',
       state: { status: 'queued', count: 3 },
     }
-    expect(collectInFlightWork(sources({ rendererWork: [queued] }))).toEqual([queued])
+    expect(collectInFlightWork(sources({ channelQueues: [queued] }))).toEqual([queued])
   })
 
   it('lists nothing for an enabled Schedule alone', () => {
@@ -176,6 +177,7 @@ describe('createInFlightWork', () => {
     openTextRequests: () => [],
     openArtifactRuns: () => [],
     readAgentTasks: async () => [],
+    channelQueues: () => [],
     ...overrides,
   })
 

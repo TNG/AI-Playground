@@ -21,7 +21,6 @@ import { usePromptBarStyle } from './assets/js/store/promptBarStyle'
 import { useMessageHiding } from './assets/js/store/messageHiding'
 import { useChatAware } from './assets/js/store/chatAware'
 import { useMediaModes } from './assets/js/store/mediaModes'
-import { useChannelSessionPointers } from './assets/js/store/channelSessionPointers'
 import { useDeveloperSettings } from './assets/js/store/developerSettings'
 import { useModelPreferences } from './assets/js/store/modelPreferences'
 import { useTextToSpeech } from './assets/js/store/textToSpeech'
@@ -156,7 +155,6 @@ await Promise.all([
   useMessageHiding().init(),
   useChatAware().init(),
   useMediaModes().init(),
-  useChannelSessionPointers().init(),
   useDeveloperSettings().init(),
   useModelPreferences().init(),
   useTextToSpeech().init(),
@@ -180,7 +178,8 @@ await migrateHomeAgentThreads({
   storedHomeAgentState: () => demoAwareStorage.getItem(LEGACY_HOME_AGENT_STORAGE_KEY),
   defaultCapabilities: assistantDefaultCapabilities,
   migrate: (input) => window.electronAPI.sessions.migrateHomeAgentThreads(input),
-  setChannelSession: (kind, sessionRef) => useChannelSessionPointers().set(kind, sessionRef),
+  setChannelSession: (kind, sessionRef) =>
+    void window.electronAPI.channelHost.setChannelSession(kind, sessionRef),
   report: (error) => errors.report(error),
 })
 

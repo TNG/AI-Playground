@@ -41,6 +41,12 @@ import type { HeldComponent } from '@/types/componentChange'
 import type { MediaRequestPayload, MediaResponsePayload } from '@/types/mediaRequests'
 import type { SpeechSynthesisRequest } from '@/types/speechIpc'
 import type { RemoteKernelConfigUpdate, RemoteKernelPairRequest } from '@/types/remoteKernelIpc'
+import type {
+  ChannelPortAnswer,
+  ChannelPortAsk,
+  ChannelPortState,
+  ChannelsLegacyState,
+} from '@/types/channelHostIpc'
 import type { NotificationConfig } from '@/types/notificationsIpc'
 import type {
   PermissionGrant,
@@ -605,6 +611,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
     discover: () => invoke('remoteKernel:discover'),
     pair: (request: RemoteKernelPairRequest) => invoke('remoteKernel:pair', request),
     forgetHost: () => invoke('remoteKernel:forgetHost'),
+  },
+  channelHost: {
+    getState: () => invoke('channelHost:getState'),
+    setMaster: (on: boolean) => invoke('channelHost:setMaster', on),
+    setEnabled: (kind: ChannelKind, on: boolean) => invoke('channelHost:setEnabled', kind, on),
+    setVerified: (kind: ChannelKind) => invoke('channelHost:setVerified', kind),
+    saveConfig: (kind: ChannelKind, config: Record<string, string>) =>
+      invoke('channelHost:saveConfig', kind, config),
+    clearConfig: (kind: ChannelKind) => invoke('channelHost:clearConfig', kind),
+    migrate: (legacy: ChannelsLegacyState) => invoke('channelHost:migrate', cloneForIpc(legacy)),
+    setChannelSession: (kind: ChannelKind, sessionRef: string | null) =>
+      invoke('channelHost:setChannelSession', kind, sessionRef),
+    onPortAsk: (callback: (payload: ChannelPortAsk) => void) =>
+      onPush('channelHost:portAsk', callback),
+    portAnswer: (payload: ChannelPortAnswer) =>
+      send('channelHost:portAnswer', cloneForIpc(payload)),
+    portState: (state: ChannelPortState) => send('channelHost:portState', cloneForIpc(state)),
   },
   // The one whole-object exhaustiveness check: every member of this object must
   // match the manifest-derived ElectronApi exactly (path, args, result) — a

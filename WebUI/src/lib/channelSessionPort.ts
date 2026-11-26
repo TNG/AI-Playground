@@ -1,10 +1,11 @@
-import { computed, watch } from 'vue'
+import { computed, watch, type ComputedRef } from 'vue'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useAgentTasks } from '@/assets/js/store/agentTasks'
 import { useAgentTrialRuns } from '@/assets/js/store/agentTrialRuns'
 import { useSessionLifecycle } from '@/assets/js/store/sessionLifecycle'
 import { useSessions } from '@/assets/js/store/sessions'
 import type {
+  SessionPort,
   ChannelTarget,
   ChannelTranscriptMessage,
   SessionActivity,
@@ -19,6 +20,10 @@ import { HARNESS_CHAT_PRESET } from '@/lib/harnessChatPreset'
 import { extractMessage } from '@/assets/js/errors/appError'
 import { base64ToBytes } from '@/lib/synthesizeSpeech'
 import type { AgentAnswerOrigin } from '@/types/agentIpc'
+import type { ChannelPortState } from '@/types/channelHostIpc'
+
+/** What the kernel's router reads synchronously, minus what the Channels store adds. */
+export type SessionPortMirror = Omit<ChannelPortState, 'typedQuestionKinds' | 'copy'>
 
 const ADMISSION_WAIT_MS = 3000
 
@@ -32,7 +37,9 @@ export type ChannelSessionLabels = {
 }
 
 /** Lets the channels reach Sessions, over Agent Mode's send-to-session path. */
-export function registerChannelSessionPort(labels: ChannelSessionLabels): void {
+export function registerChannelSessionPort(
+  labels: ChannelSessionLabels,
+): ComputedRef<SessionPortMirror> {
   const agentMode = useAgentMode()
   const agentTasks = useAgentTasks()
   const agentTrialRuns = useAgentTrialRuns()
@@ -254,7 +261,7 @@ export function registerChannelSessionPort(labels: ChannelSessionLabels): void {
     })
   }
 
-  registerSessionPort({
+  const port = {
     exists: async (sessionRef) => !!sessions.sessions[sessionRef],
     isReachable: async (sessionRef) => sessions.sessions[sessionRef]?.reachable === true,
     listReachable: async () =>
@@ -309,5 +316,49 @@ export function registerChannelSessionPort(labels: ChannelSessionLabels): void {
       trialRunListeners.add(listener)
       return () => trialRunListeners.delete(listener)
     },
+  } satisfies SessionPort
+  registerSessionPort(port)
+
+  return computed<SessionPortMirror>(() => {
+    const existing = Object.keys(sessions.sessions)
+    const activities: Record<string, SessionActivity> = {}
+    for (const sessionRef of new Set([...existing, ...Object.keys(sessions.turns)])) {
+      const now = activity(sessionRef)
+      if (now.kind !== 'idle') activities[sessionRef] = now
+    }
+    const trialRuns = Object.fromEntries(
+      Object.values(agentTrialRuns.trialRuns).map((run) => [
+        run.harnessSessionId,
+        trialRunActivity(run.harnessSessionId),
+      ]),
+    )
+    const records = Object.values(agentMode.sessions)
+    return {
+      existing,
+      reachable: existing.filter((sessionRef) => sessions.sessions[sessionRef]?.reachable),
+      activity: activities,
+      trialRuns,
+      labels: {
+        sessions: Object.fromEntries(existing.map((id) => [id, labels.session(id)])),
+        harness: Object.fromEntries(
+          records.map((record) => [record.id, labels.harness(record.id)]),
+        ),
+        trialRuns: Object.fromEntries(
+          Object.keys(trialRuns).map((id) => [id, labels.trialRun(id)]),
+        ),
+      },
+      harness: Object.fromEntries(
+        records.map((record) => [
+          record.id,
+          {
+            realShell: agentMode.isUnsandboxed(record.workspaceDir),
+            ...(record.sessionRef && record.presetName === HARNESS_CHAT_PRESET && !record.taskRun
+              ? { assistantOf: record.sessionRef }
+              : {}),
+          },
+        ]),
+      ),
+      agentNames: Object.fromEntries(agentTasks.tasks.map((task) => [task.id, task.name])),
+    }
   })
 }

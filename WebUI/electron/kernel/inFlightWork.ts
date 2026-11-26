@@ -11,8 +11,10 @@ export type InFlightWorkSources = {
   artifactRuns: OpenArtifactRun[]
   /** An enabled Schedule is not In-flight Work; only a Task Run's marker is. */
   tasks: Pick<AgentTask, 'id' | 'name' | 'activeRuns'>[]
-  /** What only the window knows: Trial Runs, Agent Runs whose marker is not on disk yet, queued Channel messages. */
+  /** What only the window knows: Trial Runs and Agent Runs whose marker is not on disk yet. */
   rendererWork: InFlightWorkItem[]
+  /** The Channels' queued messages, one item per Channel. */
+  channelQueues: InFlightWorkItem[]
 }
 
 /** The window's Task Runs win over their markers: a marker lags the run by a write. */
@@ -31,14 +33,6 @@ function runItems(sources: InFlightWorkSources): InFlightWorkItem[] {
       .map((run) => taskRunWorkItem(task, run)),
   )
   return [...markers, ...reported]
-}
-
-/** The window's queued Channel messages, one item per Channel. */
-export function queuedChannelMessages(work: InFlightWorkItem[]) {
-  return work.filter(
-    (item): item is Extract<InFlightWorkItem, { kind: 'channel-queue' }> =>
-      item.kind === 'channel-queue',
-  )
 }
 
 /** In-flight Work, one item per turn or run; queued media runs are counted per mode. */
@@ -73,7 +67,7 @@ export function collectInFlightWork(sources: InFlightWorkSources): InFlightWorkI
   for (const [mode, count] of queued) {
     items.push({ kind: 'media-run', mode, state: { status: 'queued', count } })
   }
-  return [...items, ...queuedChannelMessages(sources.rendererWork)]
+  return [...items, ...sources.channelQueues]
 }
 
 export type InFlightWorkDeps = {
@@ -83,6 +77,7 @@ export type InFlightWorkDeps = {
   openTextRequests: () => OpenTextRequest[]
   openArtifactRuns: () => OpenArtifactRun[]
   readAgentTasks: () => Promise<InFlightWorkSources['tasks']>
+  channelQueues: () => InFlightWorkItem[]
 }
 
 /** Main's live In-flight Work: what it owns, merged with the window's latest report. */
@@ -107,6 +102,7 @@ export function createInFlightWork(deps: InFlightWorkDeps) {
         artifactRuns: deps.openArtifactRuns(),
         tasks: await deps.readAgentTasks().catch(() => []),
         rendererWork,
+        channelQueues: deps.channelQueues(),
       })
     },
   }

@@ -67,8 +67,8 @@ export type AgentTurn = {
   onEvent?: (event: AgentSessionEvent) => void
   /** Host-side text (an extension's slash command output) for the transcript. */
   notice?: (text: string) => void
-  /** Takes back a Turn Queue place given up while paused; resolves at once otherwise. */
-  reclaim?: () => Promise<void>
+  /** Before each model request: stops a stopped turn, else takes back a place given up while paused. */
+  beforeModelCall?: () => Promise<void>
 }
 
 export let mainWin: BrowserWindow | null = null

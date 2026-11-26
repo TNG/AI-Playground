@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label'
 import { useBackendServices } from '@/assets/js/store/backendServices'
 import { useI18N } from '@/assets/js/store/i18n'
 import { ovmsToolParsers } from '@/types/shared'
+import CapabilityTriState from '@/components/models/CapabilityTriState.vue'
 import type { ModelCapabilityValues, ModelServiceBackend } from '@/assets/js/models/types'
 import DropDownNew from '@/components/DropDownNew.vue'
 
@@ -35,6 +36,31 @@ function set<K extends keyof ModelCapabilityValues>(key: K, value: ModelCapabili
 function setFlag(key: keyof ModelCapabilityValues, value: boolean) {
   set(key, (value ? true : undefined) as ModelCapabilityValues[typeof key])
 }
+
+// The four capability-row categories are tri-state: `undefined` is "not
+// specified" (a visible state of its own), not "no", so the user can say both
+// yes and no — and un-say either, falling back to whatever the catalog says.
+type TriStateFlag =
+  'supportsVision' | 'supportsToolCalling' | 'supportsReasoning' | 'supportsAgentic'
+
+function setTriState(key: TriStateFlag, value: boolean | undefined) {
+  if (key === 'supportsVision') {
+    setVision(value === true)
+    return
+  }
+  set(key, value)
+}
+
+const triStateFields = computed(() => [
+  { flag: 'supportsVision' as const, label: i18nState.MODEL_MANAGER_CAP_VISION, hint: '' },
+  { flag: 'supportsToolCalling' as const, label: i18nState.MODEL_MANAGER_CAP_TOOLS, hint: '' },
+  { flag: 'supportsReasoning' as const, label: i18nState.MODEL_MANAGER_CAP_REASONING, hint: '' },
+  {
+    flag: 'supportsAgentic' as const,
+    label: i18nState.MODEL_MANAGER_CAP_AGENTIC,
+    hint: i18nState.MODEL_MANAGER_CAP_AGENTIC_HINT,
+  },
+])
 
 // Vision and its projector are set together: an mmproj left behind by an
 // un-ticked Vision box turns vision back on by itself, since `refreshModels`
@@ -92,31 +118,26 @@ const toolParserItems = computed(() => [
 
 <template>
   <div class="flex flex-col gap-3">
+    <!-- The four capability-row categories. Tri-state because `undefined` is a
+         meaning of its own ("nobody said", marked with a question mark), not
+         a hidden "no". -->
+    <div v-for="field in triStateFields" :key="field.flag" class="flex flex-col gap-1">
+      <div class="flex items-center justify-between gap-3">
+        <Label :id="`${prefix}-${field.flag}-label`" class="text-sm">
+          {{ field.label }}
+        </Label>
+        <CapabilityTriState
+          :labelled-by="`${prefix}-${field.flag}-label`"
+          :model-value="modelValue[field.flag]"
+          @update:model-value="(value) => setTriState(field.flag, value)"
+        />
+      </div>
+      <p v-if="field.hint" class="text-xs text-muted-foreground">
+        {{ field.hint }}
+      </p>
+    </div>
+
     <div class="grid grid-cols-2 gap-3">
-      <div class="flex items-center gap-2">
-        <Checkbox
-          :id="`${prefix}-vision`"
-          :model-value="modelValue.supportsVision === true"
-          @update:model-value="(v) => setVision(v === true)"
-        />
-        <Label :for="`${prefix}-vision`">{{ languages.MODEL_MANAGER_CAP_VISION }}</Label>
-      </div>
-      <div class="flex items-center gap-2">
-        <Checkbox
-          :id="`${prefix}-tools`"
-          :model-value="modelValue.supportsToolCalling === true"
-          @update:model-value="(v) => setFlag('supportsToolCalling', v === true)"
-        />
-        <Label :for="`${prefix}-tools`">{{ languages.MODEL_MANAGER_CAP_TOOLS }}</Label>
-      </div>
-      <div class="flex items-center gap-2">
-        <Checkbox
-          :id="`${prefix}-reasoning`"
-          :model-value="modelValue.supportsReasoning === true"
-          @update:model-value="(v) => setFlag('supportsReasoning', v === true)"
-        />
-        <Label :for="`${prefix}-reasoning`">{{ languages.MODEL_MANAGER_CAP_REASONING }}</Label>
-      </div>
       <div class="flex items-center gap-2">
         <Checkbox
           :id="`${prefix}-thinking`"
@@ -135,9 +156,9 @@ const toolParserItems = computed(() => [
       </div>
     </div>
 
-    <!-- Coding, agentic and large MoE are the boxes whose label cannot carry their
-         meaning: coding and agentic decide which presets offer the model, and large
-         MoE is a hardware gate that can hide it everywhere. So they sit outside the
+    <!-- Coding and large MoE are the boxes whose label cannot carry their
+         meaning: coding decides which presets offer the model, and large MoE is
+         a hardware gate that can hide it everywhere. So they sit outside the
          grid, each with its hint always on screen — a hint shown only once the box
          is ticked comes too late to inform the decision. -->
     <div class="flex flex-col gap-1">
@@ -151,20 +172,6 @@ const toolParserItems = computed(() => [
       </div>
       <p class="text-xs text-muted-foreground">
         {{ languages.MODEL_MANAGER_CAP_CODING_HINT }}
-      </p>
-    </div>
-
-    <div class="flex flex-col gap-1">
-      <div class="flex items-center gap-2">
-        <Checkbox
-          :id="`${prefix}-agentic`"
-          :model-value="modelValue.supportsAgentic === true"
-          @update:model-value="(v) => setFlag('supportsAgentic', v === true)"
-        />
-        <Label :for="`${prefix}-agentic`">{{ languages.MODEL_MANAGER_CAP_AGENTIC }}</Label>
-      </div>
-      <p class="text-xs text-muted-foreground">
-        {{ languages.MODEL_MANAGER_CAP_AGENTIC_HINT }}
       </p>
     </div>
 

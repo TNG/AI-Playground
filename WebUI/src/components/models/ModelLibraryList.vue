@@ -107,10 +107,14 @@ function rowLabel(key: string, entry: ModelEntry): string {
               class="size-2 rounded-full"
               :class="entry.downloaded ? 'bg-success' : 'bg-muted-foreground/40'"
             />
+            <!-- A cloud model is never on disk; the green dot says "ready to
+                 use", the word says where it lives. -->
             {{
-              entry.downloaded
-                ? languages.MODEL_MANAGER_STATUS_ON_DISK
-                : languages.MODEL_MANAGER_STATUS_NOT_DOWNLOADED
+              entry.source === 'cloud'
+                ? languages.MODEL_MANAGER_STATUS_REMOTE
+                : entry.downloaded
+                  ? languages.MODEL_MANAGER_STATUS_ON_DISK
+                  : languages.MODEL_MANAGER_STATUS_NOT_DOWNLOADED
             }}
           </span>
 

@@ -84,6 +84,27 @@ function folderOverridesOf(overrides: AgentFolderOverrides | undefined) {
   return overrides ? { folderOverrides: overrides } : {}
 }
 
+// A turn on a model nobody marked agentic is allowed (it is offered as
+// unverified), but not silently: the store is told once per session + model,
+// and it surfaces the warning through the error sink.
+const unverifiedAgenticWarned = new Set<string>()
+
+function warnUnverifiedAgentic(options: {
+  sessionId: string
+  taskRun?: AgentModeTurnConfig['taskRun']
+  textInference: InferenceForTurn
+  notifyUnverifiedAgentic?: (model: string) => void
+}) {
+  // Task Runs are unattended: an advisory about the model would only be noise.
+  if (options.taskRun) return
+  const model = options.textInference.activeModel
+  if (!model || options.textInference.activeLlmModel?.supportsAgentic !== undefined) return
+  const key = `${options.sessionId}:${options.textInference.backend}:${model}`
+  if (unverifiedAgenticWarned.has(key)) return
+  unverifiedAgenticWarned.add(key)
+  options.notifyUnverifiedAgentic?.(model)
+}
+
 export async function buildTurnConfig(options: {
   sessionId: string
   /** The Session a Harness Session belongs to. */
@@ -109,6 +130,8 @@ export async function buildTurnConfig(options: {
   answer?: AgentAnswerOrigin
   /** The preset shows max tokens and temperature, so they bound every request. */
   userSampling?: boolean
+  /** The store's sink for the unverified-agentic warning; absent stays silent. */
+  notifyUnverifiedAgentic?: (model: string) => void
 }): Promise<AgentModeTurnConfig> {
   const toolSpecs = getAgentToolSpecs(options.tools)
   const mediaAgent = toolSpecs.some((spec) => spec.name === 'media')
@@ -120,6 +143,7 @@ export async function buildTurnConfig(options: {
   const userMaxTokens = Math.floor(textInference.effectiveMaxTokens ?? 0)
   const maxOutputTokens =
     options.userSampling && userMaxTokens > 0 ? { maxOutputTokens: userMaxTokens } : {}
+  warnUnverifiedAgentic(options)
   if (textInference.backend === 'cloud') {
     const upstreamBaseUrl = cloudMode.activeProviderBaseUrl
     if (!upstreamBaseUrl) {

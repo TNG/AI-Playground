@@ -7,7 +7,7 @@ import {
 /** What an agent turn's model can be trusted with: tool calls at all, and long agent work. */
 export type ModelToolUse = { toolCalling: boolean; agentic: boolean }
 
-/** Capabilities only a model marked `supportsAgentic` gets: long file, shell and game work. */
+/** Capabilities denied to a model explicitly marked non-agentic; unknown still gets them, unverified. */
 export const HEAVY_CAPABILITY_IDS: readonly string[] = [
   FILES_CAPABILITY_ID,
   GAME_STUDIO_ID,
@@ -27,15 +27,23 @@ export function turnModelToolUse(model: ModelFlags): ModelToolUse {
   }
 }
 
-/** A catalog model's flags, where unset means unknown and so not granted; cloud carries none. */
+/** A catalog model's flags. Unknown agentic (`undefined`) is allowed, not granted. */
 export function catalogModelToolUse(
   backend: string,
   model: ModelFlags | null | undefined,
 ): ModelToolUse {
-  if (backend === 'cloud') return { toolCalling: true, agentic: true }
+  // A remote model is whatever the provider advertised plus whatever the user
+  // overrode; an unset override must not read as "no".
+  if (backend === 'cloud') {
+    return {
+      toolCalling: model?.supportsToolCalling !== false,
+      agentic: model?.supportsAgentic !== false,
+    }
+  }
   return {
     toolCalling: model?.supportsToolCalling === true,
-    agentic: model?.supportsAgentic === true,
+    // Unknown agentic is allowed (offered as unverified); explicit "no" gates.
+    agentic: model?.supportsAgentic !== false,
   }
 }
 
@@ -44,7 +52,8 @@ export function capabilityModelGateReason(
   use: ModelToolUse,
 ): ModelGateReason | undefined {
   if (!use.toolCalling) return 'AGENT_CAPABILITY_NO_TOOL_CALLING'
-  if (!use.agentic && HEAVY_CAPABILITY_IDS.includes(id)) return 'AGENT_CAPABILITY_NOT_AGENTIC'
+  if (use.agentic === false && HEAVY_CAPABILITY_IDS.includes(id))
+    return 'AGENT_CAPABILITY_NOT_AGENTIC'
   return undefined
 }
 

@@ -3,9 +3,11 @@ import { computed, type Component } from 'vue'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
 import {
   CAPABILITIES,
+  capabilityState,
   type CapabilityDescriptor,
   type CapabilityFlags,
   type CapabilityKey,
+  type CapabilityState,
 } from '@/assets/js/capabilities'
 
 /** A toggle that sits in the capability filter row without being a capability. */
@@ -52,8 +54,26 @@ const emit = defineEmits<{
   (e: 'toggleExtra', key: string): void
 }>()
 
-function has(cap: CapabilityDescriptor): boolean {
-  return props.model?.[cap.flag] === true
+function stateOf(cap: CapabilityDescriptor): CapabilityState {
+  return capabilityState(props.model, cap.flag)
+}
+
+// The three states are carried by ink, not color: confirmed is the theme's
+// normal foreground, a confirmed lack and an unknown are grey — the unknown
+// one additionally wears a question-mark badge so it cannot be mistaken for
+// a plain "no".
+const stateClasses: Record<CapabilityState, string> = {
+  yes: 'text-foreground opacity-100',
+  no: 'text-muted-foreground opacity-100',
+  unknown: 'text-muted-foreground opacity-100',
+}
+
+function stateTooltip(cap: CapabilityDescriptor): string {
+  const state = stateOf(cap)
+  if (state === 'yes') return cap.tooltip
+  if (state === 'no')
+    return cap.lacksTooltip ?? `This model does not support ${cap.label.toLowerCase()}.`
+  return cap.unknownTooltip ?? `Unknown whether this model supports ${cap.label.toLowerCase()}.`
 }
 
 function isActive(key: CapabilityKey): boolean {
@@ -116,20 +136,25 @@ const toggles = computed(() => [
         <TooltipTrigger as-child>
           <span
             :aria-label="cap.label"
-            class="flex items-center justify-center rounded p-0.5 transition-opacity"
-            :class="has(cap) ? 'text-foreground opacity-100' : 'text-muted-foreground opacity-30'"
+            class="relative flex items-center justify-center rounded p-0.5 transition-opacity"
+            :class="stateClasses[stateOf(cap)]"
           >
             <component :is="cap.icon" :class="iconSize" />
+            <!-- Notification-style badge: the ? is font-drawn inside a solid
+                 circle, so it stays crisp at this size, and the circle sits
+                 mostly outside the glyph's corner. -->
+            <span
+              v-if="stateOf(cap) === 'unknown'"
+              aria-hidden="true"
+              class="absolute -top-1 -right-1 flex size-3 items-center justify-center rounded-full border border-muted-foreground text-[10px] font-bold leading-none text-muted-foreground"
+              >?</span
+            >
           </span>
         </TooltipTrigger>
         <TooltipContent class="w-56 bg-card border border-border text-foreground p-2 z-[200]">
           <p class="text-xs font-semibold">{{ cap.label }}</p>
           <p class="text-xs text-muted-foreground">
-            {{
-              has(cap)
-                ? cap.tooltip
-                : (cap.lacksTooltip ?? `This model does not support ${cap.label.toLowerCase()}.`)
-            }}
+            {{ stateTooltip(cap) }}
           </p>
         </TooltipContent>
       </Tooltip>

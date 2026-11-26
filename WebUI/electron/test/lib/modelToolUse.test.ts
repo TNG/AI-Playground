@@ -15,8 +15,11 @@ const reasons = (entries: { id: string; unavailableReason?: string }[]) =>
   Object.fromEntries(entries.map((entry) => [entry.id, entry.unavailableReason]))
 
 describe('gateCapabilityCatalog', () => {
-  it('disables file and shell editing, with a reason, for a model not suited to agent work', () => {
-    const use = catalogModelToolUse('llamaCPP', { supportsToolCalling: true })
+  it('disables file and shell editing, with a reason, for a model explicitly marked non-agentic', () => {
+    const use = catalogModelToolUse('llamaCPP', {
+      supportsToolCalling: true,
+      supportsAgentic: false,
+    })
     expect(reasons(gateCapabilityCatalog(catalog, use, text))).toEqual({
       files: '<AGENT_CAPABILITY_NOT_AGENTIC>',
       media: undefined,
@@ -24,6 +27,13 @@ describe('gateCapabilityCatalog', () => {
       web: undefined,
       memory: undefined,
     })
+  })
+
+  it('leaves the heavy capabilities on offer for a model whose agentic fit is unknown', () => {
+    const use = catalogModelToolUse('llamaCPP', { supportsToolCalling: true })
+    expect(Object.values(reasons(gateCapabilityCatalog(catalog, use, text)))).toEqual(
+      catalog.map(() => undefined),
+    )
   })
 
   it('leaves everything on offer for an agentic model and for cloud', () => {
@@ -38,6 +48,13 @@ describe('gateCapabilityCatalog', () => {
     expect(Object.values(reasons(gateCapabilityCatalog(catalog, cloud, text)))).toEqual(
       catalog.map(() => undefined),
     )
+  })
+
+  it('gates cloud capabilities the user explicitly turned off', () => {
+    const use = catalogModelToolUse('cloud', { supportsAgentic: false })
+    expect(reasons(gateCapabilityCatalog(catalog, use, text))).toMatchObject({
+      files: '<AGENT_CAPABILITY_NOT_AGENTIC>',
+    })
   })
 
   it('disables every capability for an untagged user-added model, which gets no tools', () => {

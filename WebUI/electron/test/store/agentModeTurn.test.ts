@@ -169,7 +169,7 @@ describe('buildTurnConfig readiness (step 15)', () => {
     expect(config.ownsPrompt).toBe(true)
   })
 
-  it('tells main what the local model can be given, an untagged one getting no tools', async () => {
+  it('tells main what the local model can be given, an unverified one still granted tools', async () => {
     const turn = (activeLlmModel: Record<string, unknown>) =>
       buildTurnConfig({
         sessionId: 'aipg-agent-1',
@@ -191,8 +191,35 @@ describe('buildTurnConfig readiness (step 15)', () => {
     const untagged = await turn({})
     expect(untagged.modelConfig).toMatchObject({
       supportsToolCalling: false,
-      supportsAgentic: false,
+      // Unknown agentic is offered as unverified, not withheld.
+      supportsAgentic: true,
     })
+  })
+
+  it('warns once per session and model about an unverified-agentic model', async () => {
+    const notified: string[] = []
+    const turn = (sessionId: string, activeLlmModel: Record<string, unknown>) =>
+      buildTurnConfig({
+        sessionId,
+        workspaceDir: '/tmp/ws',
+        presetName: 'Assistant',
+        instructions: 'Be helpful.',
+        capabilities: [],
+        unsandboxed: false,
+        planningThinkingOnly: false,
+        textInference: localInference({ activeLlmModel }) as never,
+        cloudMode: {
+          selectedProviderId: 'openai',
+          activeProviderAuthStyle: 'bearer',
+          capabilitiesFor: () => ({ reasoningAdvertised: false }),
+        },
+        notifyUnverifiedAgentic: (model) => notified.push(model),
+      })
+    await turn('aipg-agent-warn-1', {})
+    await turn('aipg-agent-warn-1', {})
+    await turn('aipg-agent-warn-2', {})
+    await turn('aipg-agent-warn-2', { supportsAgentic: true })
+    expect(notified).toEqual(['Qwen3-9B', 'Qwen3-9B'])
   })
 
   it("sends Assistant's max tokens, and its temperature to a cloud model too", async () => {

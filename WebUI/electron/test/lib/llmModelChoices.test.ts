@@ -45,10 +45,16 @@ describe('llmModelChoices', () => {
     const models = [
       model('agentic-tools', { supportsAgentic: true, supportsToolCalling: true }),
       model('tools-only', { supportsToolCalling: true }),
+      model('non-agentic-tools', { supportsToolCalling: true, supportsAgentic: false }),
       model('plain'),
     ]
     const preset = { type: 'chat', requiresToolCalling: true, requiresAgentic: true } as const
-    expect(names(llmModelChoices(models, context({ preset })))).toEqual(['agentic-tools'])
+    // The unverified (`tools-only`) model is offered; the explicitly
+    // non-agentic one is not.
+    expect(names(llmModelChoices(models, context({ preset })))).toEqual([
+      'agentic-tools',
+      'tools-only',
+    ])
   })
 
   it("offers a custom model only when it matches one of the preset's requirements", () => {

@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { ModelSchema } from '@/types/shared'
-import { CAPABILITIES, modelPassesCapabilityFilters } from '@/assets/js/capabilities'
+import {
+  CAPABILITIES,
+  capabilityState,
+  modelPassesCapabilityFilters,
+} from '@/assets/js/capabilities'
 
 describe('agentic capability filter', () => {
   it('phrases the missing-capability tip as a sentence', () => {
@@ -35,5 +39,21 @@ describe('agentic capability filter', () => {
     expect(parsed.supportsAgentic).toBe(true)
     expect(parsed.supportsCoding).toBe(false)
     expect(parsed).not.toHaveProperty('notARealField')
+  })
+})
+
+describe('capabilityState', () => {
+  it('maps the tri-state flag: true is yes, false is no, undefined is unknown', () => {
+    expect(capabilityState({ supportsAgentic: true }, 'supportsAgentic')).toBe('yes')
+    expect(capabilityState({ supportsAgentic: false }, 'supportsAgentic')).toBe('no')
+    expect(capabilityState({}, 'supportsAgentic')).toBe('unknown')
+    expect(capabilityState(undefined, 'supportsVision')).toBe('unknown')
+    expect(capabilityState(null, 'supportsVision')).toBe('unknown')
+  })
+
+  it('treats a missing model as unknown, never as a lack', () => {
+    for (const cap of CAPABILITIES) {
+      expect(capabilityState(undefined, cap.flag)).toBe('unknown')
+    }
   })
 })

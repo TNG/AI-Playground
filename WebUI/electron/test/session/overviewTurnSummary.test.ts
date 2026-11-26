@@ -429,7 +429,7 @@ describe('the turn details data', () => {
       },
     ]
 
-    const turns = sessionTimelineItems(timeline, {} as never, {}, rows).filter(
+    const turns = sessionTimelineItems(timeline, {} as never, {}, true, rows).filter(
       (item) => item.kind === 'chat',
     )
     expect(turns[0]?.details.parts).toContainEqual({
@@ -447,7 +447,7 @@ describe('the turn details data', () => {
 
     // A regenerate removed the first turn's entry: its row is gone, so the surviving
     // row must not slide onto the earlier turn that shares the prompt.
-    const regenerated = sessionTimelineItems(timeline, {} as never, {}, [rows[1]]).filter(
+    const regenerated = sessionTimelineItems(timeline, {} as never, {}, true, [rows[1]]).filter(
       (item) => item.kind === 'chat',
     )
     expect(regenerated[0]?.details.parts).not.toContainEqual(
@@ -498,6 +498,7 @@ describe('the turn details data', () => {
       timeline,
       { chat: [], chatStatus: { running: true } } as never,
       {},
+      true,
       rows,
     ).filter((item) => item.kind === 'chat')
     expect(turns[0]?.details.parts).toContainEqual(
@@ -554,6 +555,7 @@ describe('the turn details data', () => {
       timeline,
       { chat: [], chatStatus: { running: true } } as never,
       {},
+      true,
       rows,
     ).filter((item) => item.kind === 'chat')
     expect(turns[0]?.details.parts).toContainEqual(
@@ -602,7 +604,7 @@ describe('the turn details data', () => {
       },
     ]
 
-    const turns = sessionTimelineItems(timeline, {} as never, {}, rows).filter(
+    const turns = sessionTimelineItems(timeline, {} as never, {}, true, rows).filter(
       (item) => item.kind === 'chat',
     )
     expect(turns[0]?.details.parts).not.toContainEqual(
@@ -651,7 +653,7 @@ describe('the turn details data', () => {
       },
     ]
 
-    const turns = sessionTimelineItems(timeline, {} as never, {}, rows).filter(
+    const turns = sessionTimelineItems(timeline, {} as never, {}, true, rows).filter(
       (item) => item.kind === 'chat',
     )
     expect(turns[0]?.details.parts).not.toContainEqual(
@@ -710,7 +712,7 @@ describe('the turn details data', () => {
       },
     ]
 
-    const items = sessionTimelineItems(timeline, {} as never, {}, rows)
+    const items = sessionTimelineItems(timeline, {} as never, {}, true, rows)
     const media = items.find((item) => item.kind === 'media')
     const audio = items.find((item) => item.kind === 'audio')
     expect(media?.details.parts).toContainEqual({

@@ -1297,18 +1297,26 @@ describe('the Assistant preset in a Session', () => {
       const session = await sessions.createSession()
       const config = await assistantConfig(session.id)
       await manager.startAgentTurn('t1', 'remember the word plum', config)
-      await manager.startAgentTurn('t2', 'and the word pear', config)
-      await seedStaleRecord(config, 'the pear answer')
+      // t1 titled the Session, which arms its Workspace's rename to that title
+      // in the background (appWorkspace.ts). A standalone turn neither claims
+      // the Session nor re-resolves the Workspace, so it must be given a
+      // current path, like every real session-less caller is: let the rename
+      // land, then carry on from the renamed folder.
+      const { settleWorkspaceRenames } = await import('../../session/appWorkspace')
+      await settleWorkspaceRenames()
+      const renamed = await assistantConfig(session.id)
+      await manager.startAgentTurn('t2', 'and the word pear', renamed)
+      await seedStaleRecord(renamed, 'the pear answer')
 
       expect(
         await manager.startAgentTurn('t3', 'and the word pear', {
-          ...config,
+          ...renamed,
           rewindTurnId: 't2',
           sessionRef: undefined,
         }),
       ).toEqual({ success: true })
 
-      const messages = await recordMessagesOf(config.sessionId)
+      const messages = await recordMessagesOf(renamed.sessionId)
       expect(messages).not.toContain('the pear answer')
       expect(messages).toContain('name a fruit')
     }, 30000)

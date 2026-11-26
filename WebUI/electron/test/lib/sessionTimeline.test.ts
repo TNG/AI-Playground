@@ -2407,6 +2407,19 @@ describe('the live status line of a running Turn', () => {
     expect(liveTextOf(items[0])).toBeUndefined()
   })
 
+  it('says Cancelled once a stopped chat Turn settles', () => {
+    const items = sessionTimelineItems([], {
+      chat: [chatMessage('u1', 'user', 'hi'), chatAnswer([{ type: 'text', text: 'hel' }])],
+      chatStatus: { running: false, cancelled: true },
+      now: 2_000,
+    })
+
+    expect((items[0] as { result: object[] }).result).toContainEqual({
+      kind: 'failure',
+      state: 'cancelled',
+    })
+  })
+
   it('escalates the Stopping line once the release takes a while', () => {
     expect(turnLiveText({ kind: 'stopping', stillStopping: true }, labels)).toBe('Still stopping…')
   })

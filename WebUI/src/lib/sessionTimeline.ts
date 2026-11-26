@@ -794,13 +794,20 @@ function markLiveChatTurn(
     return
   }
   if (!status) return
-  if (status.error && !status.running && turn.result.length === 0) {
-    turn.result = [
-      { kind: 'failure', ...generationFailure({ state: 'failed', error: status.error }) },
-    ]
-    turn.details = { ...turn.details, error: joinErrors([turn.details.error, status.error]) }
+  if (!status.running) {
+    if (status.error && turn.result.length === 0) {
+      turn.result = [
+        { kind: 'failure', ...generationFailure({ state: 'failed', error: status.error }) },
+      ]
+      turn.details = { ...turn.details, error: joinErrors([turn.details.error, status.error]) }
+    } else if (status.cancelled && !turn.result.some((part) => part.kind === 'failure')) {
+      turn.result = [
+        ...turn.result,
+        { kind: 'failure', ...generationFailure({ state: 'cancelled' }) },
+      ]
+    }
+    return
   }
-  if (!status.running) return
   const fromParts = partsLiveStatus('chat', turn.answers, mediaSteps)
   const live: TurnLiveStatus = (fromParts?.kind === 'tool' && fromParts.label ? fromParts : null) ??
     (status.activity ? { kind: 'activity', ...status.activity } : null) ??

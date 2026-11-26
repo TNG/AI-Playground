@@ -114,6 +114,7 @@ const chatStatus = computed<LiveChatStatus>(() => {
     },
     questionKey: chatKey.value,
     error: chat.turnErrorIn(chatKey.value),
+    cancelled: chat.cancelledIn(chatKey.value),
   }
 })
 

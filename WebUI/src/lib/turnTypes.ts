@@ -281,6 +281,8 @@ export type LiveChatStatus = {
   questionKey?: string
   /** Why the newest chat turn failed, until the next one starts. */
   error?: string
+  /** The newest chat turn was stopped by the user, until the next one starts. */
+  cancelled?: boolean
 }
 
 export type MediaStepStatus = { label: string; progress?: number }

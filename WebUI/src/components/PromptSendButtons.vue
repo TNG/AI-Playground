@@ -51,15 +51,25 @@
     >
       <i class="svg-icon w-4 h-4 i-stop"></i>
     </Button>
-    <Button
-      v-else
-      disabled
-      :aria-label="labels?.stopping ?? languages?.SESSION_TURN_STOPPING"
-      aria-busy="true"
-      class="px-3 py-1.5 bg-red-400 cursor-not-allowed rounded-lg text-sm min-w-[44px] flex items-center justify-center"
-    >
-      <i class="svg-icon w-4 h-4 i-loading"></i>
-    </Button>
+    <TooltipProvider v-else :delay-duration="200">
+      <Tooltip>
+        <TooltipTrigger as-child>
+          <span class="inline-flex">
+            <Button
+              disabled
+              :aria-label="labels?.stopping ?? languages?.SESSION_TURN_STOPPING ?? 'Stopping…'"
+              aria-busy="true"
+              class="px-3 py-1.5 bg-red-600 cursor-not-allowed disabled:opacity-100! rounded-lg text-sm min-w-[44px] flex items-center justify-center"
+            >
+              <i class="svg-icon w-4 h-4 i-loading"></i>
+            </Button>
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="top">{{
+          labels?.stopping ?? languages?.SESSION_TURN_STOPPING ?? 'Stopping…'
+        }}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   </template>
 </template>
 

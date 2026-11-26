@@ -10,6 +10,11 @@ export type AgentHarness = 'pi' | 'hermes'
 /** Hermes refuses an agent session below this window. */
 export const HERMES_MIN_CONTEXT = 64_000
 
+/** The window a Hermes turn asks for: at least Hermes' minimum, unless the model cannot hold it. */
+export function hermesContextSize(requested: number, modelMax?: number): number {
+  return Math.max(requested, Math.min(HERMES_MIN_CONTEXT, modelMax ?? HERMES_MIN_CONTEXT))
+}
+
 /** A Session's own choice wins over its preset's; neither set means Pi. */
 export function sessionHarness(
   settings: Pick<AgentSessionSettings, 'harness'> | null | undefined,

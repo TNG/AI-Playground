@@ -1305,7 +1305,6 @@
   "AGENT_SETTINGS_HARNESS_HERMES": "Hermes Agent（預覽）",
   "AGENT_SETTINGS_HARNESS_HERMES_HINT": "Nous Research 的 Hermes Agent，使用此處選擇的模型執行。AI Playground 的工具透過本機連線提供給它。",
   "AGENT_SETTINGS_HARNESS_LOCKED": "此工作階段已在此執行框架上執行過。若要使用另一個，請開始新的工作階段。",
-  "AGENT_SETTINGS_HARNESS_HERMES_LOCAL_ONLY": "Hermes 僅支援本機 llama.cpp 或 OpenVINO 模型。傳送前請選擇本機後端。",
   "AGENT_SETTINGS_HARNESS_HERMES_UNSANDBOXED": "Hermes 的檔案與終端機工具直接在此電腦的工作階段資料夾中執行，不使用內建代理的沙箱。",
   "AGENT_SETTINGS_HARNESS_HERMES_CONTEXT": "Hermes 需要至少 {tokens} 個 token 的上下文；較長的工作階段可能會溢出。",
   "AGENT_SETTINGS_HARNESS_HERMES_FOLDERS": "Hermes 只在工作區資料夾中運作；此清單中的其他資料夾對它無法使用。",

@@ -13,6 +13,8 @@ export type HermesProxyTarget = {
   baseUrl: () => string | undefined
   /** The model id the server actually loaded; Hermes always asks for `HERMES_PROXY_MODEL`. */
   model: string
+  /** Sent upstream in place of Hermes' own bearer, which only ever authenticates to this proxy. */
+  headers?: Record<string, string>
   /** Recommended sampling for that model, merged over every completion body. */
   samplingParams?: Record<string, unknown>
   contextWindow?: number
@@ -165,6 +167,7 @@ export async function startHermesLlmProxy(key: string): Promise<HermesLlmProxy> 
       for (const [name, value] of Object.entries(req.headers)) {
         if (!HOP_HEADERS.has(name) && typeof value === 'string') headers[name] = value
       }
+      Object.assign(headers, target.headers)
       const upstreamPath = url.pathname.replace(/^\/v1/, '') + url.search
       const abort = new AbortController()
       res.on('close', () => abort.abort())

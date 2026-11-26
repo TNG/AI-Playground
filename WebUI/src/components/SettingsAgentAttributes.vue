@@ -19,9 +19,8 @@
             v-for="option in harnessOptions"
             :key="option.value"
             class="flex items-start gap-2 text-sm"
-            :class="{ 'opacity-50': option.disabled }"
           >
-            <RadioGroupItem :value="option.value" :disabled="option.disabled" class="mt-0.5" />
+            <RadioGroupItem :value="option.value" class="mt-0.5" />
             <span class="flex flex-col">
               <span class="text-foreground">{{ option.label }}</span>
               <span class="text-xs text-muted-foreground">{{ option.hint }}</span>
@@ -32,9 +31,6 @@
           {{ languages.AGENT_SETTINGS_HARNESS_LOCKED }}
         </p>
         <template v-if="binding.harness === 'hermes'">
-          <p v-if="binding.backend === 'cloud'" class="text-xs text-warning">
-            {{ languages.AGENT_SETTINGS_HARNESS_HERMES_LOCAL_ONLY }}
-          </p>
           <p v-if="hermesHasShell" class="text-xs text-warning">
             {{ languages.AGENT_SETTINGS_HARNESS_HERMES_UNSANDBOXED }}
           </p>
@@ -315,13 +311,11 @@ const harnessOptions = computed(() => [
     value: 'pi',
     label: languages.AGENT_SETTINGS_HARNESS_PI,
     hint: languages.AGENT_SETTINGS_HARNESS_PI_HINT,
-    disabled: false,
   },
   {
     value: 'hermes',
     label: languages.AGENT_SETTINGS_HARNESS_HERMES,
     hint: languages.AGENT_SETTINGS_HARNESS_HERMES_HINT,
-    disabled: binding.value.backend === 'cloud' && binding.value.harness !== 'hermes',
   },
 ])
 

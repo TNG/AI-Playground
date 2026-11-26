@@ -1305,7 +1305,6 @@
   "AGENT_SETTINGS_HARNESS_HERMES": "Hermes Agent (preview)",
   "AGENT_SETTINGS_HARNESS_HERMES_HINT": "Nous Research's Hermes Agent, running on the model picked here. AI Playground's tools reach it over a local connection.",
   "AGENT_SETTINGS_HARNESS_LOCKED": "This Session has already run on this harness. Start a new Session to use the other one.",
-  "AGENT_SETTINGS_HARNESS_HERMES_LOCAL_ONLY": "Hermes runs on local llama.cpp or OpenVINO models only. Pick a local backend before sending.",
   "AGENT_SETTINGS_HARNESS_HERMES_UNSANDBOXED": "Hermes's file and terminal tools run directly on this computer in the Session folder, without the sandbox the built-in agent uses.",
   "AGENT_SETTINGS_HARNESS_HERMES_CONTEXT": "Hermes expects a context of at least {tokens} tokens; long Sessions may overflow.",
   "AGENT_SETTINGS_HARNESS_HERMES_FOLDERS": "Hermes works in the Workspace folder only; the other folders in this list are not available to it.",

@@ -15,6 +15,18 @@ export const LOCAL_PROVIDER = 'aipg-local'
 export const CLOUD_PROVIDER = 'aipg-cloud'
 export const CLOUD_DEFAULT_CONTEXT_WINDOW = 128000
 
+type CloudModelConfig = Extract<AgentModeModelConfig, { source: 'cloud' }>
+
+/** The stored provider key, in the header the provider's auth style expects; none without a key. */
+export function cloudAuthHeaders(config: CloudModelConfig): Record<string, string> {
+  const key = cloudProviderKey(config.providerId)
+  if (!key) return {}
+  const authStyle = config.authStyle.trim() || 'bearer'
+  if (authStyle === 'x-api-key') return { 'x-api-key': key }
+  if (authStyle === 'api-key') return { 'api-key': key }
+  return authStyle === 'bearer' ? { authorization: `Bearer ${key}` } : {}
+}
+
 export function modelContextWindow(config: AgentModeModelConfig): number {
   return config.contextWindow ?? (config.source === 'cloud' ? CLOUD_DEFAULT_CONTEXT_WINDOW : 8192)
 }
@@ -82,12 +94,8 @@ export async function registerModel(
 
   const contextWindow = modelContextWindow(config)
   const apiBase = openAiApiBase(config.upstreamBaseUrl)
-  const key = cloudProviderKey(config.providerId)
-  const authStyle = config.authStyle.trim() || 'bearer'
-  const apiKey = authStyle === 'bearer' && key ? key : 'unused'
-  const headers: Record<string, string> = {}
-  if (key && authStyle === 'x-api-key') headers['x-api-key'] = key
-  if (key && authStyle === 'api-key') headers['api-key'] = key
+  const { authorization, ...headers } = cloudAuthHeaders(config)
+  const apiKey = authorization?.replace(/^Bearer /, '') ?? 'unused'
   runtime.registerProvider(CLOUD_PROVIDER, {
     name: 'AI Playground cloud',
     baseUrl: apiBase,

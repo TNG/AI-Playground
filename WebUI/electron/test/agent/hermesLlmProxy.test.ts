@@ -6,11 +6,18 @@ import { startHermesLlmProxy, type HermesLlmProxy } from '../../agent/hermes/her
 // Hermes is given one fixed base URL for a whole app run; the proxy must follow AIPG's LLM server
 // when it moves port and rewrite every body to the model that server actually loaded.
 
-type Fake = { url: string; bodies: Record<string, unknown>[]; close: () => Promise<void> }
+type Fake = {
+  url: string
+  bodies: Record<string, unknown>[]
+  headers: http.IncomingHttpHeaders[]
+  close: () => Promise<void>
+}
 
 async function fakeServer(reply: string): Promise<Fake> {
   const bodies: Record<string, unknown>[] = []
+  const headers: http.IncomingHttpHeaders[] = []
   const server = http.createServer(async (req, res) => {
+    headers.push(req.headers)
     let raw = ''
     for await (const chunk of req) raw += chunk
     const body = raw ? (JSON.parse(raw) as Record<string, unknown>) : {}
@@ -32,6 +39,7 @@ async function fakeServer(reply: string): Promise<Fake> {
   return {
     url: `http://127.0.0.1:${port}`,
     bodies,
+    headers,
     close: () => new Promise((resolve) => server.close(() => resolve())),
   }
 }
@@ -73,6 +81,20 @@ describe('Hermes LLM proxy', () => {
     const res = await fetch(`${p.url}/v1/models`, { headers: { authorization: `Bearer ${KEY}` } })
     const body = (await res.json()) as { data: { id: string; context_length?: number }[] }
     expect(body.data[0]).toMatchObject({ id: 'aipg-local', context_length: 131072 })
+  })
+
+  it('sends a cloud provider its own key instead of the proxy key', async () => {
+    const upstream = await fakeServer('cloud')
+    cleanup.push(upstream.close)
+    const p = await proxy()
+    p.setTarget({
+      baseUrl: () => upstream.url,
+      model: 'gpt-x',
+      headers: { authorization: 'Bearer sk-cloud' },
+    })
+    expect((await complete(p)).status).toBe(200)
+    expect(upstream.headers[0].authorization).toBe('Bearer sk-cloud')
+    expect(upstream.bodies[0].model).toBe('gpt-x')
   })
 
   it('follows the live server when it moves and rewrites model and sampling', async () => {

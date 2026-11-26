@@ -24,6 +24,7 @@ import { CLOUD_DEFAULT_MODEL } from './cloudMode'
 import type { AgentAnswerOrigin, AgentModeTurnConfig } from '@/types/agentIpc'
 import type { CloudForTurn, InferenceForTurn, ToolsForTurn } from '@/lib/storedSessionInference'
 import { turnMediaToolSettings } from '@/lib/mediaToolSettings'
+import { hermesContextSize } from '@/lib/agentHarness'
 import type { AgentTurnSnapshot, AgentTurnState, PauseReason } from '@/types/kernelEvents'
 
 type ActiveTurn = {
@@ -172,6 +173,16 @@ export async function buildTurnConfig(options: {
     )
   }
   const activeModel = textInference.activeModel
+  // Only llama.cpp allocates the window it is asked for; OVMS sizes it itself or caps it on NPU.
+  const hermesWindow = (size: number) =>
+    options.harness === 'hermes' && textInference.backend === 'llamaCPP'
+      ? hermesContextSize(
+          size,
+          typeof textInference.maxContextSizeFromModel === 'number'
+            ? textInference.maxContextSizeFromModel
+            : undefined,
+        )
+      : size
   const toolUse = catalogModelToolUse(textInference.backend, textInference.activeLlmModel)
   const embeddingModelName = readinessEmbeddingModel(textInference, options.capabilities)
   return {
@@ -188,7 +199,7 @@ export async function buildTurnConfig(options: {
       device: textInference.getCurrentDeviceId() ?? undefined,
       deviceName: textInference.getCurrentDeviceName() ?? undefined,
       baseUrl: openAiApiBase(baseUrl),
-      contextWindow: textInference.effectiveContextWindow,
+      contextWindow: hermesWindow(textInference.effectiveContextWindow),
       supportsVision: textInference.modelSupportsVision,
       supportsToolCalling: toolUse.toolCalling,
       supportsAgentic: toolUse.agentic,
@@ -217,7 +228,10 @@ export async function buildTurnConfig(options: {
             serviceName:
               textInference.backend === 'openVINO' ? 'openvino-backend' : 'llamacpp-backend',
             llmModelName: activeModel,
-            contextSize: textInference.contextSize,
+            contextSize:
+              textInference.contextSize !== undefined
+                ? hermesWindow(textInference.contextSize)
+                : undefined,
             modelArgs:
               textInference.backend === 'llamaCPP'
                 ? textInference.activeLlmModel?.llamaCppArgs

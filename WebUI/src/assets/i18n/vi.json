@@ -1305,7 +1305,6 @@
   "AGENT_SETTINGS_HARNESS_HERMES": "Hermes Agent (bản xem trước)",
   "AGENT_SETTINGS_HARNESS_HERMES_HINT": "Hermes Agent của Nous Research, chạy trên mô hình được chọn ở đây. Các công cụ của AI Playground đến được nó qua kết nối cục bộ.",
   "AGENT_SETTINGS_HARNESS_LOCKED": "Phiên này đã chạy trên harness này. Hãy bắt đầu Phiên mới để dùng harness còn lại.",
-  "AGENT_SETTINGS_HARNESS_HERMES_LOCAL_ONLY": "Hermes chỉ chạy với mô hình llama.cpp hoặc OpenVINO cục bộ. Hãy chọn backend cục bộ trước khi gửi.",
   "AGENT_SETTINGS_HARNESS_HERMES_UNSANDBOXED": "Các công cụ tệp và terminal của Hermes chạy trực tiếp trên máy tính này trong thư mục Phiên, không có hộp cát mà tác tử tích hợp sử dụng.",
   "AGENT_SETTINGS_HARNESS_HERMES_CONTEXT": "Hermes cần ngữ cảnh ít nhất {tokens} token; các Phiên dài có thể bị tràn.",
   "AGENT_SETTINGS_HARNESS_HERMES_FOLDERS": "Hermes chỉ làm việc trong thư mục Không gian làm việc; các thư mục khác trong danh sách này không khả dụng với nó.",

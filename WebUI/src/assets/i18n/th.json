@@ -1305,7 +1305,6 @@
   "AGENT_SETTINGS_HARNESS_HERMES": "Hermes Agent (ตัวอย่าง)",
   "AGENT_SETTINGS_HARNESS_HERMES_HINT": "Hermes Agent ของ Nous Research ทำงานด้วยโมเดลที่เลือกที่นี่ เครื่องมือของ AI Playground เข้าถึงได้ผ่านการเชื่อมต่อภายในเครื่อง",
   "AGENT_SETTINGS_HARNESS_LOCKED": "เซสชันนี้ทำงานด้วยฮาร์เนสนี้แล้ว เริ่มเซสชันใหม่เพื่อใช้อีกตัวหนึ่ง",
-  "AGENT_SETTINGS_HARNESS_HERMES_LOCAL_ONLY": "Hermes ทำงานได้กับโมเดล llama.cpp หรือ OpenVINO ในเครื่องเท่านั้น เลือกแบ็กเอนด์ในเครื่องก่อนส่ง",
   "AGENT_SETTINGS_HARNESS_HERMES_UNSANDBOXED": "เครื่องมือไฟล์และเทอร์มินัลของ Hermes ทำงานบนคอมพิวเตอร์เครื่องนี้โดยตรงในโฟลเดอร์เซสชัน โดยไม่มีแซนด์บ็อกซ์แบบที่เอเจนต์ในตัวใช้",
   "AGENT_SETTINGS_HARNESS_HERMES_CONTEXT": "Hermes ต้องการบริบทอย่างน้อย {tokens} โทเค็น เซสชันที่ยาวอาจล้นได้",
   "AGENT_SETTINGS_HARNESS_HERMES_FOLDERS": "Hermes ทำงานในโฟลเดอร์พื้นที่ทำงานเท่านั้น โฟลเดอร์อื่นในรายการนี้ใช้ไม่ได้",

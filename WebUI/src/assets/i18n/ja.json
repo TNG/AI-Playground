@@ -1305,7 +1305,6 @@
   "AGENT_SETTINGS_HARNESS_HERMES": "Hermes Agent (プレビュー)",
   "AGENT_SETTINGS_HARNESS_HERMES_HINT": "Nous Research の Hermes Agent を、ここで選んだモデルで実行します。AI Playground のツールはローカル接続で利用できます。",
   "AGENT_SETTINGS_HARNESS_LOCKED": "このセッションはすでにこのハーネスで実行されています。もう一方を使うには新しいセッションを開始してください。",
-  "AGENT_SETTINGS_HARNESS_HERMES_LOCAL_ONLY": "Hermes はローカルの llama.cpp または OpenVINO モデルでのみ動作します。送信前にローカルのバックエンドを選んでください。",
   "AGENT_SETTINGS_HARNESS_HERMES_UNSANDBOXED": "Hermes のファイルとターミナルのツールは、組み込みエージェントのサンドボックスを使わず、このコンピューター上のセッションフォルダーで直接実行されます。",
   "AGENT_SETTINGS_HARNESS_HERMES_CONTEXT": "Hermes は少なくとも {tokens} トークンのコンテキストを想定しています。長いセッションはあふれる可能性があります。",
   "AGENT_SETTINGS_HARNESS_HERMES_FOLDERS": "Hermes はワークスペースフォルダーでのみ動作します。この一覧の他のフォルダーは利用できません。",

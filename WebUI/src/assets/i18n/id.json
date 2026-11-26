@@ -1305,7 +1305,6 @@
   "AGENT_SETTINGS_HARNESS_HERMES": "Hermes Agent (pratinjau)",
   "AGENT_SETTINGS_HARNESS_HERMES_HINT": "Hermes Agent dari Nous Research, berjalan dengan model yang dipilih di sini. Alat AI Playground menjangkaunya melalui koneksi lokal.",
   "AGENT_SETTINGS_HARNESS_LOCKED": "Sesi ini sudah berjalan dengan harness ini. Mulai Sesi baru untuk menggunakan yang lain.",
-  "AGENT_SETTINGS_HARNESS_HERMES_LOCAL_ONLY": "Hermes hanya berjalan dengan model llama.cpp atau OpenVINO lokal. Pilih backend lokal sebelum mengirim.",
   "AGENT_SETTINGS_HARNESS_HERMES_UNSANDBOXED": "Alat file dan terminal Hermes berjalan langsung di komputer ini di folder Sesi, tanpa sandbox yang digunakan agen bawaan.",
   "AGENT_SETTINGS_HARNESS_HERMES_CONTEXT": "Hermes mengharapkan konteks minimal {tokens} token; Sesi yang panjang bisa meluap.",
   "AGENT_SETTINGS_HARNESS_HERMES_FOLDERS": "Hermes hanya bekerja di folder Workspace; folder lain dalam daftar ini tidak tersedia baginya.",

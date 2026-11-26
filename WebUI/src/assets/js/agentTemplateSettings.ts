@@ -5,12 +5,14 @@ import { useAgentMode } from '@/assets/js/store/agentMode'
 import { HARNESS_CHAT_PRESET, isHarnessChatPreset } from '@/lib/harnessChatPreset'
 import { usePresets, type ChatPreset } from '@/assets/js/store/presets'
 import { useBackendServices } from '@/assets/js/store/backendServices'
+import { developerMode } from '@/assets/js/store/debugSettings'
 import { useAgentBackendItems } from '@/assets/js/agentBackendItems'
 import { useCapabilityCatalog } from '@/assets/js/capabilityCatalog'
 import { useEmbeddingModelPicker } from '@/assets/js/embeddingModelPicker'
 import type { AgentSettingsBinding } from '@/lib/agentSettingsBinding'
 import {
   gateCatalogForHarness,
+  hermesContextSize,
   hermesInstalled,
   sessionHarness,
   type AgentHarness,
@@ -147,11 +149,24 @@ export function useTemplateSettingsBinding(source: TemplateSettingsSource) {
     presetSystemPrompt: computed(() => agentPreset.value?.systemPrompt ?? ''),
     setSystemPrompt: (systemPrompt: string) => edit({ systemPrompt }),
     harnessSupported: computed(
-      () => hermesInstalled(backendServices.info) || template.value.harness === 'hermes',
+      () =>
+        (developerMode() && hermesInstalled(backendServices.info)) ||
+        template.value.harness === 'hermes',
     ),
     harness: computed(() => sessionHarness(template.value)),
     harnessLocked: false,
-    setHarness: (harness: AgentHarness) => edit({ harness }),
+    setHarness: (harness: AgentHarness) => {
+      const current = resolved.value.inference.contextSize ?? 0
+      const raised =
+        harness === 'hermes' && backend.value === 'llamaCPP'
+          ? hermesContextSize(current, currentModel.value?.maxContextSize)
+          : current
+      edit(
+        raised !== current
+          ? { harness, contextSize: raised, contextSizeEdited: true }
+          : { harness },
+      )
+    },
     capabilities,
     setCapabilities: (next: string[]) => edit({ capabilities: next }),
     capabilityCatalog: computed(() =>

@@ -1305,7 +1305,6 @@
   "AGENT_SETTINGS_HARNESS_HERMES": "Hermes Agent (Vorschau)",
   "AGENT_SETTINGS_HARNESS_HERMES_HINT": "Hermes Agent von Nous Research, mit dem hier gewählten Modell. Die Werkzeuge von AI Playground erreichen ihn über eine lokale Verbindung.",
   "AGENT_SETTINGS_HARNESS_LOCKED": "Diese Sitzung lief bereits mit diesem Harness. Starte eine neue Sitzung, um das andere zu verwenden.",
-  "AGENT_SETTINGS_HARNESS_HERMES_LOCAL_ONLY": "Hermes läuft nur mit lokalen llama.cpp- oder OpenVINO-Modellen. Wähle vor dem Senden ein lokales Backend.",
   "AGENT_SETTINGS_HARNESS_HERMES_UNSANDBOXED": "Die Datei- und Terminal-Werkzeuge von Hermes laufen direkt auf diesem Computer im Sitzungsordner, ohne die Sandbox des integrierten Agenten.",
   "AGENT_SETTINGS_HARNESS_HERMES_CONTEXT": "Hermes erwartet einen Kontext von mindestens {tokens} Tokens; lange Sitzungen können überlaufen.",
   "AGENT_SETTINGS_HARNESS_HERMES_FOLDERS": "Hermes arbeitet nur im Arbeitsbereichsordner; die anderen Ordner dieser Liste stehen ihm nicht zur Verfügung.",

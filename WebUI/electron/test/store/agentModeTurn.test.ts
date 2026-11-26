@@ -191,6 +191,34 @@ describe('buildTurnConfig readiness (step 15)', () => {
     expect((await turn()).harness).toBeUndefined()
   })
 
+  it('gives a Hermes turn on llama.cpp at least a 64k window, within the model', async () => {
+    const turn = (harness: 'pi' | 'hermes', maxContextSizeFromModel?: number) =>
+      buildTurnConfig({
+        sessionId: 'aipg-agent-1',
+        workspaceDir: '/tmp/ws',
+        presetName: 'Assistant',
+        instructions: '',
+        harness,
+        capabilities: [],
+        unsandboxed: false,
+        planningThinkingOnly: false,
+        textInference: localInference({
+          contextSize: 32768,
+          maxContextSizeFromModel,
+        }) as never,
+        cloudMode: {
+          selectedProviderId: 'openai',
+          activeProviderAuthStyle: 'bearer',
+          capabilitiesFor: () => ({ reasoningAdvertised: false }),
+        },
+      })
+    const hermes = await turn('hermes', 262144)
+    expect(hermes.readiness?.contextSize).toBe(64000)
+    expect(hermes.modelConfig.contextWindow).toBe(64000)
+    expect((await turn('hermes', 40960)).readiness?.contextSize).toBe(40960)
+    expect((await turn('pi', 262144)).readiness?.contextSize).toBe(32768)
+  })
+
   it('tells main what the local model can be given, an untagged one getting no tools', async () => {
     const turn = (activeLlmModel: Record<string, unknown>) =>
       buildTurnConfig({

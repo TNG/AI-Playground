@@ -9,7 +9,9 @@ import { useAgentBackendItems } from '@/assets/js/agentBackendItems'
 import { useCapabilityCatalog } from '@/assets/js/capabilityCatalog'
 import { useEmbeddingModelPicker } from '@/assets/js/embeddingModelPicker'
 import type { AgentSettingsBinding } from '@/lib/agentSettingsBinding'
-import { gateCatalogForHarness, hermesInstalled } from '@/lib/agentHarness'
+import type { AgentHarness } from '@/lib/agentHarness'
+import { developerMode } from '@/assets/js/store/debugSettings'
+import { gateCatalogForHarness, hermesContextSize, hermesInstalled } from '@/lib/agentHarness'
 import { agentSettingsSections } from '@/lib/agentSettingsSections'
 import { storeMediaToolSettings } from '@/lib/mediaToolSettings'
 import { catalogModelToolUse, gateCapabilityCatalog } from '@/lib/modelToolUse'
@@ -120,11 +122,22 @@ export function useAgentSettingsPanel() {
     harnessSupported: computed(
       () =>
         agentMode.sessionScoped &&
-        (hermesInstalled(backendServices.info) || agentMode.harness === 'hermes'),
+        ((developerMode() && hermesInstalled(backendServices.info)) ||
+          agentMode.harness === 'hermes'),
     ),
     harness: computed(() => agentMode.harness),
     harnessLocked: computed(() => agentMode.harnessLocked),
-    setHarness: agentMode.setHarness,
+    setHarness: (next: AgentHarness) => {
+      agentMode.setHarness(next)
+      if (agentMode.harness !== 'hermes' || textInference.backend !== 'llamaCPP') return
+      const raised = hermesContextSize(
+        textInference.contextSize,
+        textInference.maxContextSizeFromModel,
+      )
+      if (raised === textInference.contextSize) return
+      textInference.contextSize = raised
+      textInference.markContextSizeEdited()
+    },
     capabilities: computed(() => agentMode.capabilities),
     setCapabilities: agentMode.setCapabilities,
     capabilityCatalog: gatedCatalog,

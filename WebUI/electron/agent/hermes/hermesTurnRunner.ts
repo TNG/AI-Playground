@@ -16,7 +16,8 @@ import {
 } from '../../kernel/orchestrator.ts'
 import { ensureChatBackendReady, setTurnChatBackendLoad } from '../../chat/chatReadiness.ts'
 import { llmServerBaseUrl } from '../../adapters/llmServerSnapshot.ts'
-import { copySamplingParams } from '../piModelRuntime.ts'
+import { cloudAuthHeaders, copySamplingParams, modelContextWindow } from '../piModelRuntime.ts'
+import { isDeveloperMode } from '../../kernel/developerMode.ts'
 import { agentTurns, type AgentTurn } from '../piAgentState.ts'
 import { sessionMediaOf } from '../piSessionLifecycle.ts'
 import { piAgentDir } from '../piSessionStore.ts'
@@ -39,6 +40,7 @@ import { hermesFileTools, hermesSupportsCapability } from '@/lib/agentHarness'
 import { turnModelToolUse } from '@/lib/modelToolUse'
 import type { IpcMutationResult } from '@/types/ipcChannels'
 import { hermesIntegration, hermesService, type HermesIntegration } from './hermesIntegration.ts'
+import type { CompletionUsage } from './hermesLlmProxy.ts'
 import {
   createHermesStreamTranslator,
   readSseEvents,
@@ -126,6 +128,13 @@ export async function startHermesTurn(
   if (agentTurns.has(sessionId)) {
     return { success: false, error: 'This session already has a turn in flight.' }
   }
+  // Hermes' shell is unsandboxed; a Session that chose it on a developer build must not carry it to another.
+  if (!isDeveloperMode()) {
+    return {
+      success: false,
+      error: 'Hermes Agent is a developer preview and is not available on this installation.',
+    }
+  }
   const service = hermesService()
   if (!service || !(await service.serviceIsSetUp())) {
     return {
@@ -133,11 +142,8 @@ export async function startHermesTurn(
       error: 'Hermes Agent is not installed. Install it from the setup wizard.',
     }
   }
-  if (config.modelConfig.source !== 'local' || !config.modelConfig.backend) {
-    return {
-      success: false,
-      error: 'Hermes Agent runs on a local llama.cpp or OpenVINO model in this preview.',
-    }
+  if (config.modelConfig.source === 'local' && !config.modelConfig.backend) {
+    return { success: false, error: 'Pick a local backend and model in the Inferencing tab.' }
   }
   const modelConfig = config.modelConfig
   const sessionRef = config.sessionRef
@@ -241,28 +247,45 @@ export async function startHermesTurn(
     started = true
 
     const workspaceDir = fs.realpathSync(path.resolve(config.workspaceDir))
-    const contextWindow = modelConfig.contextWindow ?? HERMES_MIN_CONTEXT
+    const contextWindow =
+      modelConfig.source === 'cloud'
+        ? modelContextWindow(modelConfig)
+        : (modelConfig.contextWindow ?? HERMES_MIN_CONTEXT)
     if (contextWindow < HERMES_MIN_CONTEXT) {
       translator.notice(
         `This model runs with a ${contextWindow}-token context; Hermes expects at least ` +
           `${HERMES_MIN_CONTEXT}, so long sessions may overflow.`,
       )
     }
-    proxy.setTarget({
-      baseUrl: () => llmServerBaseUrl(modelConfig.backend!) ?? modelConfig.baseUrl,
-      model: modelConfig.model,
-      samplingParams: copySamplingParams(modelConfig.samplingParams, undefined),
-      contextWindow,
-      onUsage: (usage) =>
-        translator.stepUsage(
-          {
-            inputTokens: usage.prompt_tokens ?? 0,
-            outputTokens: usage.completion_tokens ?? 0,
-            cacheReadTokens: usage.prompt_tokens_details?.cached_tokens ?? 0,
+    const onUsage = (usage: CompletionUsage) =>
+      translator.stepUsage(
+        {
+          inputTokens: usage.prompt_tokens ?? 0,
+          outputTokens: usage.completion_tokens ?? 0,
+          cacheReadTokens: usage.prompt_tokens_details?.cached_tokens ?? 0,
+        },
+        contextWindow,
+      )
+    proxy.setTarget(
+      modelConfig.source === 'cloud'
+        ? {
+            baseUrl: () => modelConfig.upstreamBaseUrl,
+            model: modelConfig.model,
+            headers: cloudAuthHeaders(modelConfig),
+            ...(modelConfig.temperature !== undefined
+              ? { samplingParams: { temperature: modelConfig.temperature } }
+              : {}),
+            contextWindow,
+            onUsage,
+          }
+        : {
+            baseUrl: () => llmServerBaseUrl(modelConfig.backend!) ?? modelConfig.baseUrl,
+            model: modelConfig.model,
+            samplingParams: copySamplingParams(modelConfig.samplingParams, undefined),
+            contextWindow,
+            onUsage,
           },
-          contextWindow,
-        ),
-    })
+    )
     const turnTools = await aipgToolsFor(config, workspaceDir)
     aipgTools = turnTools.tools
     aipgSkills = turnTools.skills

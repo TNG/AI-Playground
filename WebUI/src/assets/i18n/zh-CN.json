@@ -1305,7 +1305,6 @@
   "AGENT_SETTINGS_HARNESS_HERMES": "Hermes Agent（预览）",
   "AGENT_SETTINGS_HARNESS_HERMES_HINT": "Nous Research 的 Hermes Agent，使用此处选择的模型运行。AI Playground 的工具通过本地连接提供给它。",
   "AGENT_SETTINGS_HARNESS_LOCKED": "此会话已在此运行框架上运行过。要使用另一个，请新建会话。",
-  "AGENT_SETTINGS_HARNESS_HERMES_LOCAL_ONLY": "Hermes 仅支持本地 llama.cpp 或 OpenVINO 模型。发送前请选择本地后端。",
   "AGENT_SETTINGS_HARNESS_HERMES_UNSANDBOXED": "Hermes 的文件和终端工具直接在此计算机的会话文件夹中运行，不使用内置智能体的沙盒。",
   "AGENT_SETTINGS_HARNESS_HERMES_CONTEXT": "Hermes 需要至少 {tokens} 个 token 的上下文；较长的会话可能会溢出。",
   "AGENT_SETTINGS_HARNESS_HERMES_FOLDERS": "Hermes 只在工作区文件夹中工作；此列表中的其他文件夹对它不可用。",

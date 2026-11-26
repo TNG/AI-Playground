@@ -5,6 +5,7 @@ import { createHermesStreamTranslator } from '../../agent/hermes/hermesStreamTra
 import { buildHermesConfig } from '../../adapters/backends/hermesConfig'
 import {
   gateCatalogForHarness,
+  hermesContextSize,
   hermesFileTools,
   hermesInstalled,
   hermesSupportsCapability,
@@ -27,6 +28,16 @@ describe('which harness a turn runs on', () => {
   it('offers Hermes only once its sidecar is installed', () => {
     expect(hermesInstalled([{ serviceName: 'hermes-backend', isSetUp: false }])).toBe(false)
     expect(hermesInstalled([{ serviceName: 'hermes-backend', isSetUp: true }])).toBe(true)
+  })
+})
+
+describe('the window a Hermes turn gets', () => {
+  it('raises to 64k, but never past what the model holds and never down', () => {
+    expect(hermesContextSize(32768)).toBe(64000)
+    expect(hermesContextSize(32768, 262144)).toBe(64000)
+    expect(hermesContextSize(32768, 40960)).toBe(40960)
+    expect(hermesContextSize(1024, 1024)).toBe(1024)
+    expect(hermesContextSize(131072, 262144)).toBe(131072)
   })
 })
 

@@ -353,6 +353,12 @@ export type AgentTurnSnapshot = {
   pauseReason?: PauseReason
   /** Its place in the Turn Queue while queued (1 = next to start). */
   queuePosition?: number
+  /**
+   * The turn this one replaced by rewinding it off the branch: a renderer that
+   * (re)connects mid-turn must drop that turn's answers instead of letting a
+   * stale record put them back. Only while this turn is in flight.
+   */
+  rewoundTurnId?: string
   chunks: unknown[]
   toolProgress: Record<string, string>
   toolImages: Record<string, KernelAgentToolImageEvent[]>

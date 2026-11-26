@@ -233,13 +233,21 @@ export function emitAgentTurnDone(sessionId: string, turnId: string): void {
 /**
  * A regenerate rewound the branch to just before `rewoundTurnId`: the turn's
  * entries left the model's context, so a failed re-run must not bring its
- * answers back into the view.
+ * answers back into the view. The snapshot entry carries the rewind too, so a
+ * renderer that (re)connects mid-turn drops those answers instead of letting
+ * a stale record put them back.
  */
 export function emitAgentTurnRewound(
   sessionId: string,
   turnId: string,
   rewoundTurnId: string,
 ): void {
+  let turn = agentTurnOf(sessionId, turnId)
+  if (!turn) {
+    beginAgentTurnSnapshot(sessionId, turnId)
+    turn = agentTurns.get(sessionId)
+  }
+  if (turn) turn.rewoundTurnId = rewoundTurnId
   emit(
     { type: 'agent-turn-rewound', sessionId, turnId, rewoundTurnId },
     { kind: 'run', runId: turnId },

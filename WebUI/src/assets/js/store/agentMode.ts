@@ -1095,6 +1095,14 @@ export const useAgentMode = defineStore(
         return context?.stored ? storedTurnConfig(sessionId, context) : liveTurnConfig(sessionId)
       },
       initialMessages: (sessionId) => [...(sessions.value[sessionId]?.messages ?? [])],
+      // A reconnected renderer adopted a regenerate in flight: the answers the
+      // rewind replaced leave the Session's view at once, like the live path.
+      onAdoptedRewound: (sessionId, messageIds) => {
+        const sessionRef = sessionRefOf(sessionId)
+        if (sessionRef && messageIds.length > 0) {
+          sessionsStore.forgetTimelineMessages(sessionRef, messageIds)
+        }
+      },
       // The sent message is on the record at once, so the session is in the history
       // even when the user moves on before the turn has run.
       onTurnSubmitted: (sessionId) => {
@@ -1596,7 +1604,14 @@ export const useAgentMode = defineStore(
         if (!runtime || !runtime.hasTurn()) continue
         const live = runtime.chat.messages
         const known = new Set(live.map((message) => message.id))
-        const earlier = record.messages.filter((message) => !known.has(message.id))
+        const earlier = record.messages.filter((message) => {
+          if (known.has(message.id)) return false
+          // A turn the adopted regenerate rewound is not "earlier context": a
+          // record written before the rewind must not put its answers back.
+          const rewound = (message.metadata as { harnessTurnId?: unknown } | undefined)
+            ?.harnessTurnId
+          return typeof rewound !== 'string' || !runtime.rewoundTurnIds.has(rewound)
+        })
         if (earlier.length > 0) runtime.chat.messages = [...earlier, ...live]
       }
     }

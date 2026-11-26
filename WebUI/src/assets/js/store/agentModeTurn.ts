@@ -301,6 +301,8 @@ function createSessionRuntime(options: {
   buildTurnConfig: (sessionId: string) => Promise<AgentModeTurnConfig>
   onTurnSubmitted?: (sessionId: string) => void
   onTurnAdopted?: (sessionId: string) => void
+  /** An adopted turn rewound another off the branch; its answers left the chat and the view. */
+  onAdoptedRewound?: (sessionId: string, messageIds: string[]) => void
   onTurnSettled?: (sessionId: string) => void
   onAdoptedTurnDone?: (sessionId: string) => void
   onTurnPaused?: (sessionId: string) => void
@@ -402,6 +404,25 @@ function createSessionRuntime(options: {
         restoredImages[toolCallId] = [...images]
       }
       toolImages.value = restoredImages
+      // The adopted turn replaced one the rewind took off the branch: its
+      // answers are gone from what the model sees, so they leave this chat —
+      // built from a record that can predate the rewind — before anything
+      // streams, and the Session's view forgets them at once too.
+      if (turn.rewoundTurnId) {
+        rewoundTurnIds.add(turn.rewoundTurnId)
+        const rewoundAnswers = chat.messages.filter(
+          (message) =>
+            (message.metadata as { harnessTurnId?: unknown } | undefined)?.harnessTurnId ===
+            turn.rewoundTurnId,
+        )
+        if (rewoundAnswers.length > 0) {
+          chat.messages = chat.messages.filter((message) => !rewoundAnswers.includes(message))
+          options.onAdoptedRewound?.(
+            sessionId,
+            rewoundAnswers.map((message) => message.id),
+          )
+        }
+      }
       return new ReadableStream<UIMessageChunk>({
         start: (controller) => {
           activeTurn = { sessionId, turnId: turn.turnId, controller, closed: false }
@@ -611,6 +632,8 @@ export function createAgentTurnRuntimes(options: {
   onTurnSubmitted?: (sessionId: string) => void
   /** A turn main still holds was adopted from the kernel snapshot. */
   onTurnAdopted?: (sessionId: string) => void
+  /** An adopted turn rewound another off the branch; its answers left the chat and the view. */
+  onAdoptedRewound?: (sessionId: string, messageIds: string[]) => void
   /** The transcript a newly created runtime starts from (the session record's). */
   initialMessages?: (sessionId: string) => UIMessage[]
   /** A session's turn has ended — completed, failed, stopped or adopted-and-done. */
@@ -645,6 +668,7 @@ export function createAgentTurnRuntimes(options: {
         buildTurnConfig: options.buildTurnConfig,
         onTurnSubmitted: options.onTurnSubmitted,
         onTurnAdopted: options.onTurnAdopted,
+        onAdoptedRewound: options.onAdoptedRewound,
         onTurnSettled: options.onTurnSettled,
         onAdoptedTurnDone: options.onAdoptedTurnDone,
         onTurnPaused: options.onTurnPaused,

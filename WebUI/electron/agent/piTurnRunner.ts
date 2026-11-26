@@ -86,6 +86,7 @@ import { collectAgentCallTimings, turnTimings } from './piCallTiming.ts'
 import { markHarnessTurn, rewindHarnessTurn } from './harnessTurns.ts'
 import { removeHistoryEntries } from '../session/sessionHistory.ts'
 import { removeTimelineMessagesOfTurn } from '../session/sessionTimeline.ts'
+import { removeAgentSessionMessagesOfTurn } from '../persist/agentSessionFiles.ts'
 import {
   beginTurnJournal,
   deleteSessionJournals,
@@ -753,6 +754,20 @@ export async function startAgentTurn(
       } catch (error) {
         logger.error(
           `answers of the rewound turn ${rewoundTurn} stayed in the timeline: ${error}`,
+          LOG_SOURCE,
+        )
+      }
+    }
+    // The agent record can still carry them when the renderer died around the
+    // rewind, so main owns its honesty too — a stale record must not put the
+    // answers back at the renderer's next snapshot. Not only inside a Session:
+    // a standalone Agent panel session keeps its transcript in the record.
+    if (rewoundTurn) {
+      try {
+        await removeAgentSessionMessagesOfTurn(sessionId, rewoundTurn)
+      } catch (error) {
+        logger.error(
+          `answers of the rewound turn ${rewoundTurn} stayed in the agent record: ${error}`,
           LOG_SOURCE,
         )
       }

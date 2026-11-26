@@ -301,6 +301,32 @@ export async function saveAgentSessionActiveId(id: string | null): Promise<void>
   })
 }
 
+type TurnStampedMessage = { metadata?: { harnessTurnId?: unknown } }
+
+/**
+ * A regenerate rewound a turn out of its Harness Session's branch: its answers
+ * have no business staying in the record's transcript either. Main takes them
+ * out here, so a record last written before the rewind — the renderer died
+ * around it, or reconnected mid-turn — cannot put them back at its next
+ * snapshot. No-op (and no write) when the record already agrees.
+ */
+export async function removeAgentSessionMessagesOfTurn(id: string, turnId: string): Promise<void> {
+  assertSafeFileId(id, 'agent session')
+  return serialize(id, async () => {
+    const doc = parseSessionDoc(await readJson(sessionFile(id), LOG_SCOPE))
+    if (!doc) return
+    const kept = doc.messages.filter(
+      (message) => (message as TurnStampedMessage | null)?.metadata?.harnessTurnId !== turnId,
+    )
+    if (kept.length === doc.messages.length) return
+    const next: AgentSessionFile = { ...doc, messages: sanitizeMessages(kept) }
+    await atomicWriteJson(sessionFile(id), next)
+    // The index stays as it was: a removal is not activity, and the record
+    // keeps its place in the list.
+    emitStored('session', id)
+  })
+}
+
 export async function deleteAgentSessionRecord(
   id: string,
 ): Promise<{ success: true } | { success: false; error: string }> {

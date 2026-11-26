@@ -188,6 +188,7 @@ let harness: typeof import('../../session/sessionHarness')
 let history: typeof import('../../session/sessionHistory')
 let store: typeof import('../../agent/piSessionStore')
 let timeline: typeof import('../../session/sessionTimeline')
+let agentFiles: typeof import('../../persist/agentSessionFiles')
 
 beforeAll(async () => {
   manager = await import('../../agent/piAgentManager')
@@ -197,6 +198,7 @@ beforeAll(async () => {
   history = await import('../../session/sessionHistory')
   store = await import('../../agent/piSessionStore')
   timeline = await import('../../session/sessionTimeline')
+  agentFiles = await import('../../persist/agentSessionFiles')
   sessions.setSessionDeps({ isDemoMode: () => false })
   const fakeWindow = {
     isDestroyed: () => false,
@@ -1236,6 +1238,79 @@ describe('the Assistant preset in a Session', () => {
         (message) => (message as { id: string }).id,
       )
       expect(ids).toEqual(['u1', 'a1', 'u2'])
+    }, 30000)
+
+    /** The agent record as it can go stale: last written before a rewind. */
+    async function seedStaleRecord(
+      config: AgentModeTurnConfig,
+      answer: string,
+      sessionRef?: string,
+    ): Promise<void> {
+      await agentFiles.saveAgentSession({
+        id: config.sessionId,
+        workspaceDir: config.workspaceDir,
+        title: 'Fruit',
+        createdAt: 1,
+        updatedAt: 2,
+        presetName: 'Assistant',
+        ...(sessionRef ? { sessionRef } : {}),
+        messages: [
+          { id: 'u1', role: 'user', parts: [{ type: 'text', text: 'name a fruit' }] },
+          {
+            id: 'a1',
+            role: 'assistant',
+            parts: [{ type: 'text', text: answer }],
+            metadata: { harnessTurnId: 't2' },
+          },
+        ],
+      })
+    }
+
+    async function recordMessagesOf(harnessSessionId: string): Promise<string> {
+      const boot = await agentFiles.bootstrapAgentSessions()
+      const record =
+        boot.status === 'ok'
+          ? boot.sessions.find((entry) => entry.id === harnessSessionId)
+          : undefined
+      return JSON.stringify(record?.messages ?? [])
+    }
+
+    it('takes the answers a regenerate replaced out of the agent record when the re-run settles', async () => {
+      const session = await sessions.createSession()
+      const config = await assistantConfig(session.id)
+      await manager.startAgentTurn('t1', 'remember the word plum', config)
+      await manager.startAgentTurn('t2', 'and the word pear', config)
+      await seedStaleRecord(config, 'the pear answer', session.id)
+
+      expect(
+        await manager.startAgentTurn('t3', 'and the word pear', { ...config, rewindTurnId: 't2' }),
+      ).toEqual({ success: true })
+
+      // A renderer that boots off this record must not see the replaced
+      // answer — and must not be able to upsert it back into the timeline.
+      const messages = await recordMessagesOf(config.sessionId)
+      expect(messages).not.toContain('the pear answer')
+      expect(messages).toContain('name a fruit')
+    }, 30000)
+
+    it('takes the replaced answers out of a standalone Agent record too', async () => {
+      const session = await sessions.createSession()
+      const config = await assistantConfig(session.id)
+      await manager.startAgentTurn('t1', 'remember the word plum', config)
+      await manager.startAgentTurn('t2', 'and the word pear', config)
+      await seedStaleRecord(config, 'the pear answer')
+
+      expect(
+        await manager.startAgentTurn('t3', 'and the word pear', {
+          ...config,
+          rewindTurnId: 't2',
+          sessionRef: undefined,
+        }),
+      ).toEqual({ success: true })
+
+      const messages = await recordMessagesOf(config.sessionId)
+      expect(messages).not.toContain('the pear answer')
+      expect(messages).toContain('name a fruit')
     }, 30000)
 
     it('keeps a failed re-run from bringing the replaced answers back', async () => {

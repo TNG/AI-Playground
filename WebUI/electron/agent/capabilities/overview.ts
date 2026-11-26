@@ -5,6 +5,7 @@ import type { ToolDefinition } from '@earendil-works/pi-coding-agent'
 import { selectOverviewSessions, type OverviewSessionCard } from '../../session/overviewData.ts'
 import {
   OVERVIEW_MAX_LAST_HOURS,
+  OVERVIEW_MAX_LAST_MINUTES,
   OVERVIEW_NAMED_RANGES,
   OverviewRangeError,
   type OverviewRangeInput,
@@ -28,8 +29,9 @@ import { OVERVIEW_CAPABILITY_ID } from '@/types/agentCapabilities'
 const OVERVIEW_TOOL = 'overview'
 
 /**
- * Flat on purpose: a local model's grammar handles three sibling fields far better
- * than an `anyOf`, so the window is given as `range`, or `lastHours`, or `from`+`to`.
+ * Flat on purpose: a local model's grammar handles the sibling fields far better
+ * than an `anyOf`, so the window is given as `range`, `lastMinutes`/`lastHours`, or
+ * `from`+`to`.
  */
 const RANGE_PROPERTIES: Record<string, unknown> = {
   range: {
@@ -40,7 +42,16 @@ const RANGE_PROPERTIES: Record<string, unknown> = {
     description:
       'The name of a range: "last-24h" (24 hours back from now), "today", "yesterday", ' +
       '"last-7-days" or "last-30-days" (those two start at local midnight). Leave it out when ' +
-      'you pass lastHours or from+to; it is not a tag for which field you used.',
+      'you pass lastMinutes, lastHours or from+to; it is not a tag for which field you used.',
+  },
+  lastMinutes: {
+    type: 'integer',
+    minimum: 1,
+    maximum: OVERVIEW_MAX_LAST_MINUTES,
+    description:
+      'N whole minutes back from now, up to now. Use this whenever the user names the span in ' +
+      'minutes ("the last 10 minutes"); never turn a minute count into hours or a timestamp. ' +
+      'Do not send it together with lastHours.',
   },
   lastHours: {
     type: 'integer',
@@ -96,15 +107,11 @@ function jsonObjectOf(value: string): Record<string, unknown> | null {
   }
 }
 
-/** A whole hour count, tolerating the string a model sometimes sends for a number. */
-function hoursOf(value: unknown): number | null {
-  const hours = typeof value === 'string' && value.trim() !== '' ? Number(value) : value
-  const whole =
-    typeof hours === 'number' &&
-    Number.isInteger(hours) &&
-    hours >= 1 &&
-    hours <= OVERVIEW_MAX_LAST_HOURS
-  return whole ? (hours as number) : null
+/** A whole count in 1..max, tolerating the string a model sometimes sends for a number. */
+function wholeOf(value: unknown, max: number): number | null {
+  const count = typeof value === 'string' && value.trim() !== '' ? Number(value) : value
+  const whole = typeof count === 'number' && Number.isInteger(count) && count >= 1 && count <= max
+  return whole ? (count as number) : null
 }
 
 function namedRangeOf(value: string): OverviewRangeInput | null {
@@ -121,8 +128,12 @@ function rangeOf(value: unknown): OverviewRangeInput | null {
     const parsed = jsonObjectOf(value)
     return parsed ? rangeOf(parsed) : null
   }
+  if (isRecord(value) && value.lastMinutes !== undefined) {
+    const minutes = wholeOf(value.lastMinutes, OVERVIEW_MAX_LAST_MINUTES)
+    return minutes === null ? null : { lastMinutes: minutes }
+  }
   if (isRecord(value) && value.lastHours !== undefined) {
-    const hours = hoursOf(value.lastHours)
+    const hours = wholeOf(value.lastHours, OVERVIEW_MAX_LAST_HOURS)
     return hours === null ? null : { lastHours: hours }
   }
   if (isRecord(value) && typeof value.from === 'string' && typeof value.to === 'string') {
@@ -137,7 +148,10 @@ function rangeOfParams(params: Record<string, unknown>): OverviewRangeInput | nu
   // an unrecognised value simply falls through to them.
   const viaRange = rangeOf(params.range)
   if (viaRange) return viaRange
-  const hours = hoursOf(params.lastHours)
+  // The more specific unit wins when a model fills both fields.
+  const minutes = wholeOf(params.lastMinutes, OVERVIEW_MAX_LAST_MINUTES)
+  if (minutes !== null) return { lastMinutes: minutes }
+  const hours = wholeOf(params.lastHours, OVERVIEW_MAX_LAST_HOURS)
   if (hours !== null) return { lastHours: hours }
   if (typeof params.from === 'string' && typeof params.to === 'string') {
     return { from: params.from, to: params.to }
@@ -149,10 +163,13 @@ function invalidRange(): string {
   return (
     'Name the window as `range` (one of ' +
     OVERVIEW_NAMED_RANGES.join(', ') +
-    '), or `lastHours` (a whole number from 1 to ' +
+    '), or `lastMinutes` (a whole number from 1 to ' +
+    OVERVIEW_MAX_LAST_MINUTES +
+    ', which is how "the last N minutes" is asked for), or `lastHours` (a whole number from 1 ' +
+    'to ' +
     OVERVIEW_MAX_LAST_HOURS +
     ', which is how "the last N hours" is asked for), or `from` and `to` (local dates or ISO ' +
-    'timestamps). Never compute timestamps: lastHours already covers a number of hours.'
+    'timestamps). Never compute timestamps: lastMinutes and lastHours already cover a span.'
   )
 }
 

@@ -1,7 +1,8 @@
-const HOUR_MS = 60 * 60 * 1000
+const MINUTE_MS = 60 * 1000
+const HOUR_MS = 60 * MINUTE_MS
 const DAY_MS = 24 * HOUR_MS
 
-/** A named range, a whole number of hours back, or an explicit local-date / ISO-timestamp window. */
+/** A named range, a whole number of minutes or hours back, or an explicit date/timestamp window. */
 export type OverviewRangeInput =
   | 'last-24h'
   | 'today'
@@ -10,6 +11,7 @@ export type OverviewRangeInput =
   | 'last-30-days'
   | { from: string; to: string }
   | { lastHours: number }
+  | { lastMinutes: number }
 
 export type OverviewWindow = { from: number; to: number }
 
@@ -23,6 +25,9 @@ export const OVERVIEW_NAMED_RANGES = [
 
 /** The longest `{ lastHours }` window accepted: a year of hours. */
 export const OVERVIEW_MAX_LAST_HOURS = 8760
+
+/** The longest `{ lastMinutes }` window accepted: a day of minutes. */
+export const OVERVIEW_MAX_LAST_MINUTES = 1440
 
 /** A range the caller got wrong, as opposed to something failing on our side. */
 export class OverviewRangeError extends Error {
@@ -78,6 +83,19 @@ export function resolveOverviewWindow(
       return { from: addLocalDays(startOfLocalDay(now), -6), to: now }
     case 'last-30-days':
       return { from: addLocalDays(startOfLocalDay(now), -29), to: now }
+  }
+  if (typeof range === 'object' && range !== null && 'lastMinutes' in range) {
+    const { lastMinutes } = range
+    if (
+      !Number.isInteger(lastMinutes) ||
+      lastMinutes < 1 ||
+      lastMinutes > OVERVIEW_MAX_LAST_MINUTES
+    ) {
+      throw new OverviewRangeError(
+        `The minute count must be a whole number from 1 to ${OVERVIEW_MAX_LAST_MINUTES}.`,
+      )
+    }
+    return { from: now - lastMinutes * MINUTE_MS, to: now }
   }
   if (typeof range === 'object' && range !== null && 'lastHours' in range) {
     const { lastHours } = range

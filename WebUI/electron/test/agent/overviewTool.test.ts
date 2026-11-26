@@ -65,6 +65,8 @@ const {
   toolNamed,
 } = await import('../overviewFixtures')
 
+const MINUTE = 60 * 1000
+
 const CHROME: OverviewChrome = {
   locale: 'en-US',
   strings: {
@@ -164,6 +166,7 @@ describe('the overview capability', () => {
     expect(Object.keys(parameters.parameters.properties).sort()).toEqual([
       'from',
       'lastHours',
+      'lastMinutes',
       'range',
       'to',
     ])
@@ -190,6 +193,23 @@ describe('the window', () => {
 
     const month = await call(hostFor(), { range: 'last-30-days' })
     expect(month.window).toEqual({ from: TODAY - 29 * DAY, to: NOW })
+  })
+
+  it('takes a number of minutes the user named, never as hours', async () => {
+    await seedSession([historyEntry({ timestamp: NOW - HOUR })])
+
+    const data = await call(hostFor(), { lastMinutes: 10 })
+    expect(data.window).toEqual({ from: NOW - 10 * MINUTE, to: NOW })
+
+    const stringy = await call(hostFor(), { lastMinutes: '15' })
+    expect(stringy.window).toEqual({ from: NOW - 15 * MINUTE, to: NOW })
+  })
+
+  it('prefers a minute count when a model fills both fields', async () => {
+    await seedSession([historyEntry({ timestamp: NOW - HOUR })])
+
+    const data = await call(hostFor(), { lastHours: 3, lastMinutes: 10 })
+    expect(data.window).toEqual({ from: NOW - 10 * MINUTE, to: NOW })
   })
 
   it('takes a number of hours the user named', async () => {
@@ -229,8 +249,11 @@ describe('the window', () => {
       { lastHours: 0 },
       { lastHours: 1.5 },
       { lastHours: 9000 },
+      { lastMinutes: 0 },
+      { lastMinutes: 2.5 },
+      { lastMinutes: 1441 },
     ]) {
-      expect(await callText(hostFor(), params)).toMatch(/range|date|hour/i)
+      expect(await callText(hostFor(), params)).toMatch(/range|date|hour|minute/i)
     }
   })
 

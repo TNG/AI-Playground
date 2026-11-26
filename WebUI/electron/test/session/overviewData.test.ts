@@ -37,6 +37,7 @@ const { createSession, mutateSession, resetSessionsForTest, setSessionDeps, sess
 const { NOW, HOUR, DAY, TODAY, historyEntry, seedSession } = await import('../overviewFixtures')
 
 const YESTERDAY = new Date(2026, 10, 23).getTime()
+const MINUTE = 60 * 1000
 
 beforeAll(async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'aipg-overviews-'))
@@ -77,6 +78,22 @@ describe('range resolution', () => {
   it('refuses an hour count that is not a whole number of hours it supports', () => {
     for (const lastHours of [0, -1, 1.5, 8761]) {
       expect(() => resolveOverviewWindow({ lastHours }, NOW)).toThrow(/hour/i)
+    }
+  })
+
+  it('rolls a named number of minutes back from now', () => {
+    expect(resolveOverviewWindow({ lastMinutes: 10 }, NOW)).toEqual({
+      from: NOW - 10 * MINUTE,
+      to: NOW,
+    })
+    expect(resolveOverviewWindow({ lastMinutes: 60 }, NOW)).toEqual(
+      resolveOverviewWindow({ lastHours: 1 }, NOW),
+    )
+  })
+
+  it('refuses a minute count that is not a whole number of minutes it supports', () => {
+    for (const lastMinutes of [0, -5, 1.5, 1441]) {
+      expect(() => resolveOverviewWindow({ lastMinutes }, NOW)).toThrow(/minute/i)
     }
   })
 

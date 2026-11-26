@@ -83,9 +83,8 @@ const OVERVIEW_SCHEMA: Record<string, unknown> = {
 
 function overviewMissingSession(): string {
   return (
-    'This turn is not attached to a Session, so it has no Workspace to write the Overview into ' +
-    'and no Session to leave out of it. Start the Overview from a Session rather than a Trial ' +
-    'Run, then try again.'
+    'This turn is not attached to a Session, so it has no Workspace to write the Overview into. ' +
+    'Start the Overview from a Session rather than a Trial Run, then try again.'
   )
 }
 
@@ -272,8 +271,9 @@ async function buildOverviewTools(host: CapabilityHost): Promise<ToolDefinition[
       description:
         'Write one Overview of the Sessions the user marked "Included in Overviews" that were ' +
         'active in a time range. Translate the user’s timeframe into the range fields and call ' +
-        'this once; the app resolves the window, chooses every included Session active in it, ' +
-        'leaves out the Session asking, and builds the page from each Session’s stored Overview ' +
+        'this once; a span the user names in minutes is `lastMinutes`, never `lastHours`. The ' +
+        'app resolves the window, chooses every included Session active in it (this Session too, ' +
+        'when it is included), and builds the page from each Session’s stored Overview ' +
         'Summary. Call it exactly once per request. It returns the resolved `window`, its ' +
         'reader-language `windowLabel`, the file’s workspace-relative `path`, and the live `url` ' +
         'when a preview server is serving the Workspace. When nothing is included, nothing is ' +
@@ -292,10 +292,7 @@ async function buildOverviewTools(host: CapabilityHost): Promise<ToolDefinition[
         const input = rangeOfParams(params as Record<string, unknown>)
         if (!input) return textResult(invalidRange())
         try {
-          const selection = await selectOverviewSessions({
-            range: input,
-            excludingSessionId: host.sessionRef,
-          })
+          const selection = await selectOverviewSessions({ range: input })
           const windowLabel = windowLabelOf(selection.window, chrome.locale)
           if (selection.outcome !== 'ok') {
             return jsonResult({

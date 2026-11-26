@@ -4,8 +4,8 @@ import path from 'node:path'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // The Overview's read side: the app chooses every included Session whose newest
-// History Entry is in the window, leaves out the Session that asked, and hands the
-// page each Session's Title and stored Overview Summary. No model chooses a set.
+// History Entry is in the window, the Session asking included, and hands the page
+// each Session's Title and stored Overview Summary. No model chooses a set.
 
 const dirs = vi.hoisted(() => ({ real: '', demo: '', games: '', mediaRecords: '' }))
 
@@ -150,24 +150,24 @@ describe('which Sessions appear', () => {
     expect(selection.sessions.map((session) => session.id)).not.toContain(broken)
   })
 
-  it('never reports the Session that asked', async () => {
-    const reporting = await seedSession([historyEntry({})], { summary: 'Asking.' })
+  it('reports the Session that asked like any other included one', async () => {
+    const asking = await seedSession([historyEntry({})], { summary: 'Asking.' })
     const other = await seedSession([historyEntry({})], { summary: 'Other work.' })
 
-    const selection = await query({ excludingSessionId: reporting })
+    const selection = await query()
 
-    expect(selection.includedSessions).toBe(1)
-    expect(selection.sessions.map((session) => session.id)).toEqual([other])
-    expect(selection.sessions.map((session) => session.id)).not.toContain(reporting)
+    expect(selection.includedSessions).toBe(2)
+    expect(selection.sessions.map((session) => session.id).sort()).toEqual([asking, other].sort())
   })
 
-  it('has no included Sessions when only the asking Session is included', async () => {
-    const reporting = await seedSession([historyEntry({})])
+  it('reports the asking Session even when it is the only included one', async () => {
+    const asking = await seedSession([historyEntry({})], { summary: 'Asking.' })
 
-    const selection = await query({ excludingSessionId: reporting })
+    const selection = await query()
 
-    expect(selection.outcome).toBe('none-included')
-    expect(selection.includedSessions).toBe(0)
+    expect(selection.outcome).toBe('ok')
+    expect(selection.includedSessions).toBe(1)
+    expect(selection.sessions.map((session) => session.id)).toEqual([asking])
   })
 
   it('selects by the newest History Entry, not by any entry in the window', async () => {

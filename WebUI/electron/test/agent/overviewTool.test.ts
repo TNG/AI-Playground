@@ -340,7 +340,7 @@ describe('the page', () => {
     expect(html).toContain('Oldest work.')
   })
 
-  it('leaves out the Session that asked and every Session not included', async () => {
+  it('includes the Session that asked when it is included, and leaves out the rest', async () => {
     const asking = await seedSession([historyEntry({})], { summary: 'Asking.' })
     const included = await seedSession([historyEntry({ timestamp: NOW - HOUR })], {
       summary: 'Included.',
@@ -353,8 +353,8 @@ describe('the page', () => {
     const result = await call(hostFor({ sessionRef: asking }), { range: 'last-24h' })
     const html = await htmlAt(result.path)
 
+    expect(html).toContain('Asking.')
     expect(html).toContain('Included.')
-    expect(html).not.toContain('Asking.')
     expect(html).not.toContain('Not included.')
     expect(included).toBeTruthy()
   })

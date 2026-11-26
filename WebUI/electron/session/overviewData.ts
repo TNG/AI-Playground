@@ -44,8 +44,6 @@ export type OverviewSelection = {
 
 export type OverviewQuery = {
   range: OverviewRangeInput
-  /** The reporting Session, which never appears in its own Overview. */
-  excludingSessionId?: string
   /** Injectable clock, so tests resolve the same window every run. */
   now?: number
 }
@@ -90,16 +88,15 @@ function newestEntry(entries: readonly HistoryEntry[]): HistoryEntry | undefined
 
 /**
  * One range's Overview: every readable, included Session whose newest History
- * Entry falls inside it, excluding the Session that asked. The range is echoed
- * whether or not anything was found, and the two empty cases stay distinct so the
- * agent can say whether a setting or a quiet window is the reason.
+ * Entry falls inside it, the Session asking included. The range is echoed whether or
+ * not anything was found, and the two empty cases stay distinct so the agent can say
+ * whether a setting or a quiet window is the reason.
  */
 export async function selectOverviewSessions(query: OverviewQuery): Promise<OverviewSelection> {
   const now = query.now ?? Date.now()
   const window = resolveOverviewWindow(query.range, now)
   const included = (await listSessions()).filter(
-    (session) =>
-      !session.unreadable && session.includedInOverviews && session.id !== query.excludingSessionId,
+    (session) => !session.unreadable && session.includedInOverviews,
   )
   const base = { window, includedSessions: included.length }
 

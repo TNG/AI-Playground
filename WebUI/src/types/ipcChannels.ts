@@ -7,6 +7,8 @@ import type {
   ArcadeCatalogEntry,
   AttachmentTarget,
   GameLibraryEntry,
+  SessionFileAction,
+  SessionFileReadResult,
 } from './agentIpc'
 import type { AgentMediaFileAction, AgentMediaFileRef } from './agentMediaDetails'
 import type {
@@ -48,6 +50,7 @@ import type {
   HarnessSessionRef,
   NewestArtifact,
   SessionArtifact,
+  SessionCreatedFile,
   MissingWorkspace,
   SessionCreateOptions,
   SessionDeletePreview,
@@ -529,8 +532,22 @@ export const CHANNELS = {
     args: [] as const,
     result: null as unknown as IpcOkWith<{ artifacts: SessionArtifact[] }>,
   },
+  /** The documents: every file the Sessions' agent turns wrote, latest write per file winning. */
+  'sessions:listCreatedFiles': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as IpcOkWith<{ files: SessionCreatedFile[] }>,
+  },
   /** Move one artifact's file to the Trash (session id, its media URL); its History Entry stays. */
   'sessions:deleteArtifact': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Open one artifact's file with the OS default application (session id, its media URL). */
+  'sessions:openArtifact': {
     kind: 'invoke',
     owner: 'main',
     args: [] as unknown as readonly [string, string],
@@ -815,6 +832,30 @@ export const CHANNELS = {
     owner: 'main',
     args: [] as unknown as readonly [string],
     result: null as unknown as IpcMutationResult,
+  },
+  /**
+   * Open, reveal or delete a file an agent turn wrote, addressed the way the model wrote it:
+   * workspace-relative, or under a sandbox mount. Main resolves the path against the
+   * session's own folders and refuses anything outside them (agent/sessionFileAction.ts).
+   */
+  'agentMode:sessionFileAction': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string, SessionFileAction],
+    result: null as unknown as IpcMutationResult,
+  },
+  /**
+   * Read a file an agent turn wrote as UTF-8 text, for the transcript's inline
+   * preview. Same path validation as sessionFileAction (agent/sessionFileAction.ts);
+   * the content is the file's first 10 lines under a 16 KB ceiling — `full`
+   * drops the line cap and raises the ceiling to 1 MB — and `truncated` says
+   * when either limit bit. A file gone from disk fails with `missing: true`.
+   */
+  'agentMode:readSessionFile': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string, boolean | undefined],
+    result: null as unknown as SessionFileReadResult,
   },
   /** What the agent could be equipped with, for the Capabilities checkboxes. */
   'agentMode:listCapabilities': {

@@ -1,4 +1,8 @@
-import { AgentModeTurnConfigSchema, DeleteAgentTurnsRequestSchema } from '@/types/agentIpc'
+import {
+  AgentModeTurnConfigSchema,
+  DeleteAgentTurnsRequestSchema,
+  SESSION_FILE_ACTIONS,
+} from '@/types/agentIpc'
 import { AgentSessionRecordSchema, LegacyAgentSessionStateSchema } from '@/types/agentSessionIpc'
 import type { AgentModeInvokeName, InvokeHandlerMap } from '../ipcRegistries'
 import { ipcErrorText, ipcFail } from '../typedIpc'
@@ -19,6 +23,7 @@ import type {
   sessionDocuments,
 } from '../../agent/sessionDocuments'
 import type { workspaceMediaFileActions } from '../../agent/workspaceMediaFile'
+import type { sessionFileActions, sessionFileReader } from '../../agent/sessionFileAction'
 import type {
   bootstrapAgentSessions,
   deleteAgentSessionRecord,
@@ -64,6 +69,8 @@ export type AgentModeDeps = {
   indexSessionDocument: typeof indexSessionDocument
   removeSessionDocument: typeof removeSessionDocument
   mediaFileAction: ReturnType<typeof workspaceMediaFileActions>
+  sessionFileAction: ReturnType<typeof sessionFileActions>
+  readSessionFile: ReturnType<typeof sessionFileReader>
   openWorkspaceFolder: (dir: string) => Promise<void>
   bootstrapAgentSessions: typeof bootstrapAgentSessions
   migrateLegacyAgentSessions: typeof migrateLegacyAgentSessions
@@ -330,6 +337,27 @@ export function buildAgentModeRegistry(deps: AgentModeDeps) {
       } catch (error) {
         return ipcFail(error)
       }
+    },
+    // Open, reveal or delete a file an agent turn wrote, as its answer references it
+    // (see agent/sessionFileAction.ts).
+    'agentMode:sessionFileAction': (_event, sessionId, filePath, action) => {
+      const valid =
+        typeof sessionId === 'string' &&
+        typeof filePath === 'string' &&
+        (SESSION_FILE_ACTIONS as readonly string[]).includes(action)
+      if (!valid) return { success: false, error: 'invalid file request' }
+      return deps.sessionFileAction(sessionId, filePath, action)
+    },
+    // Read a written file as text for the transcript's inline preview
+    // (see agent/sessionFileAction.ts).
+    'agentMode:readSessionFile': (_event, sessionId, filePath, full) => {
+      const valid =
+        typeof sessionId === 'string' &&
+        typeof filePath === 'string' &&
+        !!filePath &&
+        (full === undefined || typeof full === 'boolean')
+      if (!valid) return { success: false, error: 'invalid file request' }
+      return deps.readSessionFile(sessionId, filePath, full)
     },
     // What the agent can be equipped with, for the Capabilities checkboxes in
     // Agent Settings (availability depends on the turn's tool specs / MCP config).

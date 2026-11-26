@@ -146,7 +146,8 @@ import {
   sessionDocuments,
 } from './agent/sessionDocuments.ts'
 import { workspaceMediaFileActions } from './agent/workspaceMediaFile.ts'
-import { sessionWorkspaceDir } from './agent/sessionWorkspace.ts'
+import { sessionFileActions, sessionFileReader } from './agent/sessionFileAction.ts'
+import { sessionFileMounts, sessionWorkspaceDir } from './agent/sessionWorkspace.ts'
 import { migrateAgentLibrary } from './agent/agentLibraryMigration.ts'
 import { migrateAgentMakerSessions } from './agent/agentMakerMigration.ts'
 import {
@@ -297,7 +298,9 @@ import {
   listAllArtifacts,
   missingArtifactUrls,
   newestArtifact,
+  openArtifactActions,
 } from './session/sessionArtifacts'
+import { listAllCreatedFiles } from './session/sessionCreatedFiles'
 import {
   cleanUpHarnessSessionsOnDelete,
   harnessSessionFor,
@@ -435,6 +438,7 @@ import {
 } from './agent/trialRuns'
 import { wireTrialRuns } from './agent/trialRunsWiring'
 import { saveGeneratedAudioFile } from './persist/audioFiles.ts'
+import { discardPath } from './persist/sessionFiles'
 import {
   arcadeCatalog,
   createGame,
@@ -1963,6 +1967,8 @@ function initEventHandle() {
       saveChatTranscript,
       recordAudioTurn,
       listAllArtifacts,
+      listAllCreatedFiles,
+      openArtifact: openArtifactActions({ open: openFileWithSystem }),
       missingArtifactUrls,
       deleteArtifact,
       readSessionSettings,
@@ -2009,6 +2015,13 @@ function initEventHandle() {
         saveCopy: saveFileCopy,
       }),
       openWorkspaceFolder: openDirectory,
+      sessionFileAction: sessionFileActions({
+        mountsOf: sessionFileMounts,
+        open: openFileWithSystem,
+        reveal: revealFileInFolder,
+        delete: discardPath,
+      }),
+      readSessionFile: sessionFileReader({ mountsOf: sessionFileMounts }),
       bootstrapAgentSessions,
       migrateLegacyAgentSessions,
       saveAgentSession,

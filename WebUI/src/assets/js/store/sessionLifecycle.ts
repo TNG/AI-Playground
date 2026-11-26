@@ -1,10 +1,12 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
+import { watch } from 'vue'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useArtifactRuns } from '@/assets/js/store/artifactRuns'
 import { usePresets } from '@/assets/js/store/presets'
 import { usePresetSwitching } from '@/assets/js/store/presetSwitching'
 import { useSessionAudio } from '@/assets/js/store/sessionAudio'
 import { useSessions, type NewSessionOptions } from '@/assets/js/store/sessions'
+import { useSessionFiles } from '@/assets/js/store/sessionFiles'
 import { useSessionSettings } from '@/assets/js/store/sessionSettings'
 import { useSessionTabs } from '@/assets/js/store/sessionTabs'
 import { modelDownloads } from '@/assets/js/models/modelDownloadQueue'
@@ -31,7 +33,19 @@ export const useSessionLifecycle = defineStore('sessionLifecycle', () => {
   const artifactRuns = useArtifactRuns()
   const sessionTabs = useSessionTabs()
   const sessionAudio = useSessionAudio()
+  const sessionFiles = useSessionFiles()
   const presetSwitch = usePromptBarPresetSwitch()
+
+  // The created-files listing is what the transcript chips read: re-scan it
+  // whenever the open Session's turn settles, wherever the user is — a
+  // same-named rewrite of a deleted file flips its entry back without the
+  // Artifacts tab having to be open for its own refresh.
+  watch(
+    () => sessions.openTurn,
+    (turn, previous) => {
+      if (previous && !turn) void sessionFiles.refresh()
+    },
+  )
 
   async function openSession(
     id: string,
@@ -41,6 +55,9 @@ export const useSessionLifecycle = defineStore('sessionLifecycle', () => {
     const opened = await sessions.open(id)
     if (sessions.openSessionId === id) sessionTabs.land(landing)
     if (sessions.openSessionId !== id) return
+    // The created-files listing is what the transcript chips read: a refresh on
+    // open catches files deleted outside the app since the last trigger.
+    void sessionFiles.refresh()
     const last = sessionReopenPreset(
       opened,
       presets.presets.map((preset) => preset.name),

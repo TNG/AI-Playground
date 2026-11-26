@@ -1556,8 +1556,10 @@ export const useAgentMode = defineStore(
         harnessSessionId: record.id,
         ...(record.taskRun ? { taskRun: record.taskRun } : {}),
       }
+      const settledAt = Date.now()
       const messages = settleStreamingParts(record.messages).map((message) => ({
         ...message,
+        createdAt: (message as UIMessage & { createdAt?: number }).createdAt ?? settledAt,
         metadata: { ...(message.metadata as object | undefined), agentTurn },
       }))
       void sessionsStore.saveTimelineMessages(record.sessionRef, messages)

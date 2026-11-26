@@ -12,6 +12,7 @@ import type {
   AgentToolSpec,
   AttachmentTarget,
   DeleteAgentTurnsRequest,
+  SessionFileAction,
 } from '@/types/agentIpc'
 import type { AgentMediaFileAction, AgentMediaFileRef } from '@/types/agentMediaDetails'
 import type { AgentSessionRecordWire, MountedFolderAccess } from '@/types/agentSessionIpc'
@@ -353,8 +354,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     recordAudioTurn: (turn: AudioTurnRequest) =>
       invoke('sessions:recordAudioTurn', cloneForIpc(turn)),
     listArtifacts: () => invoke('sessions:listArtifacts'),
+    listCreatedFiles: () => invoke('sessions:listCreatedFiles'),
     deleteArtifact: (sessionId: string, url: string) =>
       invoke('sessions:deleteArtifact', sessionId, url),
+    openArtifact: (sessionId: string, url: string) =>
+      invoke('sessions:openArtifact', sessionId, url),
     readSettings: (id: string) => invoke('sessions:readSettings', id),
     writePresetSettings: (id: string, presetName: string, entry: PresetSessionSettings) =>
       invoke('sessions:writePresetSettings', id, presetName, cloneForIpc(entry)),
@@ -488,6 +492,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     mediaFileAction: (ref: AgentMediaFileRef, action: AgentMediaFileAction) =>
       invoke('agentMode:mediaFileAction', cloneForIpc(ref), action),
     openWorkspaceFolder: (dir: string) => invoke('agentMode:openWorkspaceFolder', dir),
+    sessionFileAction: (sessionId: string, filePath: string, action: SessionFileAction) =>
+      invoke('agentMode:sessionFileAction', sessionId, filePath, action),
+    readSessionFile: (sessionId: string, filePath: string, full?: boolean) =>
+      invoke('agentMode:readSessionFile', sessionId, filePath, full),
     onExecuteTool: (callback: (data: AgentToolExecuteRequest) => void) =>
       onPush('agentMode:executeTool', callback),
     submitToolResult: (requestId: string, result: unknown, error?: string) =>

@@ -100,6 +100,15 @@ export async function deleteArtifact(sessionId: string, url: string): Promise<vo
   await serializeSession(sessionId, () => discardRegularFile(file))
 }
 
+/** Opens the artifact's file with the OS default application; the same URL validation as deleting. */
+export function openArtifactActions(deps: { open: (filePath: string) => Promise<string> }) {
+  return async (sessionId: string, url: string): Promise<void> => {
+    const file = await artifactFileOf(sessionId, url)
+    const error = await deps.open(file)
+    if (error) throw new Error(error)
+  }
+}
+
 /** The Session's newest artifact of a media type, from any preset, whose file still exists. */
 export async function newestArtifact(
   sessionId: string,

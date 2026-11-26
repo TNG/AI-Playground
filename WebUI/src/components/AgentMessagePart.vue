@@ -3,7 +3,7 @@
     v-if="part.type === 'text'"
     role="region"
     :aria-label="languages.AGENT_REPLY_ARIA"
-    :content="part.text ?? ''"
+    :content="answerText"
   />
   <ChatReasoningDisplay
     v-else-if="part.type === 'reasoning'"
@@ -82,6 +82,7 @@
 import { computed, watch } from 'vue'
 import { isToolUIPart, type UIDataTypes, type UIMessagePart, type UITools } from 'ai'
 import type { DynamicToolUIPart, ToolUIPart } from 'ai'
+import { useI18N } from '@/assets/js/store/i18n'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useMediaAgentRuns } from '@/assets/js/store/mediaAgentRuns'
 import { useArtifactRuns } from '@/assets/js/store/artifactRuns'
@@ -119,10 +120,15 @@ const props = defineProps<{
   hideMediaGrid?: boolean
 }>()
 
+const languages = useI18N().state
 const agentMode = useAgentMode()
 const mediaRuns = useMediaAgentRuns()
 const artifactRuns = useArtifactRuns()
 const sessions = useSessions()
+
+const answerText = computed(() =>
+  props.part.type === 'text' ? ((props.part as { text?: string }).text ?? '') : '',
+)
 
 // Pi's tool parts (tool-bash, tool-read, …) are not part of AipgTools, but the
 // generic ChatToolDisplay only reads name/state/input/output — cast for reuse.

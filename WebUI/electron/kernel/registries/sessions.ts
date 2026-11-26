@@ -38,7 +38,9 @@ import type {
   listAllArtifacts,
   missingArtifactUrls,
   newestArtifact,
+  openArtifactActions,
 } from '../../session/sessionArtifacts'
+import type { listAllCreatedFiles } from '../../session/sessionCreatedFiles'
 import type { harnessSessionFor } from '../../session/sessionHarness'
 import type { setRealShellFolders, setSessionReachable } from '../../session/sessionChannels'
 import type { migrateHomeAgentThreads } from '../../session/homeAgentThreadMigration'
@@ -99,6 +101,8 @@ export type SessionsDeps = {
   sessionDeletePreview: typeof sessionDeletePreview
   recordAudioTurn: typeof recordAudioTurn
   listAllArtifacts: typeof listAllArtifacts
+  listAllCreatedFiles: typeof listAllCreatedFiles
+  openArtifact: ReturnType<typeof openArtifactActions>
   missingArtifactUrls: typeof missingArtifactUrls
   deleteArtifact: typeof deleteArtifact
   readSessionSettings: typeof readSessionSettings
@@ -531,12 +535,27 @@ export function buildSessionsRegistry(deps: SessionsDeps) {
         return ipcFail(e)
       }
     },
+    'sessions:listCreatedFiles': async () => {
+      try {
+        return { success: true as const, files: await deps.listAllCreatedFiles() }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
     'sessions:deleteArtifact': async (_event, id, url) => {
       try {
         await deps.deleteArtifact(
           requireString(id, 'session id'),
           requireString(url, 'artifact url'),
         )
+        return { success: true as const }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
+    'sessions:openArtifact': async (_event, id, url) => {
+      try {
+        await deps.openArtifact(requireString(id, 'session id'), requireString(url, 'artifact url'))
         return { success: true as const }
       } catch (e) {
         return ipcFail(e)

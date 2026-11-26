@@ -249,6 +249,9 @@ export type SessionArtifact = {
 export type SessionCreatedFile = {
   /** The path the model addressed the file with. */
   file: string
+  /** False once the file is gone from disk, so the transcript chips can strike
+   * it out; the Artifacts tab lists only the existing ones. */
+  exists: boolean
   /** The Harness Session whose workspace holds the file; previews open against it. */
   harnessSessionId: string
   /** The Session whose timeline wrote the file. */

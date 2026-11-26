@@ -93,6 +93,7 @@
               v-for="file in turnFiles"
               :key="file"
               :file="file"
+              :deleted="fileMissing(file)"
               :aria-pressed="openFile === file"
               @toggle="toggleFilePreview"
             />
@@ -102,6 +103,8 @@
             :key="openFile"
             :file="openFile"
             :session-id="harnessSessionIdOf()"
+            @missing="markOpenFile(true)"
+            @present="markOpenFile(false)"
           />
         </div>
       </div>
@@ -140,6 +143,7 @@ import type { UIMessage } from 'ai'
 import { useAgentTasks } from '@/assets/js/store/agentTasks'
 import { useConfirmations } from '@/assets/js/store/confirmations'
 import { useI18N } from '@/assets/js/store/i18n'
+import { useSessionFiles, missingFileKey } from '@/assets/js/store/sessionFiles'
 import type { AipgUiMessage } from '@/assets/js/store/openAiCompatibleChat'
 import type { PendingAudioTurn } from '@/assets/js/store/sessionAudio'
 import type { PendingMediaTurn } from '@/assets/js/store/sessions'
@@ -180,6 +184,7 @@ const textInference = useTextInference()
 const agentTasks = useAgentTasks()
 const { manageAgents } = useAgentLibraryEntry()
 const confirmations = useConfirmations()
+const sessionFiles = useSessionFiles()
 const languages = useI18N().state
 
 const editing = ref(false)
@@ -234,6 +239,23 @@ const turnFiles = computed(() => turnCreatedFiles.value ?? [])
 const openFile = ref<string | null>(null)
 function toggleFilePreview(file: string): void {
   openFile.value = openFile.value === file ? null : file
+}
+
+// A chip crosses out its file once a listing or the preview's own read says the
+// file is gone from disk; a read that succeeds crosses it back in.
+function fileMissing(file: string): boolean {
+  const harnessSessionId = harnessSessionIdOf()
+  return (
+    !!harnessSessionId && sessionFiles.missingFileKeys.has(missingFileKey(harnessSessionId, file))
+  )
+}
+
+function markOpenFile(missing: boolean): void {
+  const harnessSessionId = harnessSessionIdOf()
+  const file = openFile.value
+  if (!harnessSessionId || !file) return
+  if (missing) sessionFiles.markMissing(harnessSessionId, file)
+  else sessionFiles.markPresent(harnessSessionId, file)
 }
 
 function answerOf(messageId: string): UIMessage | undefined {

@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import type { SessionFileAction } from '@/types/agentIpc'
-import type { IpcDataResult, IpcMutationResult } from '@/types/ipcChannels'
+import type { SessionFileAction, SessionFileReadResult } from '@/types/agentIpc'
+import type { IpcMutationResult } from '@/types/ipcChannels'
 import type { SessionFileMounts } from './sessionWorkspace.ts'
 
 // ── Open, reveal or delete a file an agent turn wrote ───────────────────────
@@ -112,13 +112,13 @@ export function sessionFileReader(deps: Pick<SessionFileDeps, 'mountsOf'>) {
     sessionId: string,
     rawPath: string,
     full?: boolean,
-  ): Promise<IpcDataResult<{ content: string; truncated: boolean }>> => {
+  ): Promise<SessionFileReadResult> => {
     try {
       if (!sessionId || !rawPath) return { success: false, error: 'invalid file request' }
       const mounts = await deps.mountsOf(sessionId)
       if (!mounts) return { success: false, error: 'This session has no workspace folder.' }
       const filePath = resolveSessionFilePath(mounts, rawPath)
-      if (!filePath) return { success: false, error: 'The file no longer exists.' }
+      if (!filePath) return { success: false, error: 'The file no longer exists.', missing: true }
       const bytes = await fs.promises.readFile(filePath)
       const byteCap = full ? SESSION_FILE_FULL_PREVIEW_CAP : SESSION_FILE_PREVIEW_CAP
       const byteTruncated = bytes.byteLength > byteCap

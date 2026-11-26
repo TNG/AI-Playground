@@ -116,6 +116,7 @@ describe('listAllCreatedFiles', () => {
     expect(await listAllCreatedFiles()).toEqual([
       {
         file: 'game.js',
+        exists: true,
         harnessSessionId: 'h1',
         sessionRef: session.id,
         sessionTitle: 'space game',
@@ -123,6 +124,7 @@ describe('listAllCreatedFiles', () => {
       },
       {
         file: 'design.md',
+        exists: true,
         harnessSessionId: 'h1',
         sessionRef: session.id,
         sessionTitle: 'space game',
@@ -144,6 +146,7 @@ describe('listAllCreatedFiles', () => {
     expect(files).toEqual([
       {
         file: 'game.js',
+        exists: true,
         harnessSessionId: 'h1',
         sessionRef: session.id,
         sessionTitle: '',
@@ -196,17 +199,30 @@ describe('listAllCreatedFiles', () => {
     expect(await listAllCreatedFiles()).toEqual([])
   })
 
-  it('drops a file that no longer exists on disk', async () => {
+  it('marks a file that no longer exists on disk instead of dropping it', async () => {
     const session = await createSession()
     const ws = await workspaceWith(['game.js', 'design.md'])
     await saveAgentSession(harnessRecord('h1', 500, ws))
     await upsertTimelineMessages(session.id, [agentAnswer('a1', 'h1', ['game.js', 'design.md'])])
 
-    expect(await listAllCreatedFiles()).toHaveLength(2)
+    expect(await listAllCreatedFiles()).toEqual([
+      expect.objectContaining({ file: 'game.js', exists: true }),
+      expect.objectContaining({ file: 'design.md', exists: true }),
+    ])
 
     await fs.rm(path.join(ws, 'game.js'))
     const files = await listAllCreatedFiles()
-    expect(files).toEqual([expect.objectContaining({ file: 'design.md' })])
+    expect(files).toEqual([
+      expect.objectContaining({ file: 'game.js', exists: false }),
+      expect.objectContaining({ file: 'design.md', exists: true }),
+    ])
+
+    // A file written back to the same path exists again.
+    await fs.writeFile(path.join(ws, 'game.js'), 'back')
+    expect(await listAllCreatedFiles()).toEqual([
+      expect.objectContaining({ file: 'game.js', exists: true }),
+      expect.objectContaining({ file: 'design.md', exists: true }),
+    ])
   })
 
   it('drops a card whose harness workspace is gone without failing the listing', async () => {
@@ -222,6 +238,7 @@ describe('listAllCreatedFiles', () => {
     expect(files).toEqual([
       {
         file: 'kept.js',
+        exists: true,
         harnessSessionId: 'h1',
         sessionRef: session.id,
         sessionTitle: '',

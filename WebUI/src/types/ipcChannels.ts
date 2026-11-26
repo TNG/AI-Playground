@@ -8,6 +8,7 @@ import type {
   AttachmentTarget,
   GameLibraryEntry,
   SessionFileAction,
+  SessionFileReadResult,
 } from './agentIpc'
 import type { AgentMediaFileAction, AgentMediaFileRef } from './agentMediaDetails'
 import type {
@@ -835,13 +836,13 @@ export const CHANNELS = {
    * preview. Same path validation as sessionFileAction (agent/sessionFileAction.ts);
    * the content is the file's first 10 lines under a 16 KB ceiling — `full`
    * drops the line cap and raises the ceiling to 1 MB — and `truncated` says
-   * when either limit bit.
+   * when either limit bit. A file gone from disk fails with `missing: true`.
    */
   'agentMode:readSessionFile': {
     kind: 'invoke',
     owner: 'main',
     args: [] as unknown as readonly [string, string, boolean | undefined],
-    result: null as unknown as IpcDataResult<{ content: string; truncated: boolean }>,
+    result: null as unknown as SessionFileReadResult,
   },
   /** What the agent could be equipped with, for the Capabilities checkboxes. */
   'agentMode:listCapabilities': {

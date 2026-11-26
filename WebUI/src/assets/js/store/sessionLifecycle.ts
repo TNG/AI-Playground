@@ -5,6 +5,7 @@ import { usePresets } from '@/assets/js/store/presets'
 import { usePresetSwitching } from '@/assets/js/store/presetSwitching'
 import { useSessionAudio } from '@/assets/js/store/sessionAudio'
 import { useSessions, type NewSessionOptions } from '@/assets/js/store/sessions'
+import { useSessionFiles } from '@/assets/js/store/sessionFiles'
 import { useSessionSettings } from '@/assets/js/store/sessionSettings'
 import { useSessionTabs } from '@/assets/js/store/sessionTabs'
 import { modelDownloads } from '@/assets/js/models/modelDownloadQueue'
@@ -31,6 +32,7 @@ export const useSessionLifecycle = defineStore('sessionLifecycle', () => {
   const artifactRuns = useArtifactRuns()
   const sessionTabs = useSessionTabs()
   const sessionAudio = useSessionAudio()
+  const sessionFiles = useSessionFiles()
   const presetSwitch = usePromptBarPresetSwitch()
 
   async function openSession(
@@ -41,6 +43,9 @@ export const useSessionLifecycle = defineStore('sessionLifecycle', () => {
     const opened = await sessions.open(id)
     if (sessions.openSessionId === id) sessionTabs.land(landing)
     if (sessions.openSessionId !== id) return
+    // The created-files listing is what the transcript chips read: a refresh on
+    // open catches files deleted outside the app since the last trigger.
+    void sessionFiles.refresh()
     const last = sessionReopenPreset(
       opened,
       presets.presets.map((preset) => preset.name),

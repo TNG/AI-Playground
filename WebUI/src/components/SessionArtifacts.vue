@@ -54,10 +54,13 @@ const entries = computed<GridEntry[]>(() => {
     artifact,
     at: artifact.timestamp,
   }))
-  const scoped =
+  // Only files still on disk get a card; the missing ones stay in the store so
+  // the transcript chips can strike them out.
+  const scoped = (
     allSessions.value || !sessions.openSessionId
       ? sessionFiles.files
       : sessionFiles.files.filter((file) => file.sessionRef === sessions.openSessionId)
+  ).filter((file) => file.exists)
   const files: GridEntry[] = scoped.map((file) => ({ kind: 'file', file, at: file.createdAt }))
   return [...media, ...files].sort((a, b) => b.at - a.at)
 })

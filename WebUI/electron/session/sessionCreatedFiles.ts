@@ -18,8 +18,9 @@ type TimelineMessage = {
  * the Artifacts tab lists these beside the media artifacts. A write whose
  * message settled before timestamps existed falls back to its Harness
  * Session's creation — a static value, so a later turn cannot re-float it.
- * A file that no longer exists on disk drops out of the listing, like a
- * media artifact whose file was deleted.
+ * `exists` is the disk-accurate word on the file right now: a file that is
+ * gone stays listed with `exists: false` so the transcript chips can strike
+ * it out; only the Artifacts tab filters to the existing ones.
  */
 export async function listAllCreatedFiles(): Promise<SessionCreatedFile[]> {
   const [summaries, harness] = await Promise.all([listSessions(), bootstrapAgentSessions()])
@@ -28,7 +29,7 @@ export async function listAllCreatedFiles(): Promise<SessionCreatedFile[]> {
       ? harness.sessions.map((record) => [record.id, record.createdAt] as const)
       : [],
   )
-  const byKey = new Map<string, SessionCreatedFile>()
+  const byKey = new Map<string, Omit<SessionCreatedFile, 'exists'>>()
   for (const summary of summaries) {
     const read = await readSessionFile(summary.id)
     if (read.status !== 'ok') continue
@@ -62,7 +63,8 @@ export async function listAllCreatedFiles(): Promise<SessionCreatedFile[]> {
   for (const entry of byKey.values()) {
     try {
       const mounts = await mountsOf(entry.harnessSessionId)
-      if (mounts && resolveSessionFilePath(mounts, entry.file)) listed.push(entry)
+      if (mounts)
+        listed.push({ ...entry, exists: resolveSessionFilePath(mounts, entry.file) !== null })
     } catch {
       // A stale path (mount gone, folder moved) drops its own card, never the listing.
     }

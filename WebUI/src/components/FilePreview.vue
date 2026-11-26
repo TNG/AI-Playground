@@ -80,6 +80,10 @@ import {
  */
 const props = defineProps<{ file: string; sessionId?: string }>()
 
+// The read is also the existence check: a file reported gone tells the chip to
+// strike itself out, a successful read tells it to un-strike.
+const emit = defineEmits<{ missing: []; present: [] }>()
+
 const languages = useI18N().state
 const textInference = useTextInference()
 const openAnswerFile = useAnswerFileOpener(() => props.sessionId)
@@ -105,11 +109,13 @@ async function fetchContent(): Promise<void> {
   if (!result.success) {
     state.value = 'error'
     error.value = result.error ?? ''
+    if ('missing' in result && result.missing) emit('missing')
     return
   }
   content.value = result.data.content
   truncated.value = result.data.truncated
   state.value = 'ready'
+  emit('present')
 }
 
 onMounted(fetchContent)

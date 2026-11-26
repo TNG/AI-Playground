@@ -214,16 +214,22 @@ describe('session file reader', () => {
   it('refuses a path that escapes the session folders', async () => {
     const result = await read('session-1', '../secret.txt')
     expect(result.success).toBe(false)
+    expect('missing' in result).toBe(false)
   })
 
-  it('fails when the file is gone', async () => {
+  it('fails with the missing marker when the file is gone', async () => {
     const result = await read('session-1', 'missing.js')
-    expect(result).toEqual({ success: false, error: 'The file no longer exists.' })
+    expect(result).toEqual({
+      success: false,
+      error: 'The file no longer exists.',
+      missing: true,
+    })
   })
 
   it('fails when the session has no workspace', async () => {
     const result = await read('gone', 'game.js')
     expect(result.success).toBe(false)
+    expect('missing' in result).toBe(false)
   })
 
   it('refuses an invalid request', async () => {

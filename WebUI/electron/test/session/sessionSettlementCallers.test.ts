@@ -103,8 +103,8 @@ describe('a turn reports done only after its settlement', () => {
 
     const done = turn.settle({ sessionId: 'harness-1', turnId: 'turn-1', outcome: 'completed' })
 
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(settlement.settleTurn).toHaveBeenCalledTimes(1)
+    // The agent turn reads its Session's folders before settling, so the call lands after real I/O.
+    await vi.waitFor(() => expect(settlement.settleTurn).toHaveBeenCalledTimes(1))
     expect(await hasSettled(done)).toBe(false)
     await held.release()
     await done

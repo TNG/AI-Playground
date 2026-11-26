@@ -15,7 +15,6 @@
       {{ percent }}%
     </span>
   </button>
-  <span role="status" aria-live="polite" class="sr-only">{{ stoppingAnnouncement }}</span>
 </template>
 
 <script setup lang="ts">
@@ -58,10 +57,6 @@ const liveText = computed(() =>
         artifact: languages,
       })
     : undefined,
-)
-
-const stoppingAnnouncement = computed(() =>
-  props.live?.kind === 'stopping' ? liveText.value : undefined,
 )
 
 const summaryText = computed(() =>

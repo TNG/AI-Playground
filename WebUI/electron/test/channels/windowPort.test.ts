@@ -49,6 +49,35 @@ describe('windowPort', () => {
     expect(port.port()).not.toBeNull()
   })
 
+  it('gives up on a subscribe the loading window never heard, so the next one can succeed', async () => {
+    vi.useFakeTimers()
+    try {
+      const asks: ChannelPortAsk[] = []
+      const port = createWindowPort({
+        post: (ask) => {
+          asks.push(ask)
+          return true
+        },
+        lookup: async () => null,
+        recordStartPromptRequest: async () => {},
+        log: () => {},
+        subscribeTimeoutMs: 1000,
+      })
+
+      const lost = port.subscribe()
+      const failed = expect(lost).rejects.toThrow('did not answer')
+      await vi.advanceTimersByTimeAsync(1000)
+      await failed
+
+      const retried = port.subscribe()
+      port.answer({ requestId: asks[1].requestId, result: null, state: mirror() })
+      await retried
+      expect(port.ready()).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('answers the router’s synchronous questions from the mirror', () => {
     const { port } = setup()
     port.mirror(mirror({ activity: { 's-1': { kind: 'turn' } } }))

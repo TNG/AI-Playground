@@ -25,7 +25,11 @@ export type WindowPortDeps = {
   lookup: SessionPort['lookup']
   recordStartPromptRequest: SessionPort['recordStartPromptRequest']
   log: (message: string, error: unknown) => void
+  /** How long the window has to answer `subscribe`; a window still loading misses the ask. */
+  subscribeTimeoutMs?: number
 }
+
+const SUBSCRIBE_TIMEOUT_MS = 5000
 
 export type WindowPort = {
   /** Null until the window has sent its first mirror, so the router drops nothing on purpose. */
@@ -60,20 +64,40 @@ export function createWindowPort(deps: WindowPortDeps): WindowPort {
 
   function call<O extends Op>(
     request: Extract<ChannelPortCall, { op: O }>,
+    timeoutMs?: number,
   ): Promise<ChannelPortResults[O]> {
     const requestId = randomUUID()
     return new Promise((resolve, reject) => {
-      pending.set(requestId, { resolve: resolve as (value: unknown) => void, reject })
+      const timer =
+        timeoutMs === undefined
+          ? undefined
+          : setTimeout(() => {
+              pending.delete(requestId)
+              reject(new Error('The app window did not answer'))
+            }, timeoutMs)
+      const settle = () => clearTimeout(timer)
+      pending.set(requestId, {
+        resolve: (value) => {
+          settle()
+          ;(resolve as (value: unknown) => void)(value)
+        },
+        reject: (error) => {
+          settle()
+          reject(error)
+        },
+      })
       let posted = false
       try {
         posted = deps.post({ requestId, call: request })
       } catch (error) {
         pending.delete(requestId)
+        settle()
         reject(error instanceof Error ? error : new Error(String(error)))
         return
       }
       if (!posted) {
         pending.delete(requestId)
+        settle()
         reject(new Error('No app window to reach the Sessions through'))
       }
     })
@@ -229,7 +253,7 @@ export function createWindowPort(deps: WindowPortDeps): WindowPort {
     speech,
     questions,
     subscribe: async () => {
-      await call({ op: 'subscribe' })
+      await call({ op: 'subscribe' }, deps.subscribeTimeoutMs ?? SUBSCRIBE_TIMEOUT_MS)
     },
     answer,
     mirror,

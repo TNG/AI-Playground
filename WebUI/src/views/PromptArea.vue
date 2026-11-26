@@ -749,7 +749,6 @@ async function runPickedAgent(text: string): Promise<void> {
   )
 }
 
-// The mode's own Stop knows its Tasks and runs; a turn from another mode goes by its engine.
 async function handleCancelClick() {
   const plan = planCancel({
     queuedBehindRun: !!queuedBehindRun.value,

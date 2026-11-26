@@ -1,6 +1,4 @@
-// What the prompt bar's Stop acts on: the prompt it holds, the open Agent Run, or the open
-// Session's Turn. A Turn this mode owns is stopped by the mode's cancel callback; any other
-// kind is stopped through the Session ledger.
+// A Turn this mode owns is stopped by the mode; any other goes through the Session ledger.
 
 import type { SessionTurnKind } from '@/types/sessionIpc'
 

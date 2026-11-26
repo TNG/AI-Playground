@@ -45,6 +45,7 @@ import type { LatestTurn } from '@/lib/agentComposer'
 import { modelDisplayName } from '@/lib/turnText'
 import type {
   AgentRunIdentity,
+  AgentStopping,
   AgentTurn,
   AnswerDetailKind,
   AnswerPartRef,
@@ -54,6 +55,7 @@ import type {
   ArtifactKind,
   LiveAgentTurn,
   LiveChatStatus,
+  LiveStopping,
   LiveTurns,
   MediaStepStatus,
   PendingAudio,
@@ -74,6 +76,7 @@ import type {
   TurnSummary,
 } from '@/lib/turnTypes'
 import type { GenerationSettings } from '@/types/mediaItem'
+import type { SessionTurnKind } from '@/types/sessionIpc'
 import type {
   AgentTurnTag,
   AudioTurnData,
@@ -757,6 +760,25 @@ function stoppingLive(at: number, now: number): TurnLiveStatus {
   return { kind: 'stopping', stillStopping: now - at >= STILL_STOPPING_AFTER_MS }
 }
 
+export function liveStopping(
+  turn: { kind: SessionTurnKind; harnessSessionId?: string } | null | undefined,
+  stoppingAt: number | undefined,
+): LiveStopping {
+  if (!turn || stoppingAt === undefined) return {}
+  switch (turn.kind) {
+    case 'chat':
+      return { chatStoppingAt: stoppingAt }
+    case 'media':
+      return { mediaStoppingAt: stoppingAt }
+    case 'audio':
+      return { audioStoppingAt: stoppingAt }
+    case 'agent':
+      return turn.harnessSessionId
+        ? { agentStopping: { harnessSessionId: turn.harnessSessionId, at: stoppingAt } }
+        : {}
+  }
+}
+
 function markLiveChatTurn(
   entries: TimelineTurn[],
   status: LiveChatStatus | undefined,
@@ -791,7 +813,7 @@ function markLiveAgentTurns(
   entries: TimelineTurn[],
   agent: LiveAgentTurn,
   mediaSteps: Readonly<Record<string, MediaStepStatus>>,
-  stopping: { harnessSessionId: string; at: number } | undefined,
+  stopping: AgentStopping | undefined,
   now: number,
 ): void {
   const id = agent.tag.harnessSessionId

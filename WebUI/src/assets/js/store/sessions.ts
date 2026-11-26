@@ -129,7 +129,6 @@ export const useSessions = defineStore('sessions', () => {
     }
   }
 
-  /** Marks a Turn Stopping until main releases it. */
   function markTurnStopping(turnId: string): void {
     stoppingTurns.value = { ...stoppingTurns.value, [turnId]: Date.now() }
   }

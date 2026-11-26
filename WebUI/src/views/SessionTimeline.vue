@@ -52,6 +52,7 @@ import ScrollToBottomButton from '@/components/ScrollToBottomButton.vue'
 import SessionTurnBlock from '@/components/SessionTurnBlock.vue'
 import { sessionChatKey } from '@/lib/sessionChat'
 import {
+  liveStopping,
   sessionTimelineItems,
   visibleLiveMessages,
   withoutMessageHiding,
@@ -118,27 +119,7 @@ const chatStatus = computed<LiveChatStatus>(() => {
 
 const stopping = computed(() => {
   const turn = sessions.openTurn
-  const at = turn ? sessions.stoppingTurns[turn.turnId] : undefined
-  return turn && at !== undefined ? { turn, at } : null
-})
-
-const chatStoppingAt = computed(() => {
-  const stopped = stopping.value
-  return stopped?.turn.kind === 'chat' ? stopped.at : undefined
-})
-const agentStopping = computed(() => {
-  const stopped = stopping.value
-  if (stopped?.turn.kind !== 'agent') return undefined
-  const harnessSessionId = stopped.turn.harnessSessionId
-  return harnessSessionId ? { harnessSessionId, at: stopped.at } : undefined
-})
-const mediaStoppingAt = computed(() => {
-  const stopped = stopping.value
-  return stopped?.turn.kind === 'media' ? stopped.at : undefined
-})
-const audioStoppingAt = computed(() => {
-  const stopped = stopping.value
-  return stopped?.turn.kind === 'audio' ? stopped.at : undefined
+  return liveStopping(turn, turn ? sessions.stoppingTurns[turn.turnId] : undefined)
 })
 
 const mediaSteps = computed(() =>
@@ -161,10 +142,7 @@ const items = computed(() => {
     {
       chat: chatLive.value,
       chatStatus: chatStatus.value,
-      chatStoppingAt: chatStoppingAt.value,
-      agentStopping: agentStopping.value,
-      mediaStoppingAt: mediaStoppingAt.value,
-      audioStoppingAt: audioStoppingAt.value,
+      ...stopping.value,
       now: sessions.stoppingNow,
       agents: agentLive.value,
       agentRunsInFlight: agentTasks.firstTurnsInFlight,

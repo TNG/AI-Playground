@@ -13,7 +13,7 @@ export type OverviewSection = {
   title: string
   summary: string
   /** The Session's whole work, folded by code; zero categories are left off the line. */
-  counts?: OverviewWorkCounts
+  counts: OverviewWorkCounts
   /** A ready `data:image/…` URI, downscaled by the tool that read the file. */
   picture?: string
   /** What the Session worked on, as an emoji; the renderer only places it. */
@@ -116,8 +116,7 @@ const COUNT_LABEL_KEY: Record<OverviewWorkCountCategory, OverviewChromeKey> = {
 }
 
 /** One label and bare number per non-zero category, in the code-owned order. */
-function countsHtml(counts: OverviewWorkCounts | undefined, chrome: OverviewChrome): string {
-  if (!counts) return ''
+function countsHtml(counts: OverviewWorkCounts, chrome: OverviewChrome): string {
   const parts = OVERVIEW_WORK_COUNT_ORDER.filter((category) => counts[category] > 0).map(
     (category) =>
       `<span class="count"><span class="count-label">` +

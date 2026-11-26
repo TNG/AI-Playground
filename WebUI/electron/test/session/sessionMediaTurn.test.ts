@@ -150,6 +150,9 @@ describe('a media turn in a Session', () => {
     )
     expect((await fs.stat(dirs.media)).isDirectory()).toBe(true)
     expect(await fs.readdir(sessionWorkspaceDir(id))).toEqual(['clip.mp4'])
+    expect((await readHistoryEntries(id))[0].artifacts).toEqual([
+      { folderId: await workspaceId(id), path: 'clip.mp4', mediaType: 'video' },
+    ])
   })
 
   it('appends one History Entry describing the run', async () => {

@@ -41,6 +41,7 @@ function section(overrides: Partial<OverviewSection>): OverviewSection {
   return {
     title: 'A Session',
     summary: 'It did a thing.',
+    counts: counts(),
     ...overrides,
   }
 }
@@ -215,13 +216,7 @@ describe('overview HTML renderer', () => {
     expect(html).not.toContain('Images')
   })
 
-  it('renders no work-counts line for a section without counts', () => {
-    const html = renderOverviewHtml(documentOf([section({})]), english)
-
-    expect(html).not.toContain('class="counts"')
-  })
-
-  it('escapes work-count labels like the rest of the chrome', () => {
+  it('inserts a work-count label containing markup as escaped text', () => {
     const chrome: OverviewChrome = {
       ...english,
       strings: { ...english.strings, OVERVIEW_COUNT_IMAGES: 'Bilder <b>4</b>' },

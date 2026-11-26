@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  foldOverviewWorkCounts,
-  OVERVIEW_WORK_COUNT_ORDER,
-  type OverviewWorkCounts,
-} from '../../session/overviewCounts'
+import { foldOverviewWorkCounts, OVERVIEW_WORK_COUNT_ORDER } from '../../session/overviewCounts'
 import type { ArtifactMediaType, HistoryEntry } from '@/types/sessionIpc'
 
 // The card's work counts are folded by code from the Session's whole History,
@@ -42,38 +38,41 @@ function withArtifacts(
   })
 }
 
-function countsOf(entries: HistoryEntry[]): OverviewWorkCounts {
-  return foldOverviewWorkCounts(entries)
-}
-
 describe('counting what a Session produced', () => {
   it('counts each recorded Artifact once, so a batch of four is four pictures', () => {
-    expect(countsOf([withArtifacts('image', 4)]).images).toBe(4)
-    expect(countsOf([withArtifacts('video', 2)]).videos).toBe(2)
-    expect(countsOf([withArtifacts('model3d', 3)]).models3d).toBe(3)
-    expect(countsOf([withArtifacts('audio', 5)]).audio).toBe(5)
+    expect(foldOverviewWorkCounts([withArtifacts('image', 4)]).images).toBe(4)
+    expect(foldOverviewWorkCounts([withArtifacts('video', 2)]).videos).toBe(2)
+    expect(foldOverviewWorkCounts([withArtifacts('model3d', 3)]).models3d).toBe(3)
+    expect(foldOverviewWorkCounts([withArtifacts('audio', 5)]).audio).toBe(5)
   })
 
-  it('never counts a video’s adopted poster as a second picture', () => {
-    const video = withArtifacts('video', 1)
-
-    expect(countsOf([video])).toMatchObject({ videos: 1, images: 0 })
-  })
-
-  it('counts a transcription for each speech-to-text entry', () => {
+  it('counts a transcription for each completed speech-to-text entry', () => {
     const entries = [
       historyEntry({ kind: 'stt' }),
       historyEntry({ kind: 'stt' }),
       historyEntry({ kind: 'tts' }),
     ]
 
-    expect(countsOf(entries).transcriptions).toBe(2)
+    expect(foldOverviewWorkCounts(entries).transcriptions).toBe(2)
+  })
+
+  it('counts a failed or cancelled transcription as a failed turn, not a transcription', () => {
+    const entries = [
+      historyEntry({ kind: 'stt', status: 'failed' }),
+      historyEntry({ kind: 'stt', status: 'cancelled' }),
+      historyEntry({ kind: 'stt', status: 'completed' }),
+    ]
+
+    expect(foldOverviewWorkCounts(entries)).toMatchObject({
+      transcriptions: 1,
+      failedTurns: 2,
+    })
   })
 
   it('counts audio clips from recorded Artifacts, so an stt turn adds its own audio too', () => {
     const entries = [withArtifacts('audio', 1, { kind: 'stt' })]
 
-    expect(countsOf(entries)).toMatchObject({ transcriptions: 1, audio: 1 })
+    expect(foldOverviewWorkCounts(entries)).toMatchObject({ transcriptions: 1, audio: 1 })
   })
 
   it('counts Agent Runs by Harness Session, folding a Follow-up into its run', () => {
@@ -86,7 +85,7 @@ describe('counting what a Session produced', () => {
       historyEntry({ ...run, ...followUp }),
     ]
 
-    expect(countsOf(entries).agentRuns).toBe(1)
+    expect(foldOverviewWorkCounts(entries).agentRuns).toBe(1)
   })
 
   it('counts an Agent Run with no Harness Session one each, and ignores plain chat', () => {
@@ -96,7 +95,7 @@ describe('counting what a Session produced', () => {
       historyEntry({ kind: 'chat' }),
     ]
 
-    expect(countsOf(entries).agentRuns).toBe(2)
+    expect(foldOverviewWorkCounts(entries).agentRuns).toBe(2)
   })
 
   it('counts every failed or cancelled turn, and keeps only the media it recorded', () => {
@@ -106,11 +105,11 @@ describe('counting what a Session produced', () => {
       historyEntry({ status: 'completed', artifacts: [artifact('done.png', 'image')] }),
     ]
 
-    expect(countsOf(entries)).toMatchObject({ failedTurns: 2, images: 2 })
+    expect(foldOverviewWorkCounts(entries)).toMatchObject({ failedTurns: 2, images: 2 })
   })
 
   it('leaves absent categories at zero', () => {
-    expect(countsOf([historyEntry()])).toEqual({
+    expect(foldOverviewWorkCounts([historyEntry()])).toEqual({
       images: 0,
       videos: 0,
       models3d: 0,

@@ -29,16 +29,6 @@
           <span class="text-xs ml-1">{{ languages.COM_REGENERATE }}</span>
         </button>
         <button
-          v-else-if="action === 'edit'"
-          class="flex items-center"
-          :disabled="actionsBlocked"
-          :class="{ 'opacity-50 cursor-not-allowed': actionsBlocked }"
-          @click="emit('edit')"
-        >
-          <PencilSquareIcon class="size-4" aria-hidden="true" />
-          <span class="text-xs ml-1">{{ languages.COM_EDIT }}</span>
-        </button>
-        <button
           v-else-if="action === 'delete'"
           class="flex items-center"
           :disabled="actionsBlocked"
@@ -66,7 +56,6 @@ import {
   ArrowPathIcon,
   DocumentDuplicateIcon,
   EyeSlashIcon,
-  PencilSquareIcon,
   SpeakerWaveIcon,
   StopIcon,
   TrashIcon,
@@ -94,9 +83,6 @@ import type { TurnFooter } from '@/lib/turnTypes'
 import { useTurnActions } from '@/lib/useTurnActions'
 
 const props = defineProps<{ footer: TurnFooter }>()
-
-/** Edit opens the prompt bubble's editor; the turn block runs it. */
-const emit = defineEmits<{ edit: [] }>()
 
 const openAiCompatibleChat = useOpenAiCompatibleChat()
 const { blocked: actionsBlocked, regenerate, remove } = useTurnActions(() => props.footer)

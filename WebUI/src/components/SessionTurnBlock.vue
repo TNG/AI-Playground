@@ -18,6 +18,7 @@
         :submitting="turnBusy"
         @resend="emit('resend')"
         @edit-agent="runControls && manageAgents(runControls.agentId)"
+        @edit="editing = true"
         @cancel-edit="editing = false"
         @edit-prompt="submitEdit"
       />
@@ -139,7 +140,7 @@
       />
     </template>
     <template v-if="footerShown" #footer>
-      <SessionTurnFooter :footer="item.footer" @edit="editing = true" />
+      <SessionTurnFooter :footer="item.footer" />
     </template>
   </SessionTurn>
 </template>

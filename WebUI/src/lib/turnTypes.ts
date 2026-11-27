@@ -116,9 +116,11 @@ export type TurnPrompt = {
   inputImageUrl?: string
   audio?: { url: string; name?: string }[]
   origin?: ChannelKind
+  /** The prompt offers Edit itself: it opens the bubble's editor, which re-runs the turn. */
+  editable?: boolean
 }
 
-export type TurnFooterAction = 'copy' | 'speak' | 'regenerate' | 'edit' | 'delete' | 'hide'
+export type TurnFooterAction = 'copy' | 'speak' | 'regenerate' | 'delete' | 'hide'
 
 export type TurnMetrics = Pick<AipgMetadata, 'timings' | 'compute' | 'energy'>
 

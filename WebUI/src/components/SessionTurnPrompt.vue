@@ -74,12 +74,16 @@
       {{ prompt.placeholder }}
     </p>
     <div
-      v-if="!editing && (prompt.text || prompt.origin || controls)"
+      v-if="!editing && (prompt.text || prompt.origin || controls || canEdit)"
       class="flex items-center gap-3 text-xs text-muted-foreground"
     >
       <button v-if="prompt.text" class="flex items-center gap-1" @click="copyText(prompt.text)">
         <DocumentDuplicateIcon class="size-4" aria-hidden="true" />
         <span>{{ languages.COM_COPY }}</span>
+      </button>
+      <button v-if="canEdit" class="flex items-center gap-1" @click="emit('edit')">
+        <PencilSquareIcon class="size-4" aria-hidden="true" />
+        <span>{{ languages.COM_EDIT }}</span>
       </button>
       <button v-if="controls" class="flex items-center gap-1" @click="emit('editAgent')">
         <PencilSquareIcon class="size-4" aria-hidden="true" />
@@ -141,7 +145,7 @@ import {
   PaperAirplaneIcon,
   PencilSquareIcon,
 } from '@heroicons/vue/24/outline'
-import { nextTick, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { getDescriptor } from '@/assets/js/store/channels/channelRegistry'
 import type { ChannelKind } from '@/assets/js/store/channels/types'
 import { useI18N } from '@/assets/js/store/i18n'
@@ -171,6 +175,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   resend: []
   editAgent: []
+  edit: []
   cancelEdit: []
   editPrompt: [text: string]
 }>()
@@ -179,6 +184,9 @@ const sessions = useSessions()
 const i18nStore = useI18N()
 const languages = i18nStore.state
 const runPromptOpen = ref(false)
+
+/** The timeline marks a re-runnable prompt editable; a busy turn hides the affordance. */
+const canEdit = computed(() => !!props.prompt.editable && !props.submitting)
 
 const draft = ref('')
 const editor = ref<{ $el: HTMLTextAreaElement } | null>(null)

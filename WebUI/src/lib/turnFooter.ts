@@ -33,10 +33,9 @@ export function harnessTurnIds(answers: UIMessage[]): string[] {
 
 /**
  * An agent Turn's Copy takes its answer, not the text it wrote between tool
- * calls. Regenerate, Edit and Delete reach only the newest turn; Speak stays
- * with the chat-affordance presets. An Agent Run's Edit rebuilds its prompt
- * from the edited Start Prompt over the same Steps. A turn that ran with the
- * host shell keeps only Copy and Speak: its workspace cannot be rolled back.
+ * calls. Regenerate and Delete reach only the newest turn; Speak stays
+ * with the chat-affordance presets. A turn that ran with the host shell
+ * keeps only Copy and Speak: its workspace cannot be rolled back.
  */
 export function agentFooter(
   answerText: string,
@@ -60,7 +59,7 @@ export function agentFooter(
   const actions: TurnFooterAction[] = [
     ...(answerText ? (['copy'] as const) : []),
     ...(answerText && messageId && assistant.canSpeak ? (['speak'] as const) : []),
-    ...(regenerate ? (['regenerate', 'edit'] as const) : []),
+    ...(regenerate ? (['regenerate'] as const) : []),
     ...(deletable ? (['delete'] as const) : []),
   ]
   // The affordance presets carry the answer's metrics too; the agent footer

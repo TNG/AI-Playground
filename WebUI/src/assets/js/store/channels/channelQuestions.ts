@@ -25,12 +25,10 @@ export type ChannelQuestionAsk = {
   adapter: ChannelAdapter
   meta?: InboundMeta
   summaryMarkdown: string
-  /** Home Agent in-turn confirmations: a typed yes/no answers, anything else typed declines. */
+  /** In-turn confirmations: a typed yes/no answers, anything else typed declines. */
   typedReply?: boolean
   /** Declines after this long; omitted means the question stays open until settled. */
   timeoutMs?: number
-  /** Runs before the buttons are sent (freezes a streaming draft above the prompt). */
-  beforeSend?: () => Promise<void>
   /** Button texts and the notes a tap leaves; English when omitted. */
   labels?: ChannelQuestionLabels
 }
@@ -50,10 +48,10 @@ export type ChannelQuestionRegistry = {
   settle: (id: string, answer: boolean, outcomeNote?: string) => boolean
   /** Takes an open question's buttons away with a note; its `answer` never resolves. */
   retire: (id: string, note: string) => boolean
-  /** Retires every button-only Channel Question not asked on `kind` (all of them for `null`). */
-  retireOutside: (kind: ChannelKind | null, note: string) => void
+  /** Retires every button-only Channel Question not asked on one of `kinds`. */
+  retireOutside: (kinds: readonly ChannelKind[], note: string) => void
   isOpen: (id: string) => boolean
-  /** True when the message answered a question, or tapped a closed one, and must not reach the Home Agent. */
+  /** True when the message answered a question, or tapped a closed one, and must not be routed on. */
   handleInbound: (adapter: ChannelAdapter, msg: InboundAnswer, meta?: InboundMeta) => boolean
 }
 
@@ -134,9 +132,9 @@ export function createChannelQuestionRegistry(deps?: {
     return true
   }
 
-  function retireOutside(kind: ChannelKind | null, note: string): void {
+  function retireOutside(kinds: readonly ChannelKind[], note: string): void {
     for (const [id, q] of [...open]) {
-      if (!q.typedReply && q.adapter.kind !== kind) retire(id, note)
+      if (!q.typedReply && !kinds.includes(q.adapter.kind)) retire(id, note)
     }
   }
 
@@ -180,11 +178,6 @@ export function createChannelQuestionRegistry(deps?: {
         ],
       ]
       ;(async () => {
-        try {
-          await question.beforeSend?.()
-        } catch (e) {
-          log('channelQuestions: beforeSend failed:', e)
-        }
         try {
           const res = await adapter.keyboard(adapter.formatMarkdown(summaryMarkdown), buttons, meta)
           // The question may be settled before the send round-trips.

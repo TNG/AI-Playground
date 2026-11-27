@@ -5,7 +5,7 @@ import { getAudioDir } from './userDataPaths.ts'
 /**
  * Writes a generated speech clip under the app's audio directory and returns
  * the path it landed on. Shared by the `saveGeneratedAudio` IPC (voice
- * previews, Home Agent replies) and the main-side `synthesizeTextToSpeech`
+ * previews, Channel replies) and the main-side `synthesizeTextToSpeech`
  * tool, so a clip is named the same way whoever produced it.
  */
 export async function saveGeneratedAudioFile(

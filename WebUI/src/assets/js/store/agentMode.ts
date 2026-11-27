@@ -1,5 +1,5 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
-import { computed, ref, watch } from 'vue'
+import { computed, ref, shallowReactive, shallowRef, watch } from 'vue'
 import type { UIMessage } from 'ai'
 import { backendToAipgBackendName, useTextInference } from './textInference'
 import { useModels } from './models'
@@ -10,22 +10,36 @@ import { useConfirmations } from './confirmations'
 import { useOemBranding } from './oemBranding'
 import { useErrors } from './errors'
 import { useI18N } from './i18n'
+import { useChatAware } from './chatAware'
 import { useMcp } from './mcp'
+import { useSessions } from './sessions'
 import { unregisterAgentModeIpc } from './agentModeIpc'
 import { demoAwareStorage } from '../demoAwareStorage'
 import { makeForwardPersist } from '@/lib/ipcPersist'
 import { settleStreamingParts } from '@/lib/agentTranscript'
+import { stampHarnessTurnEnd } from '@/lib/harnessTurnEnd'
+import { applyEditedPrompt } from '@/lib/editedPrompt'
+import { fillTemplate } from '@/lib/fillTemplate'
 import { cloneForIpc } from '@/lib/cloneForIpc'
+import { agentOverridesOf, effectiveFolders } from '@/lib/effectiveFolders'
+import {
+  resolveMountedFolders,
+  workspaceEntryOf,
+  type ResolvedMountedFolder,
+} from '@/lib/mountedFolders'
 import {
   makeFileBackedPreference,
   type FileBackedPreferencesApi,
 } from '@/lib/fileBackedPreferences'
 import {
   LegacyAgentSessionStateSchema,
+  type AgentFolderOverrides,
+  type AgentFollowUpTag,
   type AgentSessionBootstrap,
   type AgentSessionSettings,
   type AgentTaskStep,
   type LegacyAgentSessionState,
+  type AgentRunTag,
 } from '@/types/agentSessionIpc'
 import {
   type BagDerivedSetting,
@@ -39,6 +53,10 @@ import {
   updateSessionSettingsFromBag,
   usesSessionSettings,
 } from '@/lib/agentSessionSettings'
+import { HARNESS_CHAT_PRESET } from '@/lib/harnessChatPreset'
+import { hasChatAffordances } from '@/lib/chatAffordances'
+import { runPrompt, stepPrompts } from '@/lib/taskSteps'
+import { harnessInstructions } from '@/lib/presetPrompt'
 import {
   describeSettingsProblems,
   sessionSettingsProblems,
@@ -48,23 +66,25 @@ import { createAppError, createCancellation, extractMessage } from '@/assets/js/
 import { registerSessionPromptPort } from '@/assets/js/permissions/sessionPromptPort'
 import * as toast from '@/assets/js/toast'
 import { withResponseLanguage } from '@/lib/responseLanguage'
+import { overviewChromeOf } from '@/lib/overviewChrome'
 import { ragEmbeddingPrepFailure } from '@/lib/ragEmbeddingPrep'
+import type { OverviewChrome } from '@/types/overviewChrome'
 import { requestDownload } from '@/assets/js/permissions/permissions'
 import {
   DEFAULT_CAPABILITY_IDS,
+  MCP_CAPABILITY_PREFIX,
   WEB_CAPABILITY_ID,
-  NOTIFY_CAPABILITY_ID,
   GAME_STUDIO_QUICK_ID,
   PLANNING_PHASE_CAPABILITY_IDS,
   OFFER_GAME_AGENT_TOOL,
   RAG_PREPARE_EMBEDDING_MODEL,
+  SCREENSHOT_WINDOW_QUERY,
 } from '@/types/agentCapabilities'
-import type { AgentAnswerOrigin, GameLibraryEntry } from '@/types/agentIpc'
+import { harnessTurnRefusal, type AgentAnswerOrigin, type GameLibraryEntry } from '@/types/agentIpc'
 import type { AgentTurnState, PauseReason } from '@/types/kernelEvents'
+import type { HarnessTurnRef, LiveAgentTurn } from '@/lib/turnTypes'
 import type { ChannelKind } from './channels/types'
-import type { HeldAnswerView, SessionTurnEnd } from './channels/answerRouter'
 import {
-  AGENT_PRESET,
   applySessionPresetNames,
   computedPresetSessions,
   ensureSessionId,
@@ -75,6 +95,7 @@ import {
   snapshotSession,
   takeLegacyPlanningThinkingOnly,
   toggleCapabilityIds,
+  turnLabelOf,
   type AgentSessionRecord,
 } from './agentModeSessions'
 import {
@@ -82,10 +103,13 @@ import {
   createAgentTurnRuntimes,
   latestTurnMetadata,
   type AgentSessionRuntime,
+  type RegenerateBody,
 } from './agentModeTurn'
 import {
   createUnsandboxedWorkspaces,
+  createSessionDocuments,
   createWorkspaceAttachments,
+  isDocumentName,
   isGameFolder,
   reconcileGamesWorkspace,
 } from './agentModeWorkspace'
@@ -99,6 +123,10 @@ export type SessionTurnInfo = {
   pauseReason?: PauseReason
 }
 
+export type LibraryShowing = { library: 'agent'; trialRunSessionId: string | null }
+
+export type PauseNotice = { message: string; open: () => void }
+
 /** How a turn that ended out of sight went. */
 export type UnseenTurn = 'done' | 'failed'
 
@@ -107,7 +135,7 @@ export type TurnOutcome =
   { kind: 'completed' } | { kind: 'error'; message: string } | { kind: 'stopped' }
 
 /** Stored with a user message; `origin` is the channel an Answer arrived on. */
-export type AgentMessageMetadata = { origin?: ChannelKind }
+export type AgentMessageMetadata = { origin?: ChannelKind; followUp?: AgentFollowUpTag }
 
 /** The Task run holding a session; its Steps are sent with `signal`, which is how it is let in. */
 export type SessionTaskLock = { taskName: string; signal: AbortSignal | undefined }
@@ -131,15 +159,17 @@ export type SendToSessionResult =
 // message chunk stream from kernel `agent-chunk` events — feeding a standard
 // @ai-sdk/vue Chat instance so the existing part renderers work unchanged.
 // The model controls are Chat's (textInference + cloudMode); for the Agent preset
-// they are bound to the Open Session's Session Settings (docs/adr/0001).
+// they are bound to the open Harness Session's Session Settings (docs/adr/0001).
 //
-// Each Agent Session gets its own turn runtime (Chat instance, busy state, tool
-// progress and images), and kernel events reach only the runtime of the session
-// they carry. The Open Session only selects which runtime Agent Mode renders.
-// Every sent turn waits in main's Turn Queue, so any number of sessions can hold
-// a queued turn while one runs. For the Agent preset, switching conversation or
-// workspace (newSession, switchSession, adoptWorkspace) leaves turns running;
-// Game Agent and Quick Coder still stop the open session's turn when left.
+// Each Harness Session gets its own turn runtime (Chat instance, busy state, tool
+// progress and images), and kernel events reach only the runtime of the Harness
+// Session they carry. The open Harness Session only selects which runtime Agent
+// Mode renders. Every sent turn waits in main's Turn Queue, so any number of
+// Harness Sessions can hold a queued turn while one runs. For the Agent preset,
+// switching Harness Session or workspace (newSession, switchSession, adoptWorkspace)
+// leaves turns running, as does leaving any agent turn of a Session; outside a
+// Session, Game Agent and Quick Coder still stop the open Harness Session's turn
+// when left.
 // Nothing is re-queued after a restart: a message whose turn never ran is marked
 // "not run" and waits for the user to resend it.
 
@@ -164,7 +194,13 @@ export const useAgentMode = defineStore(
     const oemBranding = useOemBranding()
     const errors = useErrors()
     const i18n = useI18N()
+    const chatAware = useChatAware()
     const mcp = useMcp()
+    const sessionsStore = useSessions()
+    /** The Session each Harness Session of this app run belongs to. */
+    const harnessSessionRefs: Record<string, string> = {}
+    /** Harness Sessions main deleted with their Session this app run; nothing saves them again. */
+    const deletedHarnessSessions = new Set<string>()
 
     const workspaceDir = ref<string>('')
 
@@ -200,6 +236,16 @@ export const useAgentMode = defineStore(
       { immediate: true },
     )
 
+    /** The active preset is the remembered agent preset, so Agent Mode is what the user sees. */
+    const agentActive = computed(() => {
+      const active = presetsStore.activePresetWithVariant
+      return (
+        active?.type === 'chat' &&
+        !!(active as ChatPreset).agentPreset &&
+        active.name === agentPresetName.value
+      )
+    })
+
     const presetCapabilities = computed<string[] | null>(() => {
       const declared = activeAgentPreset.value?.agentCapabilities
       return declared && declared.length > 0 ? declared : null
@@ -220,8 +266,8 @@ export const useAgentMode = defineStore(
     const mcpServerIds = ref<string[]>([])
     /** Set once `web` has been added to a default list saved before it existed. */
     const webCapabilityAdopted = ref(false)
-    /** Set once `notify` has been added to default lists saved before it existed. */
-    const notifyCapabilityAdopted = ref(false)
+    /** Set once `web-screenshot` has been added to a default list saved before it existed. */
+    const webScreenshotCapabilityAdopted = ref(false)
 
     const { unsandboxedWorkspaces, unsandboxed, isUnsandboxed, setUnsandboxed } =
       createUnsandboxedWorkspaces(workspaceDir)
@@ -264,21 +310,62 @@ export const useAgentMode = defineStore(
     const presetSessions = computedPresetSessions(sessions, agentPresetName)
 
     /**
-     * The Open Session's Session Settings (Agent preset only). Null until a Draft
-     * Session has taken the Default Settings; the chat store's next load fills it.
+     * The open Harness Session's Session Settings (Agent preset only). Null until a draft
+     * has taken the Default Settings; the chat store's next load fills it.
      */
     const openSettings = ref<AgentSessionSettings | null>(null)
-    /** The Open Session's Steps (Agent preset only); a Draft Session's live here until it is sent. */
-    const openSteps = ref<AgentTaskStep[]>([])
-    /** The Agent the Open Session was loaded from or saved as. */
-    const openTaskId = ref<string | undefined>(undefined)
 
     const sessionScoped = computed(() => usesSessionSettings(activeAgentPreset.value))
 
-    /** The Open Session has been sent: its stored settings are its own and are checked. */
-    const sessionSent = computed(
-      () => sessionScoped.value && (sessions.value[openSessionId.value]?.messages.length ?? 0) > 0,
-    )
+    /** Where a Session keeps the Agent preset's Session Settings (`session.json`, ADR-0004). */
+    type AgentSettingsPort = {
+      /** The open Session's copy; undefined until its settings are read or the preset ran there. */
+      read: (presetName: string) => { settings: AgentSessionSettings; sent: boolean } | undefined
+      write: (presetName: string, settings: AgentSessionSettings, sent: boolean) => void
+      drop: (presetName: string) => void
+      /** Another Session's copy, for a turn sent to a Harness Session that is not open. */
+      readStored: (sessionRef: string, presetName: string) => Promise<AgentSessionSettings | null>
+      whenLoaded: () => Promise<void>
+    }
+    const settingsPort = shallowRef<AgentSettingsPort | null>(null)
+
+    function bindSessionSettingsPort(port: AgentSettingsPort | null): void {
+      settingsPort.value = port
+      if (!port || !heldBySession()) return
+      void port.whenLoaded().then(() => {
+        if (heldBySession()) applyOpenSessionSettings(port.read(agentPresetName.value)?.settings)
+      })
+    }
+
+    /** Main changed the open Session's stored settings: take them into the live controls. */
+    function reloadOpenSessionSettings(): void {
+      const port = settingsPort.value
+      if (port && heldBySession())
+        applyOpenSessionSettings(port.read(agentPresetName.value)?.settings)
+    }
+
+    /** The open Harness Session's settings live in its Session, not on its own record. */
+    function heldBySession(): boolean {
+      const id = openSessionId.value
+      const sessionRef = sessions.value[id]?.sessionRef ?? harnessSessionRefs[id]
+      return (
+        !!settingsPort.value &&
+        sessionScoped.value &&
+        !!sessionRef &&
+        sessionRef === sessionsStore.openSessionId
+      )
+    }
+
+    function writeSessionSettings(sent: boolean): void {
+      if (!openSettings.value) return
+      settingsPort.value?.write(agentPresetName.value, cloneForIpc(openSettings.value), sent)
+    }
+
+    /** The open Harness Session has been sent: its stored settings are its own and are checked. */
+    const sessionSent = computed(() => {
+      if (heldBySession()) return settingsPort.value?.read(agentPresetName.value)?.sent === true
+      return sessionScoped.value && (sessions.value[openSessionId.value]?.messages.length ?? 0) > 0
+    })
 
     /** Live values right after a sent session loaded; fields still equal to them were not edited. */
     let loadedBaseline: AgentSessionSettings | null = null
@@ -323,14 +410,17 @@ export const useAgentMode = defineStore(
       return true
     }
 
-    type AgentDefaults = { capabilities: string[]; planningThinkingOnly: boolean }
+    type AgentDefaults = {
+      capabilities: string[]
+      planningThinkingOnly: boolean
+    }
 
     /**
      * The capability and planning half of the Agent preset's Default Settings. Until the
      * preset's bag holds them, the former global values stand in (`migrate` copies them in).
      */
     function readAgentDefaults(): AgentDefaults {
-      const bag = textInference.settingsPerPreset?.[AGENT_PRESET] ?? {}
+      const bag = textInference.settingsPerPreset?.[HARNESS_CHAT_PRESET] ?? {}
       const capabilities = bag[DEFAULT_CAPABILITIES_KEY]
       const planning = bag[DEFAULT_PLANNING_THINKING_ONLY_KEY]
       return {
@@ -346,13 +436,13 @@ export const useAgentMode = defineStore(
       const defaults = readAgentDefaults()
       const bags = textInference.settingsPerPreset
       if (!bags) return defaults
-      const bag = bags[AGENT_PRESET] ?? {}
+      const bag = bags[HARNESS_CHAT_PRESET] ?? {}
       if (DEFAULT_CAPABILITIES_KEY in bag && DEFAULT_PLANNING_THINKING_ONLY_KEY in bag) {
         return defaults
       }
       textInference.settingsPerPreset = {
         ...bags,
-        [AGENT_PRESET]: {
+        [HARNESS_CHAT_PRESET]: {
           ...bag,
           [DEFAULT_CAPABILITIES_KEY]: defaults.capabilities,
           [DEFAULT_PLANNING_THINKING_ONLY_KEY]: defaults.planningThinkingOnly,
@@ -369,7 +459,7 @@ export const useAgentMode = defineStore(
       },
       save: (bag, embeddingBackend) => {
         const stored = openSettings.value
-        // A Draft Session's first save also takes the capability and planning defaults.
+        // A draft Harness Session's first save also takes the capability and planning defaults.
         const next = updateSessionSettingsFromBag(
           stored ?? migrateAgentDefaults(),
           bag,
@@ -377,11 +467,12 @@ export const useAgentMode = defineStore(
         )
         if (!stored || !loadedBaseline) {
           openSettings.value = next
-          return
+        } else {
+          const kept = keepUneditedSettings(stored, next, loadedBaseline, editedSinceLoad)
+          editedSinceLoad = kept.edited
+          openSettings.value = kept.settings
         }
-        const kept = keepUneditedSettings(stored, next, loadedBaseline, editedSinceLoad)
-        editedSinceLoad = kept.edited
-        openSettings.value = kept.settings
+        if (heldBySession()) writeSessionSettings(sessionSent.value)
       },
       pinned: () => sessionSent.value,
       loaded: (bag, embeddingBackend) => {
@@ -390,15 +481,15 @@ export const useAgentMode = defineStore(
       },
     })
 
-    /** "Save as default": the Open Session's settings become the Agent preset's defaults. */
+    /** "Save as default": the open Harness Session's settings become the preset's defaults. */
     function saveAsDefault(): void {
       const settings = openSettings.value
       if (!sessionScoped.value || !settings) return
       const bags = textInference.settingsPerPreset ?? {}
-      const base = bags[AGENT_PRESET] ?? {}
+      const base = bags[HARNESS_CHAT_PRESET] ?? {}
       textInference.settingsPerPreset = {
         ...bags,
-        [AGENT_PRESET]: {
+        [HARNESS_CHAT_PRESET]: {
           ...sessionSettingsToBag(settings, base, textInference.embeddingBackend),
           [DEFAULT_CAPABILITIES_KEY]: [...capabilities.value],
           [DEFAULT_PLANNING_THINKING_ONLY_KEY]: effectivePlanningThinkingOnly.value,
@@ -407,11 +498,17 @@ export const useAgentMode = defineStore(
     }
 
     /**
-     * "Reset to default": the Open Session takes the Default Settings again, repaired the
-     * way a new Draft Session is. Other sessions and the stored defaults stay as they are.
+     * "Reset to default": the open Harness Session takes the Default Settings again, repaired
+     * the way a new draft is. Other sessions and the stored defaults stay as they are.
      */
     function resetToDefault(): void {
       if (!sessionScoped.value) return
+      if (heldBySession()) {
+        settingsPort.value?.drop(agentPresetName.value)
+        openSettings.value = null
+        textInference.loadSettingsForActivePreset()
+        return
+      }
       openSettings.value = null
       // The load hands the repaired defaults back through the binding's save.
       textInference.loadSettingsForActivePreset()
@@ -430,7 +527,9 @@ export const useAgentMode = defineStore(
       embeddingBackend: 'llamaCPP' | 'openVINO',
     ): void {
       const record = sessions.value[openSessionId.value]
-      if (!record || record.messages.length === 0 || !sessionsHydrated.value) return
+      const inSession = heldBySession()
+      if (inSession ? !sessionSent.value : !record || record.messages.length === 0) return
+      if (!sessionsHydrated.value) return
       const fromDefaults: AgentSessionSettings = {
         ...sessionSettingsFromBag(defaults, embeddingBackend),
         ...readAgentDefaults(),
@@ -438,7 +537,9 @@ export const useAgentMode = defineStore(
       const filled = fillMissingSessionSettings(openSettings.value ?? {}, fromDefaults)
       if (!filled.changed) return
       openSettings.value = filled.settings
-      rewriteSession(openSessionId.value, { ...record, settings: { ...filled.settings } })
+      if (inSession) writeSessionSettings(true)
+      else if (record)
+        rewriteSession(openSessionId.value, { ...record, settings: { ...filled.settings } })
     }
 
     /** What a record contributes on activation: a sent Agent session always has settings. */
@@ -463,15 +564,8 @@ export const useAgentMode = defineStore(
       )
     }
 
-    /** Opens a new session for a preset that starts its own way; false leaves it blank. */
-    let presetSessionStarter: ((presetName: string) => Promise<boolean>) | null = null
-
-    function setPresetSessionStarter(starter: (presetName: string) => Promise<boolean>): void {
-      presetSessionStarter = starter
-    }
-
     /**
-     * Put the Open Session's settings into the live controls. Nothing starts here: the
+     * Put the open Harness Session's settings into the live controls. Nothing starts here: the
      * backend and model are made ready by the next send.
      */
     function applyOpenSessionSettings(settings: AgentSessionSettings | undefined): void {
@@ -503,13 +597,51 @@ export const useAgentMode = defineStore(
       return capabilities.value.includes(id)
     }
 
+    /** What an Agent Run (or its Follow-up) puts in place of its Session's folders. */
+    function agentRunOverrides(
+      context: Pick<TurnContext, 'settings' | 'taskRun' | 'followUp'>,
+    ): AgentFolderOverrides | undefined {
+      return context.taskRun || context.followUp ? context.settings?.folderOverrides : undefined
+    }
+
+    /**
+     * The folders a turn mounts beside its Workspace, checked before it is sent: the folders in
+     * effect for its Session and Agent (main mounts the same, resolved from the Session's list).
+     */
+    function turnMountedFolders(
+      sessionId: string,
+      context: Pick<TurnContext, 'presetName' | 'settings' | 'taskRun' | 'followUp'>,
+    ): ResolvedMountedFolder[] {
+      const agentRun = !!context.taskRun || !!context.followUp
+      if (!agentRun && !nameUsesSessionSettings(context.presetName)) return []
+      const agent = agentOverridesOf(agentRunOverrides(context))
+      // A Trial Run has no Session, so it never falls back to the open one.
+      const sessionRef = agentRun
+        ? sessionRefOf(sessionId)
+        : (sessionRefOf(sessionId) ?? sessionsStore.openSessionId)
+      const list = sessionRef ? sessionsStore.sessions[sessionRef]?.folderList : undefined
+      if (!list) return resolveMountedFolders(agent?.folders ?? [])
+      const appCreated = new Set(
+        list.folders.filter((folder) => folder.appCreated).map((folder) => folder.id),
+      )
+      // Main makes a deleted app-created folder again, so only the user's own can be missing.
+      return (effectiveFolders({ session: list, agent })?.others ?? []).filter(
+        (folder) =>
+          !folder.planned && !(folder.source === 'session' && appCreated.has(folder.id ?? '')),
+      )
+    }
+
     const planningPhaseSupported = computed(() =>
       capabilities.value.some((id) => PLANNING_PHASE_CAPABILITY_IDS.includes(id)),
     )
 
-    /** Change the Open Session's own settings and keep its record (if any) in step. */
+    /** Change the open Harness Session's own settings and keep its record (if any) in step. */
     function updateOpenSettings(change: AgentSessionSettings): void {
       openSettings.value = { ...openSettings.value, ...change }
+      if (heldBySession()) {
+        writeSessionSettings(sessionSent.value)
+        return
+      }
       const session = sessions.value[openSessionId.value]
       if (!session) return
       rewriteSession(openSessionId.value, { ...session, settings: { ...openSettings.value } })
@@ -722,25 +854,21 @@ export const useAgentMode = defineStore(
       }
     }
 
-    /**
-     * Existing sessions keep their lists (docs/adr/0001); only the defaults new sessions
-     * start from gain `notify`. Needs the Agent preset's settings hydrated.
-     */
-    function adoptNotifyCapability(): void {
-      if (notifyCapabilityAdopted.value) return
-      notifyCapabilityAdopted.value = true
-      if (!defaultCapabilities.value.includes(NOTIFY_CAPABILITY_ID)) {
-        defaultCapabilities.value = [...defaultCapabilities.value, NOTIFY_CAPABILITY_ID]
-      }
-      const bags = textInference.settingsPerPreset ?? {}
-      const stored = bags[AGENT_PRESET]?.[DEFAULT_CAPABILITIES_KEY]
-      if (!Array.isArray(stored) || stored.includes(NOTIFY_CAPABILITY_ID)) return
+    function adoptDefaultCapabilities(): void {
+      if (webScreenshotCapabilityAdopted.value) return
+      webScreenshotCapabilityAdopted.value = true
+      const adopted = (ids: string[]) => [
+        ...DEFAULT_CAPABILITY_IDS,
+        ...ids.filter((id) => id.startsWith(MCP_CAPABILITY_PREFIX)),
+      ]
+      defaultCapabilities.value = adopted(defaultCapabilities.value)
+      const bags = textInference.settingsPerPreset
+      const bag = bags?.[HARNESS_CHAT_PRESET]
+      const stored = bag?.[DEFAULT_CAPABILITIES_KEY]
+      if (!bag || !Array.isArray(stored)) return
       textInference.settingsPerPreset = {
         ...bags,
-        [AGENT_PRESET]: {
-          ...bags[AGENT_PRESET],
-          [DEFAULT_CAPABILITIES_KEY]: [...stored, NOTIFY_CAPABILITY_ID],
-        },
+        [HARNESS_CHAT_PRESET]: { ...bag, [DEFAULT_CAPABILITIES_KEY]: adopted(stored as string[]) },
       }
     }
 
@@ -764,7 +892,7 @@ export const useAgentMode = defineStore(
         : planningThinkingOnly.value,
     )
 
-    /** The Session Settings the panel holds for the Open Session right now. */
+    /** The Session Settings the panel holds for the open Harness Session right now. */
     const openSessionSettings = computed<AgentSessionSettings>(() => ({
       ...openSettings.value,
       capabilities: [...capabilities.value],
@@ -781,7 +909,7 @@ export const useAgentMode = defineStore(
       if (!bags) return
       const { value, bags: next } = takeLegacyPlanningThinkingOnly(
         bags,
-        agentPresetName.value || AGENT_PRESET,
+        agentPresetName.value || HARNESS_CHAT_PRESET,
       )
       if (typeof value === 'boolean') planningThinkingOnly.value = value
       if (next !== bags) textInference.settingsPerPreset = next
@@ -790,6 +918,7 @@ export const useAgentMode = defineStore(
     // Frozen per session so a later turn does not rebuild Pi (instructions are
     // part of the session key) or pick up a Language-selector change mid-run.
     const pendingResponseLocales: Record<string, string> = {}
+    const pendingOverviewChrome: Record<string, OverviewChrome> = {}
     const pendingTitles: Record<string, string> = {}
 
     function sessionResponseLocale(sessionId: string): string {
@@ -797,6 +926,15 @@ export const useAgentMode = defineStore(
       if (stored) return stored
       pendingResponseLocales[sessionId] = i18n.langName
       return pendingResponseLocales[sessionId]
+    }
+
+    // Frozen with the locale: a language change mid-session must not rewrite the
+    // chrome of an Overview the Session already produces in one language.
+    function sessionOverviewChrome(sessionId: string): OverviewChrome {
+      return (pendingOverviewChrome[sessionId] ??= overviewChromeOf(
+        sessionResponseLocale(sessionId),
+        i18n.state,
+      ))
     }
 
     // The rag capability (main process) asks for this before its first index:
@@ -812,7 +950,7 @@ export const useAgentMode = defineStore(
       const missing = checked.filter((m) => !m.already_loaded)
       if (missing.length === 0) return { status: 'ready' }
       // The permissions layer owns the prompt (the shared download modal, or
-      // the in-channel question on a remote Home Agent turn), so the agent
+      // the in-channel question on a Channel turn), so the agent
       // store does not touch the dialog store directly — the same seam chat
       // and media use (AGENTS.md: "Report through the sink, not directly").
       try {
@@ -836,10 +974,12 @@ export const useAgentMode = defineStore(
       quietErrors?: boolean
       /** Set for the one turn a channel Answer started. */
       answer?: AgentAnswerOrigin
+      taskRun?: AgentModeTurnConfig['taskRun']
+      followUp?: AgentFollowUpTag
     }
     const turnContexts: Record<string, TurnContext> = {}
 
-    /** The Open Session's Session Settings are bound to the live controls (ADR 0001). */
+    /** The open Harness Session's Session Settings are bound to the live controls (ADR 0001). */
     function liveTurnContext(): TurnContext {
       return {
         workspaceDir: workspaceDir.value,
@@ -857,7 +997,7 @@ export const useAgentMode = defineStore(
       const settings = settingsOverride ?? record.settings ?? {}
       return {
         workspaceDir: record.workspaceDir,
-        presetName: record.presetName ?? AGENT_PRESET,
+        presetName: record.presetName ?? HARNESS_CHAT_PRESET,
         capabilities: [
           ...(settings.capabilities ?? record.capabilities ?? readAgentDefaults().capabilities),
         ],
@@ -866,61 +1006,120 @@ export const useAgentMode = defineStore(
       }
     }
 
+    function sessionRefOf(harnessSessionId: string): string | undefined {
+      return harnessSessionRefs[harnessSessionId] ?? sessions.value[harnessSessionId]?.sessionRef
+    }
+
+    function requestTurnDeletion(
+      harnessSessionId: string,
+      turnIds: string[],
+      messageIds: string[],
+    ) {
+      const sessionRef = sessionRefOf(harnessSessionId)
+      return window.electronAPI.agentMode.deleteTurns({
+        ...(sessionRef ? { sessionRef } : {}),
+        harnessSessionId,
+        turnIds,
+        messageIds,
+      })
+    }
+
     function liveTurnConfig(sessionId: string) {
       return buildTurnConfig({
         sessionId,
+        sessionRef: sessionRefOf(sessionId),
         workspaceDir: workspaceDir.value,
         // The remembered agent preset, not the active one: a media call
         // switches the active preset to an image-gen one mid-turn.
         presetName: agentPresetName.value,
         instructions: withResponseLanguage(
-          activeAgentPreset.value?.systemPrompt?.trim() ?? '',
-          sessionResponseLocale(sessionId),
+          harnessInstructions(activeAgentPreset.value, textInference.systemPrompt),
+          chatAware.responseLanguage(sessionResponseLocale(sessionId)),
         ),
+        ownsPrompt: activeAgentPreset.value?.agentOwnsPrompt === true,
+        userSampling: hasChatAffordances(activeAgentPreset.value),
         capabilities: [...capabilities.value],
         unsandboxed: unsandboxed.value,
+        folderOverrides: agentRunOverrides(liveTurnContext()),
         planningThinkingOnly: effectivePlanningThinkingOnly.value,
         textInference,
         cloudMode,
+        responseLocale: sessionResponseLocale(sessionId),
+        overviewChrome: sessionOverviewChrome(sessionId),
         answer: turnContexts[sessionId]?.answer,
       })
     }
 
+    function followedRunOf(record: AgentSessionRecord | undefined) {
+      const run = record?.taskRun
+      return run ? { taskName: run.taskName, startedAt: run.startedAt } : undefined
+    }
+
+    function withTaskId(
+      taskRun: NonNullable<AgentModeTurnConfig['taskRun']>,
+      record: AgentSessionRecord | undefined,
+    ): AgentModeTurnConfig['taskRun'] {
+      const taskId = record?.taskRun?.taskId
+      return taskId ? { ...taskRun, taskId } : taskRun
+    }
+
     function storedTurnConfig(sessionId: string, context: TurnContext) {
       const preset = presetsStore.presets.find((entry) => entry.name === context.presetName)
-      const systemPrompt = preset?.type === 'chat' ? (preset as ChatPreset).systemPrompt : ''
+      const chatPreset = preset?.type === 'chat' ? (preset as ChatPreset) : undefined
       const settings = context.settings ?? {}
       const stored = textInference.inferenceForSettings(context.presetName, settings)
       return buildTurnConfig({
         sessionId,
+        sessionRef: sessionRefOf(sessionId),
         workspaceDir: context.workspaceDir,
         presetName: context.presetName,
         instructions: withResponseLanguage(
-          systemPrompt?.trim() ?? '',
-          sessionResponseLocale(sessionId),
+          harnessInstructions(chatPreset, stored.systemPrompt),
+          chatAware.responseLanguage(sessionResponseLocale(sessionId)),
         ),
+        ownsPrompt: chatPreset?.agentOwnsPrompt === true,
+        userSampling: hasChatAffordances(chatPreset),
         capabilities: [...context.capabilities],
         unsandboxed: isUnsandboxed(context.workspaceDir),
+        folderOverrides: agentRunOverrides(context),
         planningThinkingOnly:
           settings.planningThinkingOnly ?? readAgentDefaults().planningThinkingOnly,
         textInference: stored.inference,
         cloudMode: stored.cloud,
+        responseLocale: sessionResponseLocale(sessionId),
+        overviewChrome: sessionOverviewChrome(sessionId),
         tools: stored.tools,
         answer: context.answer,
+        taskRun: context.taskRun && withTaskId(context.taskRun, sessions.value[sessionId]),
+        followUp: context.followUp,
+        followedRun: context.followUp ? followedRunOf(sessions.value[sessionId]) : undefined,
       })
     }
 
     const turns = createAgentTurnRuntimes({
       errors,
+      describeTurnError: (message) => {
+        const refusal = harnessTurnRefusal(message)
+        return refusal ? i18n.state[refusal] : undefined
+      },
       storeTools: {
         [OFFER_GAME_AGENT_TOOL]: (input, sessionId) => offerGameAgent(input, sessionId),
         [RAG_PREPARE_EMBEDDING_MODEL]: (input) => prepareRagEmbeddingModel(input),
+        [SCREENSHOT_WINDOW_QUERY]: async () => textInference.screenshotWindow ?? null,
       },
       buildTurnConfig: (sessionId) => {
         const context = turnContexts[sessionId]
         return context?.stored ? storedTurnConfig(sessionId, context) : liveTurnConfig(sessionId)
       },
       initialMessages: (sessionId) => [...(sessions.value[sessionId]?.messages ?? [])],
+      // A reconnected renderer adopted a regenerate in flight: the answers the
+      // rewind replaced leave the Session's view at once, like the live path.
+      onAdoptedRewound: (sessionId, messageIds) => {
+        const sessionRef = sessionRefOf(sessionId)
+        if (sessionRef && messageIds.length > 0) {
+          sessionsStore.forgetTimelineMessages(sessionRef, messageIds)
+        }
+      },
       // The sent message is on the record at once, so the session is in the history
       // even when the user moves on before the turn has run.
       onTurnSubmitted: (sessionId) => {
@@ -963,11 +1162,11 @@ export const useAgentMode = defineStore(
         openRuntime.value.processing.value = value
       },
     })
-    /** Where the Open Session's turn stands in the Turn Queue; null while it has none. */
+    /** Where the open Harness Session's turn stands in the Turn Queue; null while it has none. */
     const turnState = computed(() => openRuntime.value.turnState.value)
     const toolProgress = computed(() => openRuntime.value.toolProgress.value)
     const toolImages = computed(() => openRuntime.value.toolImages.value)
-    /** Any Agent Session holds a turn, open or not. */
+    /** Any Harness Session holds a turn, open or not. */
     const anyTurnOpen = turns.anyTurnOpen
 
     /** Where each session with a turn in flight stands in the Turn Queue. */
@@ -1025,25 +1224,91 @@ export const useAgentMode = defineStore(
       notRunMessages.value = found
     }
 
-    /** The Open Session ends on a "not run" message that can be sent again. */
+    /** The open Harness Session ends on a "not run" message that can be sent again. */
     const canResendNotRun = computed(() => {
       const messageId = notRunMessages.value[openSessionId.value]
       return !!messageId && !processing.value && messages.value.at(-1)?.id === messageId
     })
+
+    /**
+     * The Harness Sessions of a Session that the timeline streams: the open one, with
+     * its queued / not-run markers, and every other one running a turn (Task Runs).
+     */
+    function liveTurnsIn(sessionRef: string): LiveAgentTurn[] {
+      const live: LiveAgentTurn[] = []
+      for (const [id, runtime] of Object.entries(turns.runtimes.value)) {
+        if (sessionRefOf(id) !== sessionRef) continue
+        const open = id === openSessionId.value
+        if (!open && !runtime.processing.value) continue
+        const record = sessions.value[id]
+        const tag = {
+          presetName: open ? agentPresetName.value : turnLabelOf(record),
+          harnessSessionId: id,
+          ...(record?.taskRun ? { taskRun: record.taskRun } : {}),
+        }
+        if (!open) {
+          live.push({ tag, messages: runtime.chat.messages, live: true })
+          continue
+        }
+        live.push({
+          tag,
+          messages: messages.value,
+          live: processing.value,
+          queuedMessageId:
+            turnState.value === 'queued'
+              ? messages.value.findLast((entry) => entry.role === 'user')?.id
+              : undefined,
+          notRunMessageId: notRunMessages.value[id],
+          canResend: canResendNotRun.value,
+          open: true,
+          ...(chat.value.error ? { error: chat.value.error.message } : {}),
+        })
+      }
+      return live
+    }
+
+    /** A Harness Session's messages while its turn streams; undefined once it has none. */
+    function streamingMessagesOf(id: string): readonly UIMessage[] | undefined {
+      const runtime = turns.runtimes.value[id]
+      return runtime?.processing.value ? (runtime.chat.messages as UIMessage[]) : undefined
+    }
 
     /** Agent Mode is on screen; a session is in view only while it is, and open. */
     const viewShown = ref(false)
     function setViewShown(shown: boolean): void {
       viewShown.value = shown
     }
+    const libraryShowing = ref<LibraryShowing | null>(null)
+    function setLibraryShowing(showing: LibraryShowing): void {
+      libraryShowing.value = showing
+    }
+    function setLibraryHidden(library: LibraryShowing['library']): void {
+      if (libraryShowing.value?.library === library) libraryShowing.value = null
+    }
+    /** App Settings covers the Session and the Agent Library alike. */
+    const settingsShowing = ref(false)
+    function setSettingsShowing(showing: boolean): void {
+      settingsShowing.value = showing
+    }
+    /** The Harness Session of the Trial Run the Agent Library shows; null when it shows none. */
+    const trialRunInView = computed(() =>
+      libraryShowing.value?.library === 'agent' ? libraryShowing.value.trialRunSessionId : null,
+    )
     function inView(sessionId: string): boolean {
+      if (settingsShowing.value) return false
+      const showing = libraryShowing.value
+      if (showing) return showing.library === 'agent' && showing.trialRunSessionId === sessionId
+      const sessionRef = sessionRefOf(sessionId)
+      if (sessionRef) return sessionRef === sessionsStore.openSessionId
       return viewShown.value && openSessionId.value === sessionId
     }
-    const sessionInView = computed(() => (viewShown.value && openSessionId.value) || null)
 
     // A download or VRAM prompt a turn raised out of sight waits here until its
-    // session is in view, so a Paused Session never pops up over other work.
-    const heldPrompts: Record<string, Array<{ show: () => void; drop: () => void }>> = {}
+    // session is in view, so it never pops up over other work.
+    const heldPrompts = shallowReactive<
+      Record<string, Array<{ show: () => void; drop: () => void }>>
+    >({})
+    const hasHeldPrompt = (sessionId: string): boolean => !!heldPrompts[sessionId]
     const turnEndWaiters: Record<string, Array<() => void>> = {}
 
     registerSessionPromptPort({
@@ -1063,6 +1328,11 @@ export const useAgentMode = defineStore(
         return new Promise<void>((resolve) => (turnEndWaiters[sessionId] ??= []).push(resolve))
       },
       answerOrigin: (sessionId) => turnContexts[sessionId]?.answer,
+      reachesChannels: (sessionId) => {
+        if (turnContexts[sessionId]?.answer) return true
+        const sessionRef = sessions.value[sessionId]?.sessionRef
+        return !!sessionRef && sessionsStore.sessions[sessionRef]?.reachable === true
+      },
     })
 
     function settleHeldPrompts(sessionId: string, how: 'show' | 'drop'): void {
@@ -1072,25 +1342,54 @@ export const useAgentMode = defineStore(
       for (const prompt of held) prompt[how]()
     }
 
-    watch([viewShown, openSessionId], () => {
-      if (viewShown.value) settleHeldPrompts(openSessionId.value, 'show')
-    })
+    watch(
+      [
+        viewShown,
+        openSessionId,
+        () => sessionsStore.openSessionId,
+        libraryShowing,
+        settingsShowing,
+      ],
+      () => {
+        for (const sessionId of Object.keys(heldPrompts)) {
+          if (inView(sessionId)) settleHeldPrompts(sessionId, 'show')
+        }
+      },
+    )
+
+    let pauseNoticeOf: (sessionId: string) => PauseNotice | undefined = () => undefined
+    /** Lets a store that owns some Harness Sessions word their pause toast and its Open. */
+    function registerPauseNotice(resolve: (sessionId: string) => PauseNotice | undefined): void {
+      pauseNoticeOf = resolve
+    }
 
     /** One toast per pause of a session the user is not looking at. */
     function onTurnPaused(sessionId: string): void {
       if (inView(sessionId)) return
-      const title = sessions.value[sessionId]?.title ?? ''
-      toast.show((i18n.state.AGENT_SESSION_NEEDS_INPUT ?? '').replace('{title}', title), {
+      const notice = pauseNoticeOf(sessionId) ?? {
+        message: (i18n.state.AGENT_SESSION_NEEDS_INPUT ?? '').replace(
+          '{title}',
+          sessions.value[sessionId]?.title ?? '',
+        ),
+        open: () => void openSession(sessionId),
+      }
+      toast.show(notice.message, {
         settings: { duration: 8000 },
-        action: {
-          label: i18n.state.AGENT_SESSION_OPEN ?? '',
-          run: () => void openSession(sessionId),
-        },
+        action: { label: i18n.state.AGENT_SESSION_OPEN ?? '', run: notice.open },
       })
     }
 
     /** Bring a session on screen: into Agent Mode if the app is elsewhere, then open it. */
     async function openSession(id: string): Promise<void> {
+      const sessionRef = sessions.value[id]?.sessionRef
+      if (sessionRef) {
+        const presetName = sessions.value[id]?.presetName ?? HARNESS_CHAT_PRESET
+        if (presetName !== presetsStore.activePresetWithVariant?.name) {
+          await presetSwitching.switchPreset(presetName)
+        }
+        await sessionsStore.open(sessionRef)
+        return
+      }
       const presetName = sessions.value[id]?.presetName ?? agentPresetName.value
       if (!viewShown.value && presetName === agentPresetName.value) {
         await presetSwitching.switchPreset(presetName)
@@ -1116,6 +1415,31 @@ export const useAgentMode = defineStore(
       persistSessionRecord(record)
     }
 
+    /**
+     * The Workspace a Session's own agent works in, whatever path its record stored: the
+     * Workspace is renamed after the first turn, starred elsewhere, or moved by the upgrade.
+     * Empty for a games preset or a Harness Session of no Session.
+     */
+    function sessionWorkspaceOf(sessionRef: string | null | undefined, presetName: string): string {
+      if (!sessionRef || workspaceKindOf(presetName) === 'games') return ''
+      return sessionsStore.workspaceDirOf(sessionRef)
+    }
+
+    /** Where a stored Harness Session's next turn works. */
+    function turnWorkspaceOf(id: string): string {
+      const record = sessions.value[id]
+      if (!record) return ''
+      const presetName = record.presetName ?? HARNESS_CHAT_PRESET
+      return sessionWorkspaceOf(record.sessionRef, presetName) || record.workspaceDir
+    }
+
+    /** Keeps a Session's Harness Session on the Workspace its turns now run in. */
+    function followSessionWorkspace(id: string, dir: string): void {
+      const record = sessions.value[id]
+      if (record && record.workspaceDir !== dir)
+        rewriteSession(id, { ...record, workspaceDir: dir })
+    }
+
     watch(openSessionId, (id) => {
       if (!sessionsHydrated.value) return
       persistSessionMutation(() => window.electronAPI.agentMode.saveActiveSessionId(id || null))
@@ -1138,6 +1462,18 @@ export const useAgentMode = defineStore(
       const stopped = stoppedByUser.delete(sessionId)
       const chat = turns.runtimeOf(sessionId)?.chat
       const failed = chat?.status === 'error'
+      if (stopped) {
+        if (chat) chat.messages = stampHarnessTurnEnd(chat.messages, 'cancelled')
+        const record = sessions.value[sessionId]
+        if (record) {
+          const ended = {
+            ...record,
+            messages: stampHarnessTurnEnd(record.messages as UIMessage[], 'cancelled'),
+          }
+          rewriteSession(sessionId, ended)
+          saveToSessionTimeline(ended)
+        }
+      }
       if (!stopped && sessionId !== openSessionId.value && sessions.value[sessionId]) {
         unseenTurns.value = { ...unseenTurns.value, [sessionId]: failed ? 'failed' : 'done' }
       }
@@ -1158,49 +1494,6 @@ export const useAgentMode = defineStore(
           ? { kind: 'error', message: extractMessage(chat?.error) }
           : { kind: 'completed' }
       for (const listener of [...turnSettledListeners]) listener(sessionId, outcome)
-      // After the Tasks store has heard it, so a finished run no longer holds the session.
-      if (!deletingSessions.has(sessionId)) {
-        settleHeldAnswer(
-          sessionId,
-          outcome.kind === 'completed'
-            ? 'completed'
-            : outcome.kind === 'error'
-              ? 'failed'
-              : 'stopped',
-        )
-      }
-    }
-
-    const heldAnswers = ref<Record<string, HeldAnswerView>>({})
-    type HeldAnswerListener = (sessionId: string, end: SessionTurnEnd) => void
-    const heldAnswerListeners = new Set<HeldAnswerListener>()
-    const deletingSessions = new Set<string>()
-
-    /** The Answer router keeps the Held Answer; the store only shows it. */
-    function setHeldAnswer(sessionId: string, answer: HeldAnswerView | null): void {
-      const { [sessionId]: _previous, ...rest } = heldAnswers.value
-      heldAnswers.value = answer ? { ...rest, [sessionId]: answer } : rest
-    }
-
-    function discardHeldAnswer(sessionId: string): void {
-      if (!heldAnswers.value[sessionId]) return
-      setHeldAnswer(sessionId, null)
-      settleHeldAnswer(sessionId, 'discarded')
-    }
-
-    /** A Steps run ended on a Step it could not send, so no turn settles to let the Answer go. */
-    function releaseHeldAnswer(sessionId: string): void {
-      if (!deletingSessions.has(sessionId)) settleHeldAnswer(sessionId, 'failed')
-    }
-
-    function settleHeldAnswer(sessionId: string, end: SessionTurnEnd): void {
-      for (const listener of [...heldAnswerListeners]) listener(sessionId, end)
-    }
-
-    /** Hear what decides each session's Held Answer; returns the unsubscribe. */
-    function onHeldAnswerSettled(listener: HeldAnswerListener): () => void {
-      heldAnswerListeners.add(listener)
-      return () => heldAnswerListeners.delete(listener)
     }
 
     type TurnSettledListener = (sessionId: string, outcome: TurnOutcome) => void
@@ -1222,15 +1515,21 @@ export const useAgentMode = defineStore(
 
     const messages = computed(() => chat.value.messages)
 
-    const sessionUsage = computed(() => latestTurnMetadata(messages.value, 'usage'))
-    const sessionTokens = computed(
-      () => (sessionUsage.value?.inputTokens ?? 0) + (sessionUsage.value?.outputTokens ?? 0),
-    )
-    const contextUsage = computed(() => latestTurnMetadata(messages.value, 'contextUsage'))
-    const lastStepUsage = computed(() => latestTurnMetadata(messages.value, 'lastStep'))
+    /** A Harness Session's latest usage report: its live turn's while it has one, else its record's. */
+    function usageOf(sessionId: string) {
+      const live = turns.runtimeOf(sessionId)?.chat.messages
+      const transcript = live?.length ? live : (sessions.value[sessionId]?.messages ?? [])
+      const usage = latestTurnMetadata(transcript, 'usage')
+      return {
+        usage,
+        totalTokens: (usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0),
+        contextUsage: latestTurnMetadata(transcript, 'contextUsage'),
+        lastStep: latestTurnMetadata(transcript, 'lastStep'),
+      }
+    }
 
     /**
-     * Save a session's transcript from its runtime. The Open Session takes the live
+     * Save a session's transcript from its runtime. The open Harness Session takes the live
      * controls; any other keeps what its record (or the turn that was sent) holds.
      *
      * `presetName` is the preset that held the session, which is the current one
@@ -1239,7 +1538,7 @@ export const useAgentMode = defineStore(
      */
     function snapshotSessionById(id: string, presetName?: string): void {
       const runtime = turns.runtimeOf(id)
-      if (!id || !runtime) return
+      if (!id || !runtime || deletedHarnessSessions.has(id)) return
       const existing = sessions.value[id]
       const context = turnContexts[id]
       // A session sent on its stored settings keeps them, even while open.
@@ -1251,7 +1550,14 @@ export const useAgentMode = defineStore(
           ? workspaceDir.value
           : (existing?.workspaceDir ?? context?.workspaceDir)
       if (!dir || !heldWith) return
-      const settings = open ? openSettings.value : existing ? undefined : context?.settings
+      const inSession = !!harnessSessionRefs[id] && !!settingsPort.value
+      const settings = inSession
+        ? undefined
+        : open
+          ? openSettings.value
+          : existing
+            ? undefined
+            : context?.settings
       const record = snapshotSession({
         id,
         workspaceDir: dir,
@@ -1262,14 +1568,39 @@ export const useAgentMode = defineStore(
         responseLocale: existing?.responseLocale ?? pendingResponseLocales[id],
         title: pendingTitles[id],
         settings: presetUsesSessionSettings(heldWith) && settings ? settings : undefined,
-        ...(open && presetUsesSessionSettings(heldWith)
-          ? { steps: openSteps.value, taskId: openTaskId.value }
-          : {}),
+        sessionRef: harnessSessionRefs[id],
       })
       if (!record) return
       delete pendingTitles[id]
       if (record.settings) delete record.capabilities
       rewriteSession(id, record)
+      saveToSessionTimeline(record)
+    }
+
+    /** A Harness Session's turns are the Session's too: its display messages join the timeline. */
+    function saveToSessionTimeline(record: AgentSessionRecord): void {
+      if (!record.sessionRef || record.messages.length === 0) return
+      const agentTurn = {
+        presetName: turnLabelOf(record),
+        harnessSessionId: record.id,
+        ...(record.taskRun ? { taskRun: record.taskRun } : {}),
+      }
+      const settledAt = Date.now()
+      const messages = settleStreamingParts(record.messages).map((message) => ({
+        ...message,
+        createdAt: (message as UIMessage & { createdAt?: number }).createdAt ?? settledAt,
+        metadata: { ...(message.metadata as object | undefined), agentTurn },
+      }))
+      void sessionsStore.saveTimelineMessages(record.sessionRef, messages)
+    }
+
+    /** How an Agent Run ended short, kept on its tag so its timeline Turn can show it. */
+    function endAgentRun(id: string, end: NonNullable<AgentRunTag['end']>): void {
+      const record = sessions.value[id]
+      if (!record?.taskRun) return
+      const ended = { ...record, taskRun: { ...record.taskRun, end } }
+      rewriteSession(id, ended)
+      saveToSessionTimeline(ended)
     }
 
     function snapshotOpenSession(presetName?: string): void {
@@ -1283,53 +1614,11 @@ export const useAgentMode = defineStore(
       if (!runtime.hasTurn()) {
         runtime.chat.messages = settleStreamingParts((record?.messages ?? []) as UIMessage[])
       }
-      applyOpenSessionAgent(record)
-      applyOpenSessionSettings(settingsOfRecord(record))
-    }
-
-    function applyOpenSessionAgent(record: AgentSessionRecord | undefined): void {
-      openSteps.value = (record?.steps ?? []).map((step) => ({ ...step }))
-      openTaskId.value = record?.taskId
-    }
-
-    /** Edit the Open Session's Steps; a sent session's record keeps them. */
-    function setOpenSteps(steps: AgentTaskStep[]): void {
-      openSteps.value = steps.map((step) => ({ ...step }))
-      const session = sessions.value[openSessionId.value]
-      if (!session) return
-      rewriteSession(openSessionId.value, { ...session, steps: cloneForIpc(openSteps.value) })
-    }
-
-    /** Mark the Open Session as loaded from (or saved as) an Agent; `undefined` unlinks it. */
-    function linkOpenSessionToAgent(taskId: string | undefined): void {
-      openTaskId.value = taskId
-      const session = sessions.value[openSessionId.value]
-      if (!session) return
-      const { taskId: _previous, ...rest } = session
-      rewriteSession(openSessionId.value, taskId ? { ...rest, taskId } : rest)
-    }
-
-    /**
-     * Open a new Draft Session on an Agent's folder, settings and Steps. Nothing is stored until
-     * its first prompt, like any other draft.
-     */
-    async function startSessionFrom(agent: {
-      taskId: string
-      workspaceDir: string
-      settings: AgentSessionSettings
-      steps: AgentTaskStep[]
-    }): Promise<void> {
-      await leaveOpenSession()
-      openSessionId.value = mintSessionId()
-      sessionCapabilities.value = null
-      if (agent.workspaceDir) {
-        workspaceDir.value = agent.workspaceDir
-        lastWorkspaceByKind.value = { ...lastWorkspaceByKind.value, pick: agent.workspaceDir }
-      }
-      openSteps.value = agent.steps.map((step) => ({ ...step }))
-      openTaskId.value = agent.taskId
-      applyOpenSessionSettings(cloneForIpc(agent.settings))
-      await refreshCurrentGame()
+      applyOpenSessionSettings(
+        heldBySession()
+          ? settingsPort.value?.read(agentPresetName.value)?.settings
+          : settingsOfRecord(record),
+      )
     }
 
     function ensureOpenSessionId(): string {
@@ -1346,38 +1635,127 @@ export const useAgentMode = defineStore(
         if (!runtime || !runtime.hasTurn()) continue
         const live = runtime.chat.messages
         const known = new Set(live.map((message) => message.id))
-        const earlier = record.messages.filter((message) => !known.has(message.id))
+        const earlier = record.messages.filter((message) => {
+          if (known.has(message.id)) return false
+          // A turn the adopted regenerate rewound is not "earlier context": a
+          // record written before the rewind must not put its answers back.
+          const rewound = (message.metadata as { harnessTurnId?: unknown } | undefined)
+            ?.harnessTurnId
+          return typeof rewound !== 'string' || !runtime.rewoundTurnIds.has(rewound)
+        })
         if (earlier.length > 0) runtime.chat.messages = [...earlier, ...live]
       }
     }
 
-    /**
-     * Agent preset sessions run concurrently, so leaving one leaves its turn
-     * running. Game Agent and Quick Coder sessions keep stop-on-switch.
-     */
-    async function leaveOpenSession(heldWith = agentPresetName.value): Promise<void> {
-      if (nameUsesSessionSettings(heldWith)) return
-      await stop()
-    }
-
+    // Leaving a session never stops its turn: its runtime is kept until the turn settles.
     function blankSession(): void {
       openSessionId.value = mintSessionId()
       sessionCapabilities.value = null
-      applyOpenSessionAgent(undefined)
       applyOpenSessionSettings(undefined)
     }
 
     async function newSession(): Promise<void> {
-      await leaveOpenSession()
-      if (await presetSessionStarter?.(agentPresetName.value)) return
+      if (sessionsStore.openSessionId && agentWorkspaceKind.value === 'pick') {
+        // "+" always means a new Session; the watcher below opens its Harness Session.
+        await sessionsStore.create()
+        return
+      }
       blankSession()
     }
+
+    /** Show the open Session's Harness Session for the agent preset, minting it on first use. */
+    async function enterSessionHarness(game?: { gameDir: string; fresh?: boolean }): Promise<void> {
+      const sessionRef = sessionsStore.openSessionId
+      const presetName = agentPresetName.value
+      if (!sessionRef || !presetName) return
+      const workspace =
+        workspaceKindOf(presetName) === 'games' ? { kind: 'game' as const, ...game } : undefined
+      let result: Awaited<ReturnType<typeof window.electronAPI.sessions.harnessSession>>
+      try {
+        result = workspace
+          ? await window.electronAPI.sessions.harnessSession(sessionRef, presetName, workspace)
+          : await window.electronAPI.sessions.harnessSession(sessionRef, presetName)
+      } catch (error) {
+        result = { success: false, error: extractMessage(error) }
+      }
+      if (!result.success) {
+        errors.report(new Error(result.error), {
+          category: 'backend',
+          code: 'agent/harness-session-failed',
+          surface: 'toast',
+        })
+        return
+      }
+      await settingsPort.value?.whenLoaded()
+      if (sessionRef !== sessionsStore.openSessionId || presetName !== agentPresetName.value) return
+      const { harnessSessionId, workspaceDir: dir } = result.harness
+      harnessSessionRefs[harnessSessionId] = sessionRef
+      if (openSessionId.value === harnessSessionId && workspaceDir.value === dir) return
+      if (openSessionId.value && openSessionId.value !== harnessSessionId) snapshotOpenSession()
+      openSessionId.value = harnessSessionId
+      workspaceDir.value = dir
+      sessionCapabilities.value = null
+      restoreOpenSession()
+      await refreshCurrentGame()
+    }
+
+    watch(
+      [() => sessionsStore.openSessionId, agentActive, sessionsHydrated],
+      ([sessionRef, active, hydrated]) => {
+        if (!sessionRef || !active || !hydrated || movingSession) return
+        void enterSessionHarness()
+      },
+      { immediate: true },
+    )
+
+    // A newly starred or located Workspace is where the next turn works; a games preset keeps its game.
+    watch(
+      () => {
+        const list = sessionsStore.openSession?.folderList
+        const entry = list && workspaceEntryOf(list)
+        return entry ? `${entry.id}\n${entry.hostPath}` : undefined
+      },
+      (workspace, previous) => {
+        const presetName = agentPresetName.value
+        if (!workspace || !previous || workspace === previous || movingSession) return
+        if (!agentActive.value || !presetName || workspaceKindOf(presetName) === 'games') return
+        void enterSessionHarness()
+      },
+    )
+
+    // Main deletes a Session's Harness Sessions with it; their records, runtimes and the open
+    // pointer go too, so no later snapshot writes them back into a Session that no longer exists.
+    watch(
+      () => sessionsStore.sessions,
+      (known) => {
+        const refs = [
+          ...Object.values(sessions.value).map((record) => [record.id, record.sessionRef] as const),
+          ...Object.entries(harnessSessionRefs),
+        ]
+        const gone = new Set(
+          refs.filter(([, sessionRef]) => sessionRef && !known[sessionRef]).map(([id]) => id),
+        )
+        if (gone.size === 0) return
+        if (Object.keys(sessions.value).some((id) => gone.has(id))) {
+          sessions.value = Object.fromEntries(
+            Object.entries(sessions.value).filter(([id]) => !gone.has(id)),
+          )
+        }
+        for (const id of gone) {
+          deletedHarnessSessions.add(id)
+          delete turnContexts[id]
+          delete harnessSessionRefs[id]
+          if (id === openSessionId.value) blankSession()
+          if (turns.runtimeOf(id)?.hasTurn()) void stopSession(id)
+          else turns.release(id)
+        }
+      },
+    )
 
     async function switchSession(id: string): Promise<void> {
       if (id === openSessionId.value) return
       const target = sessions.value[id]
       if (!target) return
-      await leaveOpenSession()
       movingSession = true
       try {
         if (target.presetName && target.presetName !== agentPresetName.value) {
@@ -1387,9 +1765,8 @@ export const useAgentMode = defineStore(
         sessionCapabilities.value = null
         if (target.workspaceDir) {
           workspaceDir.value = target.workspaceDir
-          lastWorkspaceByKind.value = {
-            ...lastWorkspaceByKind.value,
-            [agentWorkspaceKind.value]: target.workspaceDir,
+          if (agentWorkspaceKind.value === 'games') {
+            lastWorkspaceByKind.value = { ...lastWorkspaceByKind.value, games: target.workspaceDir }
           }
         }
         restoreOpenSession()
@@ -1461,6 +1838,7 @@ export const useAgentMode = defineStore(
       // user already said yes to — a modal here would only stall it.
       // `movingSession` keeps the preset watcher from blanking the very folder
       // being handed over before `newSession()` below reaches it.
+      const gameDir = workspaceDir.value
       movingSession = true
       let switched: { success: boolean; error?: string }
       try {
@@ -1479,7 +1857,10 @@ export const useAgentMode = defineStore(
         })
         return
       }
-      await newSession()
+      // In a Session, Game Agent's Harness Session there starts over on this game.
+      if (sessionsStore.openSessionId && gameDir)
+        await enterSessionHarness({ gameDir, fresh: true })
+      else await newSession()
       await generate(
         gameAgentHandoffPrompt({
           ...handoff,
@@ -1489,14 +1870,53 @@ export const useAgentMode = defineStore(
       )
     }
 
-    async function deleteSession(id: string): Promise<void> {
-      // The stop below is the delete's, not the desktop taking over a Held Answer.
-      deletingSessions.add(id)
-      try {
-        await removeSession(id)
-      } finally {
-        deletingSessions.delete(id)
+    /** Delete takes a turn out of what the model sees next, not only out of the timeline. */
+    async function deleteTurns(ref: HarnessTurnRef): Promise<void> {
+      const id = ref.harnessSessionId
+      const sessionRef = sessionRefOf(id)
+      const result = await requestTurnDeletion(id, ref.turnIds, ref.messageIds)
+      if (!result.success) {
+        // Refusals have a translated line; anything else says what actually
+        // failed, so the user can fix the cause (say a locked file) and retry.
+        const refusal = harnessTurnRefusal(result.error)
+        errors.report(new Error(result.error), {
+          category: 'unknown',
+          code: 'agent/delete-turn-failed',
+          userMessage: refusal
+            ? i18n.state[refusal]
+            : i18n.state.AGENT_DELETE_TURN_FAILED.replace('{error}', result.error),
+        })
+        return
       }
+      if (result.unrestorable.length > 0) {
+        errors.report(new Error(result.unrestorable.join(', ')), {
+          category: 'unknown',
+          code: 'agent/delete-turn-unrestorable',
+          severity: 'warning',
+          userMessage: i18n.state.AGENT_TURN_RESTORE_UNRESTORABLE.replace(
+            '{files}',
+            result.unrestorable.join(', '),
+          ),
+          surface: 'toast',
+        })
+      }
+      const removed = new Set(ref.messageIds)
+      const runtime = turns.runtimeOf(id)
+      if (runtime) {
+        runtime.chat.messages = runtime.chat.messages.filter((message) => !removed.has(message.id))
+      }
+      const record = sessions.value[id]
+      if (record) {
+        rewriteSession(id, {
+          ...record,
+          messages: record.messages.filter((message) => !removed.has(message.id)),
+        })
+      }
+      if (sessionRef) sessionsStore.forgetTimelineMessages(sessionRef, ref.messageIds)
+    }
+
+    async function deleteSession(id: string): Promise<void> {
+      await removeSession(id)
     }
 
     async function removeSession(id: string): Promise<void> {
@@ -1507,7 +1927,6 @@ export const useAgentMode = defineStore(
       if (stopping) await stopSession(id)
       const result = await window.electronAPI.agentMode.deleteSession(id)
       if (!result.success) {
-        if (stopping) settleHeldAnswer(id, 'stopped')
         errors.report(new Error(result.error ?? 'Failed to delete session.'), {
           category: 'unknown',
           code: 'agent/delete-session-failed',
@@ -1525,21 +1944,16 @@ export const useAgentMode = defineStore(
       if (id === openSessionId.value) {
         openSessionId.value = mintSessionId()
         sessionCapabilities.value = null
-        applyOpenSessionAgent(undefined)
         applyOpenSessionSettings(undefined)
       } else {
         turns.release(id)
       }
-      settleHeldAnswer(id, 'deleted')
     }
 
     async function adoptWorkspace(dir: string): Promise<void> {
-      await leaveOpenSession()
-      // A Draft Session set up before its folder was picked keeps what was set up.
-      const draft =
-        sessionScoped.value && !sessions.value[openSessionId.value]
-          ? { settings: openSettings.value, steps: openSteps.value, taskId: openTaskId.value }
-          : null
+      // A draft Harness Session set up before its folder was picked keeps what was set up.
+      const draftSettings =
+        sessionScoped.value && !sessions.value[openSessionId.value] ? openSettings.value : null
       workspaceDir.value = dir
       const latest = Object.values(sessions.value)
         .filter((s) => s.workspaceDir === dir)
@@ -1547,23 +1961,8 @@ export const useAgentMode = defineStore(
       openSessionId.value = latest?.id ?? ''
       sessionCapabilities.value = null
       restoreOpenSession()
-      if (!latest && draft) {
-        openSteps.value = draft.steps
-        openTaskId.value = draft.taskId
-        if (draft.settings) applyOpenSessionSettings(draft.settings)
-      }
+      if (!latest && draftSettings) applyOpenSessionSettings(draftSettings)
       await refreshCurrentGame()
-    }
-
-    async function pickWorkspaceFolder(): Promise<void> {
-      const result = await window.electronAPI.showOpenDialog({
-        properties: ['openDirectory', 'createDirectory'],
-        title: 'Select the agent workspace folder',
-      })
-      if (result.canceled || result.filePaths.length === 0) return
-      const next = result.filePaths[0]
-      if (workspaceDir.value === next) return
-      await adoptWorkspace(next)
     }
 
     async function refreshCurrentGame(): Promise<void> {
@@ -1571,8 +1970,44 @@ export const useAgentMode = defineStore(
       currentGame.value = dir ? await window.electronAPI.games.read(dir) : null
     }
 
-    const { attachments, attachFiles, removeAttachment, clearAttachments, importAttachments } =
-      createWorkspaceAttachments(errors)
+    const {
+      attachments,
+      attachFiles: holdAttachments,
+      removeAttachment,
+      clearAttachments,
+      importAttachments,
+    } = createWorkspaceAttachments(errors, i18n.state)
+
+    const {
+      sessionDocuments,
+      indexingDocuments,
+      attachDocuments,
+      removeDocument: removeSessionDocument,
+    } = createSessionDocuments({
+      workspaceDir,
+      sessionId: () =>
+        sessionRefOf(openSessionId.value) ?? (sessionsStore.openSessionId || undefined),
+      languages: i18n.state,
+      workspaceReady,
+      embedding: () => {
+        const model = textInference.activeEmbeddingModel
+        if (!model || !capabilities.value.includes('rag')) return null
+        return { model, backend: textInference.embeddingBackend }
+      },
+      prepareEmbedding: async ({ model, backend }) =>
+        ((await prepareRagEmbeddingModel({ model, backend })) as { status?: string }).status ===
+        'ready',
+      errors,
+    })
+
+    /** A Session's documents go into its folder at once; a game's files wait for its folder. */
+    async function attachFiles(files: File[]): Promise<void> {
+      if (agentWorkspaceKind.value !== 'pick') return holdAttachments(files)
+      const documents = files.filter((file) => isDocumentName(file.name))
+      const others = files.filter((file) => !isDocumentName(file.name))
+      if (others.length > 0) await holdAttachments(others)
+      if (documents.length > 0) await attachDocuments(documents)
+    }
 
     function blankGame(): void {
       workspaceDir.value = ''
@@ -1581,11 +2016,14 @@ export const useAgentMode = defineStore(
       currentGame.value = null
       if (!openRuntime.value.hasTurn()) openRuntime.value.chat.messages = []
       openSettings.value = null
-      applyOpenSessionAgent(undefined)
     }
 
+    /** In a Session, a games preset holds one game, so a new game is a new Session. */
     async function newGame(): Promise<void> {
-      await leaveOpenSession()
+      if (sessionsStore.openSessionId) {
+        await sessionsStore.create()
+        return
+      }
       blankGame()
     }
 
@@ -1601,10 +2039,6 @@ export const useAgentMode = defineStore(
         lastGamesDir: lastWorkspaceByKind.value.games ?? '',
       })
       if (!reconciled) return
-      lastWorkspaceByKind.value = {
-        ...lastWorkspaceByKind.value,
-        pick: reconciled.pickDir ?? lastWorkspaceByKind.value.pick,
-      }
       await adoptWorkspace(reconciled.workspaceDir)
     }
 
@@ -1617,28 +2051,23 @@ export const useAgentMode = defineStore(
       { immediate: true },
     )
 
-    /**
-     * Switching agent preset by hand always starts a blank session for the new
-     * preset. A session's capabilities are frozen on its record while the
-     * instructions are read live off the active preset, so continuing one under
-     * another preset runs that preset's prompt against the wrong toolbox. The
-     * `offer_game_agent` hand-over is the one way a game crosses over, and it
-     * sets `movingSession` to keep its folder.
-     */
+    // A Harness Session never crosses agent presets (its capabilities are frozen on its record);
+    // only the `offer_game_agent` hand-over moves a game, under `movingSession`.
     watch(agentPresetName, async (name, previous) => {
       if (!previous || name === previous || movingSession) return
       snapshotOpenSession(previous)
-      lastWorkspaceByKind.value = {
-        ...lastWorkspaceByKind.value,
-        [workspaceKindOf(previous)]: workspaceDir.value,
+      if (workspaceKindOf(previous) === 'games') {
+        lastWorkspaceByKind.value = { ...lastWorkspaceByKind.value, games: workspaceDir.value }
       }
-      await leaveOpenSession(previous)
+      if (sessionsStore.openSessionId) {
+        await enterSessionHarness()
+        return
+      }
       if (agentWorkspaceKind.value === 'games') {
         blankGame()
         return
       }
-      if (await presetSessionStarter?.(name)) return
-      workspaceDir.value = lastWorkspaceByKind.value.pick ?? ''
+      workspaceDir.value = ''
       blankSession()
       await refreshCurrentGame()
     })
@@ -1650,19 +2079,15 @@ export const useAgentMode = defineStore(
     async function generate(prompt: string, options: { title?: string } = {}): Promise<boolean> {
       if (await blockedBySettingsProblems()) return false
       // Game Agent never asks for a folder: the first turn of a game mints one.
-      if (agentWorkspaceKind.value === 'games' && !(await isGameFolder(workspaceDir.value))) {
-        const game = await window.electronAPI.games.create(prompt, {
-          scaffold: !capabilities.value.includes(GAME_STUDIO_QUICK_ID),
-          backend: textInference.backend,
-          startingModel: textInference.activeModel,
-          initialPrompt: prompt,
-        })
-        workspaceDir.value = game.dir
-        lastWorkspaceByKind.value = { ...lastWorkspaceByKind.value, games: game.dir }
-        currentGame.value = game
+      if (agentWorkspaceKind.value === 'games') {
+        if (await sessionsStore.ensureOpenSession()) await enterSessionHarness()
+        if (!(await isGameFolder(workspaceDir.value))) await mintGame(prompt)
       }
-      if (!workspaceReady()) return false
-      const attached = await importAttachments(workspaceDir.value)
+      if (!(await workspaceReady())) return false
+      const attached = await importAttachments({
+        workspaceDir: workspaceDir.value,
+        sessionId: sessionRefOf(openSessionId.value) ?? (sessionsStore.openSessionId || undefined),
+      })
       const sessionId = ensureSessionId(openSessionId)
       if (options.title && !sessions.value[sessionId]) pendingTitles[sessionId] = options.title
       await runTurn(sessionId, liveTurnContext(), (chat) =>
@@ -1671,20 +2096,45 @@ export const useAgentMode = defineStore(
       return true
     }
 
-    /** Send the Open Session's "not run" message again, as a new turn. */
+    async function mintGame(prompt: string): Promise<void> {
+      // A Harness Session whose game has left the library starts over on the new one.
+      const fresh = !!workspaceDir.value
+      const game = await window.electronAPI.games.create(prompt, {
+        scaffold: !capabilities.value.includes(GAME_STUDIO_QUICK_ID),
+        backend: textInference.backend,
+        startingModel: textInference.activeModel,
+        initialPrompt: prompt,
+      })
+      lastWorkspaceByKind.value = { ...lastWorkspaceByKind.value, games: game.dir }
+      if (sessionsStore.openSessionId) {
+        await enterSessionHarness({ gameDir: game.dir, fresh })
+        if (workspaceDir.value === game.dir) return
+      }
+      workspaceDir.value = game.dir
+      currentGame.value = game
+    }
+
+    /** Send the open Harness Session's "not run" message again, as a new turn. */
     async function resendNotRun(): Promise<void> {
       if (!canResendNotRun.value) return
       if (await blockedBySettingsProblems()) return
-      if (!workspaceReady()) return
+      if (!(await workspaceReady())) return
       await runTurn(openSessionId.value, liveTurnContext(), (chat) => chat.regenerate())
     }
 
-    function workspaceReady(): boolean {
+    /** The Agent preset works in the open Session's folder; a Session is opened if none is. */
+    async function workspaceReady(): Promise<boolean> {
+      if (agentWorkspaceKind.value === 'pick') {
+        if (!sessionsStore.openSessionId) await sessionsStore.create()
+        const sessionRef = sessionsStore.openSessionId
+        if (sessionRef && !(await sessionsStore.readyWorkspaceForTurn(sessionRef))) return false
+        await enterSessionHarness()
+      }
       if (workspaceDir.value) return true
-      errors.report(new Error('Select a workspace folder before starting the agent.'), {
+      errors.report(new Error('The agent has no workspace folder.'), {
         category: 'validation',
         code: 'agent/no-workspace',
-        userMessage: 'Select a workspace folder before starting the agent.',
+        userMessage: 'The agent has no workspace folder yet. Open a Session and try again.',
         surface: 'toast',
       })
       return false
@@ -1697,6 +2147,11 @@ export const useAgentMode = defineStore(
     ): Promise<void> {
       const runtime = turns.runtimeFor(sessionId)
       turnContexts[sessionId] = context
+      // Sending makes the Session's copy its own: from now on it is checked, never re-defaulted.
+      if (!context.stored && sessionId === openSessionId.value && heldBySession()) {
+        openSettings.value = { ...openSessionSettings.value }
+        writeSessionSettings(true)
+      }
       runtime.toolProgress.value = {}
       runtime.processing.value = true
       try {
@@ -1713,15 +2168,19 @@ export const useAgentMode = defineStore(
      * explicit title is kept when the session's first message arrives.
      */
     function createSession(input: {
+      /** A Harness Session main minted; a new id otherwise. */
+      id?: string
+      sessionRef?: string
       workspaceDir: string
       settings: AgentSessionSettings
       capabilities?: string[]
       presetName?: string
       title: string
       taskId?: string
+      taskRun?: AgentSessionRecord['taskRun']
       steps?: AgentTaskStep[]
     }): string {
-      const id = mintSessionId()
+      const id = input.id ?? mintSessionId()
       const now = Date.now()
       const settings = input.capabilities
         ? { ...input.settings, capabilities: [...input.capabilities] }
@@ -1733,10 +2192,12 @@ export const useAgentMode = defineStore(
         messages: [],
         createdAt: now,
         updatedAt: now,
-        presetName: input.presetName ?? AGENT_PRESET,
+        presetName: input.presetName ?? HARNESS_CHAT_PRESET,
         settings,
         ...(input.taskId ? { taskId: input.taskId } : {}),
         ...(input.steps ? { steps: cloneForIpc(input.steps) } : {}),
+        ...(input.sessionRef ? { sessionRef: input.sessionRef } : {}),
+        ...(input.taskRun ? { taskRun: input.taskRun } : {}),
       })
       return id
     }
@@ -1756,19 +2217,36 @@ export const useAgentMode = defineStore(
       taskLockOf = lookup
     }
 
+    let taskStepsOf: (taskId: string) => readonly AgentTaskStep[] | undefined = () => undefined
+
+    /** The Tasks store owns the Agents, so an Agent Run's Edit reads its Steps through here. */
+    function setTaskStepsLookup(
+      lookup: (taskId: string) => readonly AgentTaskStep[] | undefined,
+    ): void {
+      taskStepsOf = lookup
+    }
+
+    let taskSettingsOf: (harnessSessionId: string) => AgentSessionSettings | undefined = () =>
+      undefined
+
+    /**
+     * A Task Run's Regenerate re-runs on its Agent's saved Settings Template, as a Follow-up
+     * would; the Tasks store resolves the run's Agent here because it cannot be imported (cycle).
+     */
+    function setTaskSettingsLookup(
+      lookup: (harnessSessionId: string) => AgentSessionSettings | undefined,
+    ): void {
+      taskSettingsOf = lookup
+    }
+
     function taskLockRefusal(
       sessionId: string,
       signal: AbortSignal | undefined,
     ): SendToSessionResult | undefined {
       const lock = taskLockOf(sessionId)
       if (!lock || (lock.signal && lock.signal === signal)) return undefined
-      return refuseSend(
-        'task-locked',
-        (
-          i18n.state.AGENT_TASK_SESSION_LOCKED ??
-          'Agent “{name}” is running. Stop it to type in this session.'
-        ).replace('{name}', lock.taskName),
-      )
+      // A sender holds on this reason and retries, so the message only reaches the log.
+      return refuseSend('task-locked', `Agent “${lock.taskName}” is running.`)
     }
 
     /**
@@ -1788,6 +2266,14 @@ export const useAgentMode = defineStore(
         quietErrors?: boolean
         /** A channel Answer: the turn's result is replied under it. */
         answer?: AgentAnswerOrigin
+        /** A Task Run's Step. */
+        taskRun?: AgentModeTurnConfig['taskRun']
+        /** A Follow-up to a saved Agent's run, the Agent named as it is now. */
+        followUp?: AgentFollowUpTag
+        /** Regenerate this latest Turn: its prompt is sent again and `prompt` is unused. */
+        regenerate?: HarnessTurnRef
+        /** The regeneration carries an edited prompt: main sends it, not the stored one. */
+        editedPrompt?: boolean
       } = {},
     ): Promise<SendToSessionResult> {
       const record = sessions.value[sessionId]
@@ -1810,7 +2296,14 @@ export const useAgentMode = defineStore(
         }
         context = liveTurnContext()
       } else {
-        context = storedTurnContext(record!, options.settings)
+        const inSession =
+          !options.settings && record?.sessionRef && settingsPort.value
+            ? await settingsPort.value.readStored(
+                record.sessionRef,
+                record.presetName ?? HARNESS_CHAT_PRESET,
+              )
+            : null
+        context = storedTurnContext(record!, options.settings ?? inSession ?? undefined)
         await loadMcpServersFor(context.capabilities)
         const problems = problemsOf({ ...context.settings, capabilities: context.capabilities })
         if (problems.length > 0) {
@@ -1821,12 +2314,64 @@ export const useAgentMode = defineStore(
           )
         }
       }
-      if (!context.workspaceDir || !(await window.electronAPI.existsPath(context.workspaceDir))) {
+      const sessionRef = sessionRefOf(sessionId) ?? (live ? sessionsStore.openSessionId : null)
+      const sessionWorkspace = sessionWorkspaceOf(sessionRef, context.presetName)
+      const inWorkspace = !!sessionRef && !!sessionWorkspace
+      // An unattended turn never asks: main fails it and its Notification names the folder.
+      const unattended = !!options.answer || !!options.taskRun?.notifiesResult
+      const ownWorkspace = agentRunOverrides({
+        ...context,
+        taskRun: options.taskRun ?? context.taskRun,
+        followUp: options.followUp ?? context.followUp,
+      })?.workspace?.hostPath
+      if (inWorkspace) {
+        if (!unattended && !(await sessionsStore.readyWorkspaceForTurn(sessionRef))) {
+          return refuseSend(
+            'missing-folder',
+            (
+              i18n.state.AGENT_WORKSPACE_FOLDER_MISSING ?? 'The workspace folder is missing: {path}'
+            ).replace('{path}', sessionWorkspace),
+          )
+        }
+        if (ownWorkspace && !unattended && !(await window.electronAPI.existsPath(ownWorkspace))) {
+          return refuseSend(
+            'missing-folder',
+            fillTemplate(
+              i18n.state.AGENT_WORKSPACE_FOLDER_MISSING ??
+                'The workspace folder is missing: {path}',
+              { path: ownWorkspace },
+            ),
+          )
+        }
+        context.workspaceDir = ownWorkspace ?? sessionsStore.workspaceDirOf(sessionRef)
+        followSessionWorkspace(sessionId, context.workspaceDir)
+        if (live && !unattended) await enterSessionHarness()
+      } else if (
+        !inWorkspace &&
+        (!context.workspaceDir || !(await window.electronAPI.existsPath(context.workspaceDir)))
+      ) {
         return refuseSend(
           'missing-folder',
           (
             i18n.state.AGENT_WORKSPACE_FOLDER_MISSING ?? 'The workspace folder is missing: {path}'
           ).replace('{path}', context.workspaceDir),
+        )
+      }
+      const folders = turnMountedFolders(sessionId, {
+        ...context,
+        taskRun: options.taskRun ?? context.taskRun,
+        followUp: options.followUp ?? context.followUp,
+      })
+      for (const folder of folders) {
+        if (await window.electronAPI.isFolderPath(folder.hostPath)) continue
+        return refuseSend(
+          'missing-folder',
+          (
+            i18n.state.AGENT_MOUNTED_FOLDER_MISSING ??
+            'The Mounted Folder “{name}” is missing: {path}'
+          )
+            .replace('{name}', folder.name)
+            .replace('{path}', folder.hostPath),
         )
       }
       const lockedSince = taskLockRefusal(sessionId, options.signal)
@@ -1837,18 +2382,168 @@ export const useAgentMode = defineStore(
       if (options.signal?.aborted) return refuseSend('aborted', 'The send was cancelled.')
       if (options.quietErrors) context.quietErrors = true
       if (options.answer) context.answer = options.answer
-      const metadata: AgentMessageMetadata | undefined = options.answer
-        ? { origin: options.answer.channel }
-        : undefined
-      runTurn(sessionId, context, (chat) => chat.sendMessage({ text: prompt, metadata })).catch(
-        (error) =>
-          errors.report(error, {
-            category: 'inference',
-            code: 'agent/turn-failed',
-            surface: 'silent',
-          }),
+      if (options.taskRun) context.taskRun = options.taskRun
+      if (options.followUp) context.followUp = options.followUp
+      const metadata: AgentMessageMetadata | undefined =
+        options.answer || options.followUp
+          ? {
+              ...(options.answer ? { origin: options.answer.channel } : {}),
+              ...(options.followUp ? { followUp: options.followUp } : {}),
+            }
+          : undefined
+      const redo = options.regenerate
+      runTurn(sessionId, context, (chat) =>
+        redo?.promptId
+          ? regenerateIn(chat, redo.promptId, redo, options.editedPrompt === true)
+          : chat.sendMessage({ text: prompt, metadata }),
+      ).catch((error) =>
+        errors.report(error, {
+          category: 'inference',
+          code: 'agent/turn-failed',
+          surface: 'silent',
+        }),
       )
       return { ok: true }
+    }
+
+    /** Whether a turn sent with `useStoredSettings` would run on a model that sees images. */
+    async function storedTurnSeesImages(sessionId: string): Promise<boolean> {
+      const record = sessions.value[sessionId]
+      if (!record) return false
+      const inSession =
+        record.sessionRef && settingsPort.value
+          ? await settingsPort.value.readStored(
+              record.sessionRef,
+              record.presetName ?? HARNESS_CHAT_PRESET,
+            )
+          : null
+      const context = storedTurnContext(record, inSession ?? undefined)
+      const stored = textInference.inferenceForSettings(context.presetName, context.settings ?? {})
+      return stored.inference.modelSupportsVision
+    }
+
+    /** Replaced answers leave the view; a failed re-run restores them only if nothing rewound. */
+    async function regenerateIn(
+      chat: AgentSessionRuntime['chat'],
+      promptId: string,
+      redo: HarnessTurnRef,
+      edited = false,
+    ): Promise<void> {
+      const before = chat.messages
+      const known = new Set(before.map((message) => message.id))
+      const sessionRef = sessionRefOf(redo.harnessSessionId)
+      // A turn ref always names its turns; `?? ''` only satisfies the body type,
+      // and main treats an empty rewind id as no rewind at all.
+      const rewindTurnId = redo.turnIds.at(-1) ?? ''
+      const answerIds = redo.messageIds.filter((messageId) => messageId !== redo.promptId)
+      if (sessionRef && answerIds.length > 0) {
+        sessionsStore.forgetTimelineMessages(sessionRef, answerIds)
+      }
+      let replaced = false
+      const stop = watch(
+        () => chat.messages.at(-1),
+        (last) => {
+          if (replaced || last?.role !== 'assistant' || known.has(last.id)) return
+          replaced = true
+        },
+        { flush: 'sync' },
+      )
+      try {
+        await chat.regenerate({
+          messageId: promptId,
+          body: {
+            rewindTurnId,
+            ...(edited ? { editedPrompt: true } : {}),
+          } satisfies RegenerateBody,
+        })
+      } finally {
+        stop()
+        // Main deregisters the turn before it closes the stream this await
+        // resolved on, so its own removal of the old answers has settled too.
+        if (replaced) return
+        const runtime = turns.runtimeFor(redo.harnessSessionId)
+        const rewound = !!rewindTurnId && (runtime?.rewoundTurnIds.has(rewindTurnId) ?? false)
+        // Before the rewind nothing changed: restore the view. After it, the answers stay gone.
+        if (!rewound) {
+          if (sessionRef) void sessionsStore.restoreForgottenTimelineMessages(sessionRef)
+          chat.messages = before
+        }
+      }
+    }
+
+    function isSessionProcessing(id: string): boolean {
+      return !!turns.runtimeOf(id)?.processing.value
+    }
+
+    /**
+     * The Follow-up tag a prompt message carries: the marker that its turn is a Follow-up to a
+     * run, not the run's own turn. The timeline groups turns by the same marker. Cloned: the
+     * message lives in reactive state, and the tag crosses IPC in the turn config.
+     */
+    function followUpOfPrompt(ref: HarnessTurnRef): AgentFollowUpTag | undefined {
+      const prompt = turns
+        .runtimeFor(ref.harnessSessionId)
+        .chat.messages.find((m) => m.id === ref.promptId && m.role === 'user')
+      const followUp = (prompt?.metadata as AgentMessageMetadata | undefined)?.followUp
+      return followUp ? cloneForIpc(followUp) : undefined
+    }
+
+    /** Regenerate the latest Assistant Turn from its Harness Session as it was before it. */
+    async function regenerateTurn(ref: HarnessTurnRef, edited = false): Promise<void> {
+      if (!ref.promptId || ref.turnIds.length === 0) return
+      const record = sessions.value[ref.harnessSessionId]
+      const followUp = followUpOfPrompt(ref)
+      // An Agent Run re-runs on its Agent's saved Settings Template, as a Follow-up would; its
+      // own run tag already carries the workspace and folders, so only the settings are taken.
+      const agentSettings = record?.taskRun ? taskSettingsOf(ref.harnessSessionId) : undefined
+      // A Follow-up that started with no recorded settings (a Trial Run, a deleted Agent)
+      // keeps the Settings snapshot its record carries. Cloned: the record is reactive, and
+      // the settings cross IPC in the turn config.
+      const fallbackSettings = record?.settings ? cloneForIpc(record.settings) : undefined
+      const settings = followUp ? (agentSettings ?? fallbackSettings) : agentSettings
+      const result = await sendToSession(ref.harnessSessionId, '', {
+        regenerate: ref,
+        ...(edited ? { editedPrompt: true } : {}),
+        // The run's own turn re-runs in the Agent's own workspace, under its own run tag; a
+        // Follow-up turn re-runs as the Follow-up it is, without the run's tag. The run tag
+        // is cloned: its record is reactive, and it too crosses IPC.
+        ...(record?.taskRun && !followUp ? { taskRun: cloneForIpc(record.taskRun) } : {}),
+        ...(followUp ? { followUp } : {}),
+        ...(settings ? { settings } : {}),
+      })
+      if (result.ok) return
+      errors.report(new Error(result.message), {
+        category: 'inference',
+        code: 'agent/regenerate-failed',
+        userMessage: result.message,
+      })
+    }
+
+    /** The edit lands on the runtime chat's prompt message, so the re-run sends it under the same id. */
+    async function regenerateTurnWithPrompt(ref: HarnessTurnRef, edited: string): Promise<void> {
+      if (!ref.promptId || ref.turnIds.length === 0) return
+      const chat = turns.runtimeFor(ref.harnessSessionId).chat
+      const prompt = chat.messages.find((m) => m.id === ref.promptId && m.role === 'user')
+      if (!prompt) return
+      const record = sessions.value[ref.harnessSessionId]
+      // A Follow-up's edit re-sends it as the plain text it is. An Agent Run's prompt is its
+      // Start Prompt over its Steps: that edit is the new Start Prompt, which its run tag
+      // carries from here on.
+      const followUp = (prompt.metadata as AgentMessageMetadata | undefined)?.followUp
+      if (record?.taskRun && !followUp) {
+        const steps =
+          record.taskRun.taskId !== undefined ? taskStepsOf(record.taskRun.taskId) : undefined
+        const { input: _replaced, ...withoutInput } = record.taskRun
+        const input = edited.trim()
+        rewriteSession(ref.harnessSessionId, {
+          ...record,
+          taskRun: input ? { ...record.taskRun, input } : withoutInput,
+        })
+        applyEditedPrompt(prompt, steps ? runPrompt(edited, stepPrompts(steps)) : edited)
+      } else {
+        applyEditedPrompt(prompt, edited)
+      }
+      await regenerateTurn(ref, true)
     }
 
     /**
@@ -1864,7 +2559,7 @@ export const useAgentMode = defineStore(
       const record = sessions.value[sessionId]
       turnContexts[sessionId] = {
         workspaceDir: record?.workspaceDir ?? '',
-        presetName: record?.presetName ?? AGENT_PRESET,
+        presetName: record?.presetName ?? HARNESS_CHAT_PRESET,
         capabilities: [...(record?.settings?.capabilities ?? [])],
         settings: record?.settings ? { ...record.settings } : undefined,
         stored: true,
@@ -1893,6 +2588,10 @@ export const useAgentMode = defineStore(
     }
 
     return {
+      deleteTurns,
+      regenerateTurn,
+      regenerateTurnWithPrompt,
+      isSessionProcessing,
       workspaceDir,
       agentPresetName,
       activeAgentPreset,
@@ -1910,27 +2609,24 @@ export const useAgentMode = defineStore(
       migrateMcpServerIds,
       adoptWebCapability,
       webCapabilityAdopted,
-      adoptNotifyCapability,
-      notifyCapabilityAdopted,
+      webScreenshotCapabilityAdopted,
       migrateSessionPresets,
       init,
       sessionsHydrated,
       migratePlanningThinkingOnly,
+      adoptDefaultCapabilities,
       planningThinkingOnly,
       effectivePlanningThinkingOnly,
       setPlanningThinkingOnly,
       openSessionSettings,
-      openSteps,
-      setOpenSteps,
-      openTaskId,
-      linkOpenSessionToAgent,
-      startSessionFrom,
-      setPresetSessionStarter,
+      bindSessionSettingsPort,
+      reloadOpenSessionSettings,
       ensureOpenSessionId,
       sessionScoped,
       settingsProblems,
       problemsOf,
       loadMcpServersFor,
+      agentDefaults: readAgentDefaults,
       saveAsDefault,
       resetToDefault,
       migrateAgentDefaults,
@@ -1939,7 +2635,12 @@ export const useAgentMode = defineStore(
       isUnsandboxed,
       setUnsandboxed,
       attachments,
+      sessionDocuments,
+      indexingDocuments,
+      removeSessionDocument,
       attachFiles,
+      storedTurnSeesImages,
+      turnWorkspaceOf,
       removeAttachment,
       clearAttachments,
       processing,
@@ -1947,10 +2648,7 @@ export const useAgentMode = defineStore(
       messages,
       toolProgress,
       toolImages,
-      sessionUsage,
-      sessionTokens,
-      contextUsage,
-      lastStepUsage,
+      usageOf,
       chat,
       anyTurnOpen,
       sessionTurns,
@@ -1961,29 +2659,33 @@ export const useAgentMode = defineStore(
       sessions,
       presetSessions,
       openSessionId,
-      pickWorkspaceFolder,
       refreshCurrentGame,
       newGame,
       startNew,
       reconcileWorkspaceKind,
       generate,
       createSession,
+      endAgentRun,
       sendToSession,
       setTaskLockLookup,
+      setTaskStepsLookup,
+      setTaskSettingsLookup,
       quietSessionErrors,
       onTurnSettled,
-      heldAnswers,
-      setHeldAnswer,
-      discardHeldAnswer,
-      releaseHeldAnswer,
-      onHeldAnswerSettled,
       stopSession,
       stop,
       newSession,
       switchSession,
       openSession,
       setViewShown,
-      sessionInView,
+      hasHeldPrompt,
+      setLibraryShowing,
+      setLibraryHidden,
+      setSettingsShowing,
+      trialRunInView,
+      registerPauseNotice,
+      liveTurnsIn,
+      streamingMessagesOf,
       deleteSession,
       restoreOpenSession,
     }
@@ -1996,7 +2698,7 @@ export const useAgentMode = defineStore(
       pick: [
         'mcpServerIds',
         'webCapabilityAdopted',
-        'notifyCapabilityAdopted',
+        'webScreenshotCapabilityAdopted',
         'defaultCapabilities',
         'unsandboxedWorkspaces',
         'planningThinkingOnly',

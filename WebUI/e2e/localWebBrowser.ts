@@ -1,4 +1,4 @@
-// Real-browser driver for the Home Agent "LAN chat" served page. It loads the
+// Real-browser driver for the Channels "LAN chat" served page. It loads the
 // served page in an actual browser and drives its own JavaScript — the login form,
 // the `EventSource('/api/events')` subscription, the `#send` handler POSTing
 // `/api/chat`, and the reply/media rendering. That is the "I typed something in the
@@ -75,9 +75,19 @@ export async function signInAndAwaitChat(page: Page, password: string): Promise<
   // page rather than per send so handlers don't stack. The page retires a prompt's
   // buttons once tapped, which is also what lets Playwright's post-handler
   // "overlay is gone" check pass.
+  await resumeAutoConfirm(page)
+}
+
+/** Tap the first button of any prompt that appears, as `signInAndAwaitChat` arms it. */
+export async function resumeAutoConfirm(page: Page): Promise<void> {
   await page.addLocatorHandler(promptButtons(page).first(), async (btn) => {
     await btn.click()
   })
+}
+
+/** Stop auto-tapping prompts, for a test that taps a keyboard's buttons itself (`/agents`). */
+export async function pauseAutoConfirm(page: Page): Promise<void> {
+  await page.removeLocatorHandler(promptButtons(page).first())
 }
 
 const composer = (page: Page) => page.getByRole('textbox', { name: 'Message' })
@@ -88,8 +98,13 @@ const promptButtons = (page: Page) =>
 
 /** Settled bot replies. The in-flight draft and the typing placeholder carry
  *  different accessible names, so this counts only finished messages. */
-function settledBotBubbles(page: Page) {
-  return page.getByRole('article', { name: 'Home Agent response', exact: true })
+export function settledBotBubbles(page: Page) {
+  return page.getByRole('article', { name: 'AI Playground response', exact: true })
+}
+
+/** Replies still streaming. */
+export function draftBubbles(page: Page) {
+  return page.getByRole('article', { name: 'AI Playground draft', exact: true })
 }
 
 /** Messages the user sent, optionally filtered to those containing `text`. */
@@ -142,7 +157,7 @@ export async function sendMessage(page: Page, text: string): Promise<void> {
 
 /**
  * Send a message/command and resolve once a *new* settled reply has rendered. Waits on
- * the (before+1)th "Home Agent response" via a web-first assertion — deliberately NOT a
+ * the (before+1)th "AI Playground response" via a web-first assertion — deliberately NOT a
  * bare `.count()` poll: a settled response only appears after the reply finished
  * streaming (the live draft carries a different name), and a web-first assertion is what
  * lets Playwright run the `addLocatorHandler` auto-confirm mid-wait. A `.count()` poll
@@ -168,44 +183,10 @@ export async function sendAndAwaitReply(
 export type MediaKind = 'image' | 'video'
 
 /**
- * The channel's marker for a tool the adapter doesn't render specially — the media
- * tool included ("Using media…", then "Used media", or "media failed"). Built by
- * `renderGenericToolMarker`, so its presence is proof the model actually called the
- * tool rather than describing an image it never generated.
- *
- * Deliberately NOT scoped to settled bubbles. The marker spends the whole generation
- * as the live draft and is only finalized into a "Home Agent response" once the turn
- * produces its next text — which for a video is many minutes later, i.e. precisely the
- * wait this is meant to license. `finalizeBot` re-labels the same element in place, so
- * a locator matching both names follows the marker across that transition instead of
- * seeing it disappear and reappear.
- */
-function mediaToolMarkers(page: Page) {
-  return page
-    .getByRole('article', { name: /^Home Agent (response|draft)$/ })
-    .filter({ hasText: /(?:Using|Used) media|media failed/ })
-}
-
-/**
- * Send an agentic prompt that should make the Home Agent generate media, and resolve
- * once a *new* inline `<img>`/`<video>` has rendered in the served log. Any in-channel
- * model-download prompt is auto-confirmed by the handler registered in openLocalWebChat,
- * so a first-time generation that pulls a model still completes (it just takes as long
- * as the download). Throws if no new media appears.
- *
- * Split into "did it call the tool" and "did the tool produce something", because the
- * two failures need different verdicts. A model that answers in prose without ever
- * invoking its media tool — "Here's a fresh take on your lizard!", no tool call, no
- * image — is a different bug from a generation that is simply slow, and a single wait
- * reports both as "no image after eight minutes".
- *
- * What this deliberately does NOT do is treat a settled reply as the end of the turn.
- * The served page names every bot bubble "Home Agent response": the tool marker, the
- * media, and the prose all qualify, and the model routinely narrates *before* calling
- * the tool. So a turn produces several, in no fixed order, and "a reply arrived" says
- * nothing about whether the turn is over. There is no reliable DOM idle signal either
- * — `hideTyping()` fires on every bubble append, so the indicator is down for most of
- * a long generation.
+ * Send a prompt that should make the Channel Session generate media, and resolve once a
+ * *new* inline `<img>`/`<video>` has rendered in the served log. The Session sends its
+ * Artifacts as it makes them, apart from its reply, so the media itself is the signal. A
+ * web-first assertion lets the auto-confirm handler tap a model-download prompt mid-wait.
  */
 export async function sendAndAwaitMedia(
   page: Page,
@@ -214,48 +195,26 @@ export async function sendAndAwaitMedia(
   timeoutMs: number,
 ): Promise<void> {
   const media = kind === 'image' ? lanImages(page) : lanVideos(page)
-  const markers = mediaToolMarkers(page)
-  const settled = settledBotBubbles(page)
   const before = await media.count()
-  const markersBefore = await markers.count()
   await sendMessage(page, prompt)
+  await expect(media.nth(before), `the Session rendered no new inline ${kind}`).toBeVisible({
+    timeout: timeoutMs,
+  })
+}
 
-  // Web-first assertions throughout (never a `.count()` poll) so Playwright runs the
-  // `addLocatorHandler` auto-confirm mid-wait — a first-time generation gates on an
-  // in-channel model-download approval, which a bare count poll would never tap.
-
-  // The tool starting, or the media itself for a generation quick enough to beat the
-  // marker. Same ceiling as the wait it replaces, so nothing that used to pass can now
-  // time out early — this only changes what a failure says.
-  try {
-    await expect(media.nth(before).or(markers.nth(markersBefore)).first()).toBeVisible({
-      timeout: timeoutMs,
-    })
-  } catch {
-    // Read the reply here rather than passing it as the assertion's message: the
-    // message is built when the assertion is *set up*, which is before the turn has
-    // said anything, so it would quote whatever the previous turn left behind.
-    const reply = (
-      await settled
-        .last()
-        .innerText()
-        .catch(() => '')
-    )
-      .trim()
-      .slice(0, 300)
-    throw new Error(
-      `the Home Agent never invoked its media tool for a ${kind} generation — it likely ` +
-        `answered in prose instead. Its last reply was: "${reply}"`,
-    )
-  }
-
-  // The tool is running, so the generation gets a full budget of its own: a video on a
-  // laptop GPU takes many minutes, and cutting that short is what turned a working run
-  // into a failure.
-  await expect(
-    media.nth(before),
-    `the Home Agent invoked its media tool but rendered no new inline ${kind}`,
-  ).toBeVisible({ timeout: timeoutMs })
+/**
+ * Send a plain message and resolve with the Channel Session's reply to it: the page shows
+ * a Session's messages as "Agent message", quoting the message they answer.
+ */
+export async function sendAndAwaitSessionReply(
+  page: Page,
+  text: string,
+  timeoutMs: number,
+): Promise<string> {
+  await sendMessage(page, text)
+  const reply = agentRepliesTo(page, text).first()
+  await expect(reply).toBeVisible({ timeout: timeoutMs })
+  return ((await reply.innerText()) ?? '').trim()
 }
 
 /**

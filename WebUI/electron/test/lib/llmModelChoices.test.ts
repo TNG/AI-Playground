@@ -1,4 +1,10 @@
 import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import z from 'zod'
+import { ModelSchema } from '@/types/shared'
+import { PresetSchema } from '@/assets/js/store/presets'
 import {
   llmModelChoices,
   modelSupportsThinkingToggle,
@@ -111,6 +117,47 @@ describe('llmModelChoices', () => {
     const models = [model('plain'), model('custom', { isPredefined: false })]
     const preset = { type: 'comfy', requiresToolCalling: true } as const
     expect(names(llmModelChoices(models, context({ preset })))).toEqual(['plain'])
+  })
+})
+
+describe('llmModelChoices for the shipped Assistant', () => {
+  const here = path.dirname(fileURLToPath(import.meta.url))
+  const catalog: Model[] = z
+    .array(ModelSchema)
+    .parse(JSON.parse(readFileSync(path.resolve(here, '../../../external/models.json'), 'utf-8')))
+    .filter((entry) => entry.type !== 'embedding')
+    .map((entry) => ({ ...entry, type: entry.type as Model['type'], isPredefined: true }))
+  const userAdded = model('me/my-model-GGUF/my-model.gguf', { isPredefined: false })
+  const preset = PresetSchema.parse(
+    JSON.parse(
+      readFileSync(path.resolve(here, '../../../../modes/base/presets/assistant.json'), 'utf-8'),
+    ),
+  )
+  const offered = (overrides: Partial<ModelChoiceContext>) =>
+    names(llmModelChoices([...catalog, userAdded], context({ preset, ...overrides })))
+
+  it('offers every llama.cpp model, the ones not suited to agent work and user-added ones too', () => {
+    const choices = offered({ backend: 'llamaCPP' })
+    for (const name of [
+      'unsloth/gemma-4-E4B-it-GGUF/gemma-4-E4B-it-UD-Q4_K_XL.gguf',
+      'unsloth/gpt-oss-20b-GGUF/gpt-oss-20b-Q8_0.gguf',
+      'unsloth/Qwen3-VL-4B-Instruct-GGUF/Qwen3-VL-4B-Instruct-Q5_K_S.gguf',
+      'unsloth/Qwen3.5-9B-GGUF/Qwen3.5-9B-Q4_K_M.gguf',
+      userAdded.name,
+    ]) {
+      expect(choices).toContain(name)
+    }
+  })
+
+  it('offers Qwen3-8B on an NPU, and the other OpenVINO models elsewhere', () => {
+    expect(offered({ backend: 'openVINO', onNpu: true })).toEqual(['OpenVINO/Qwen3-8B-int4-cw-ov'])
+    const gpu = offered({ backend: 'openVINO', onNpu: false })
+    expect(gpu).toEqual(
+      expect.arrayContaining([
+        'OpenVINO/Qwen3-VL-8B-Instruct-int4-ov',
+        'OpenVINO/gpt-oss-20b-int4-ov',
+      ]),
+    )
   })
 })
 

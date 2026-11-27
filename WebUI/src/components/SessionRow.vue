@@ -1,0 +1,385 @@
+<template>
+  <div
+    class="flex items-start gap-2 rounded-lg px-3 py-2 transition cursor-pointer border-2 bg-muted hover:bg-muted/80"
+    :class="active ? 'border-primary' : 'border-transparent'"
+    role="button"
+    tabindex="0"
+    :aria-label="title"
+    :aria-current="active ? 'true' : undefined"
+    @click="emit('open')"
+    @keydown.enter.self="emit('open')"
+  >
+    <div class="flex flex-col min-w-0 flex-1 gap-1">
+      <span class="flex items-center gap-1.5 min-w-0">
+        <span class="truncate text-sm text-foreground">{{ title }}</span>
+        <Tooltip v-if="marker">
+          <TooltipTrigger as-child>
+            <span
+              role="img"
+              :aria-label="marker.label"
+              class="ml-auto inline-flex flex-none items-center gap-0.5 text-xs cursor-help"
+            >
+              <Spinner
+                v-if="marker.status === 'running'"
+                class="size-3.5 text-primary"
+                aria-hidden="true"
+              />
+              <template v-else-if="marker.status === 'queued'">
+                <ClockIcon class="size-3.5 text-muted-foreground" aria-hidden="true" />
+                <span v-if="marker.short" class="text-muted-foreground" aria-hidden="true">{{
+                  marker.short
+                }}</span>
+              </template>
+              <template v-else-if="marker.status === 'downloading'">
+                <ArrowDownTrayIcon class="size-3.5 text-primary" aria-hidden="true" />
+                <span v-if="marker.short" class="text-muted-foreground" aria-hidden="true">{{
+                  marker.short
+                }}</span>
+              </template>
+              <template v-else-if="marker.status === 'paused'">
+                <HandRaisedIcon class="size-3.5 text-warning" aria-hidden="true" />
+                <span v-if="marker.short" class="text-warning" aria-hidden="true">{{
+                  marker.short
+                }}</span>
+              </template>
+              <span
+                v-else
+                class="size-2 rounded-full"
+                :class="marker.status === 'unseenFailed' ? 'bg-red-500' : 'bg-primary'"
+                aria-hidden="true"
+              ></span>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>{{ marker.label }}</TooltipContent>
+        </Tooltip>
+      </span>
+      <span class="flex items-center gap-2 min-w-0">
+        <span class="text-xs text-muted-foreground shrink-0">{{ timeLabel }}</span>
+        <Tooltip v-if="scheduled">
+          <TooltipTrigger as-child>
+            <button
+              type="button"
+              :aria-label="languages.AGENT_LIBRARY_SESSION_SCHEDULES_OPEN"
+              class="inline-flex flex-none rounded hover:text-foreground"
+              @click.stop="emit('openSchedules')"
+              @keydown.enter.stop
+            >
+              <ClockIcon
+                class="size-3.5 text-muted-foreground"
+                :class="{ 'opacity-50': scheduled === 'paused' }"
+                aria-hidden="true"
+              />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>{{
+            scheduled === 'paused'
+              ? languages.SESSIONS_SCHEDULE_PAUSED
+              : languages.SESSIONS_SCHEDULED
+          }}</TooltipContent>
+        </Tooltip>
+        <Tooltip v-if="session.reachable">
+          <TooltipTrigger as-child>
+            <span
+              role="img"
+              :aria-label="languages.SESSIONS_REACHABLE"
+              class="inline-flex flex-none"
+            >
+              <ChatBubbleLeftRightIcon class="size-3.5 text-muted-foreground" aria-hidden="true" />
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>{{ languages.SESSIONS_REACHABLE }}</TooltipContent>
+        </Tooltip>
+        <span
+          v-if="presetIcons.length > 0"
+          role="list"
+          :aria-label="languages.SESSIONS_PRESETS_USED"
+          class="ml-auto flex items-center gap-0.5 min-w-0 overflow-hidden"
+        >
+          <Tooltip v-for="preset in presetIcons" :key="preset.name">
+            <TooltipTrigger as-child>
+              <span role="listitem" :aria-label="preset.label" class="inline-flex flex-none">
+                <img
+                  v-if="preset.image"
+                  :src="preset.image"
+                  alt=""
+                  class="size-4 rounded object-cover border border-border"
+                />
+                <span
+                  v-else
+                  class="size-4 rounded border border-border bg-background grid place-items-center text-[9px] font-medium"
+                  aria-hidden="true"
+                >
+                  {{ preset.label.slice(0, 1) }}
+                </span>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>{{ preset.label }}</TooltipContent>
+          </Tooltip>
+        </span>
+      </span>
+    </div>
+
+    <DropdownMenu v-model:open="menuOpen">
+      <DropdownMenuTrigger as-child>
+        <Button
+          variant="ghost"
+          size="icon"
+          class="h-6 w-6 flex-none"
+          :aria-label="languages.SESSIONS_OPTIONS.replace('{title}', title)"
+          @click.stop
+        >
+          <EllipsisVerticalIcon class="size-4" aria-hidden="true" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="end"
+        class="min-w-28"
+        :onCloseAutoFocus="(event) => event.preventDefault?.()"
+      >
+        <DropdownMenuItem v-if="!session.unreadable" @select="emit('newSessionWithSettings')">
+          {{ languages.SESSIONS_NEW_WITH_THESE_SETTINGS }}
+        </DropdownMenuItem>
+        <Dialog
+          v-if="!session.unreadable"
+          v-model:open="renameOpen"
+          @update:open="(open) => !open && (menuOpen = false)"
+        >
+          <DialogTrigger as-child>
+            <DropdownMenuItem
+              @select="
+                (event: Event) => {
+                  event.preventDefault()
+                  renameTitle = session.title
+                }
+              "
+            >
+              {{ languages.SESSIONS_RENAME }}
+            </DropdownMenuItem>
+          </DialogTrigger>
+          <DialogContent @click.stop>
+            <DialogHeader>
+              <DialogTitle>{{ languages.SESSIONS_RENAME_TITLE }}</DialogTitle>
+              <DialogDescription>{{ languages.SESSIONS_RENAME_DESCRIPTION }}</DialogDescription>
+            </DialogHeader>
+            <div class="mt-2">
+              <Input
+                autofocus
+                type="text"
+                :placeholder="languages.SESSIONS_RENAME_PLACEHOLDER"
+                v-model="renameTitle"
+                @keydown.enter.prevent="saveRename"
+              />
+            </div>
+            <DialogFooter>
+              <Button variant="ghost" @click="renameOpen = false">{{
+                languages.COM_CANCEL
+              }}</Button>
+              <Button :disabled="!typedOrHasNameToClear" @click="saveRename">{{
+                clearsName ? languages.SESSIONS_REMOVE_NAME : languages.SESSIONS_SAVE
+              }}</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+        <DropdownMenuItem v-if="!session.unreadable" @select="emit('pin', !session.pinned)">
+          {{ session.pinned ? languages.SESSIONS_UNPIN : languages.SESSIONS_PIN }}
+        </DropdownMenuItem>
+        <DropdownMenuSub v-if="!session.unreadable">
+          <DropdownMenuSubTrigger>{{ languages.SESSIONS_MOVE_TO_GROUP }}</DropdownMenuSubTrigger>
+          <DropdownMenuSubContent class="max-w-64">
+            <DropdownMenuItem
+              v-for="group in otherGroups"
+              :key="group.id"
+              @select="emit('moveToGroup', group.id)"
+            >
+              <span class="truncate">{{ group.name }}</span>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator v-if="otherGroups.length > 0" />
+            <DropdownMenuItem @select="newGroupOpen = true">
+              {{ languages.SESSIONS_NEW_GROUP }}
+            </DropdownMenuItem>
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+        <DropdownMenuItem v-if="ownGroup" @select="emit('moveToGroup', null)">
+          {{ languages.SESSIONS_REMOVE_FROM_GROUP }}
+        </DropdownMenuItem>
+        <DropdownMenuItem v-if="canUnhide" @select="emit('unhideMessages')">
+          {{ languages.SESSIONS_UNHIDE_MESSAGES }}
+        </DropdownMenuItem>
+        <AlertDialog @update:open="(open: boolean) => open && loadDeleteBody()">
+          <AlertDialogTrigger as-child>
+            <DropdownMenuItem @select="(event: Event) => event.preventDefault()">
+              {{ languages.COM_DELETE }}
+            </DropdownMenuItem>
+          </AlertDialogTrigger>
+          <AlertDialogContent @click.stop>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{{ languages.SESSIONS_DELETE_TITLE }}</AlertDialogTitle>
+              <AlertDialogDescription>{{ deleteBody }}</AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel @click.stop>{{ languages.COM_CANCEL }}</AlertDialogCancel>
+              <AlertDialogAction @click.stop="emit('delete')">
+                {{ languages.COM_DELETE }}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </DropdownMenuContent>
+    </DropdownMenu>
+
+    <SessionGroupNameDialog
+      v-model:open="newGroupOpen"
+      :title="languages.SESSIONS_NEW_GROUP_TITLE"
+      :description="languages.SESSIONS_NEW_GROUP_DESCRIPTION"
+      :submit-label="languages.SESSIONS_CREATE_GROUP"
+      initial-name=""
+      :groups
+      :save="createGroup"
+    />
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, ref } from 'vue'
+import {
+  ArrowDownTrayIcon,
+  ChatBubbleLeftRightIcon,
+  ClockIcon,
+  EllipsisVerticalIcon,
+  HandRaisedIcon,
+} from '@heroicons/vue/24/outline'
+import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import SessionGroupNameDialog from '@/components/SessionGroupNameDialog.vue'
+import { Spinner } from '@/components/ui/spinner'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { useDemoMode } from '@/assets/js/store/demoMode'
+import { useI18N } from '@/assets/js/store/i18n'
+import { useOemBranding } from '@/assets/js/store/oemBranding'
+import { usePresets } from '@/assets/js/store/presets'
+import { useSessions } from '@/assets/js/store/sessions'
+import type { SessionScheduleState } from '@/assets/js/store/agentTasks'
+import type { GroupNameRefusal } from '@/assets/js/store/sessions'
+import { sessionRowMarker, type SessionRowStatus } from '@/lib/sessionRowStatus'
+import { sessionTimeLabel, type TimeLabelBucket } from '@/lib/sessionTimeLabel'
+import type { SessionGroup, SessionSummary } from '@/types/sessionIpc'
+
+const props = defineProps<{
+  session: SessionSummary
+  /** Every Session Group, for "Move to group" and the new Group's name check. */
+  groups: SessionGroup[]
+  active: boolean
+  status: SessionRowStatus
+  now: number
+  timeBucket: TimeLabelBucket
+  /** The Session holds a Schedule: `paused` when none of them is enabled. */
+  scheduled?: SessionScheduleState
+  createGroup: (name: string) => Promise<GroupNameRefusal | null>
+  /** Offer "Unhide hidden messages": hiding is switched on and this Session has some. */
+  canUnhide?: boolean
+}>()
+
+const emit = defineEmits<{
+  open: []
+  rename: [title: string]
+  pin: [pinned: boolean]
+  moveToGroup: [groupId: string | null]
+  delete: []
+  openSchedules: []
+  newSessionWithSettings: []
+  unhideMessages: []
+}>()
+
+const i18n = useI18N()
+const i18nState = i18n.state
+const presetsStore = usePresets()
+const oemBranding = useOemBranding()
+const sessions = useSessions()
+const demoMode = useDemoMode()
+
+const menuOpen = ref(false)
+const renameOpen = ref(false)
+const renameTitle = ref('')
+
+const newGroupOpen = ref(false)
+
+const deleteBody = ref('')
+
+async function loadDeleteBody(): Promise<void> {
+  deleteBody.value = ''
+  const workspace = (await sessions.deletePreview(props.session.id))?.trashedWorkspace
+  if (!workspace) {
+    deleteBody.value = i18nState.SESSIONS_DELETE_BODY
+    return
+  }
+  const one = workspace.fileCount === 1
+  const text = demoMode.enabled
+    ? one
+      ? i18nState.SESSIONS_DELETE_BODY_WORKSPACE_ONE_DEMO
+      : i18nState.SESSIONS_DELETE_BODY_WORKSPACE_DEMO
+    : one
+      ? i18nState.SESSIONS_DELETE_BODY_WORKSPACE_ONE
+      : i18nState.SESSIONS_DELETE_BODY_WORKSPACE
+  deleteBody.value = text
+    .replace('{folder}', workspace.name)
+    .replace('{count}', String(workspace.fileCount))
+}
+
+const ownGroup = computed(() => props.groups.find((group) => group.id === props.session.groupId))
+const otherGroups = computed(() => props.groups.filter((group) => group !== ownGroup.value))
+
+const title = computed(() => props.session.title || i18nState.SESSIONS_UNTITLED)
+const timeLabel = computed(() =>
+  sessionTimeLabel(props.session.updatedAt, props.now, i18n.langName, props.timeBucket),
+)
+
+const marker = computed(() => sessionRowMarker(props.status, i18nState, i18n.langName))
+
+const presetIcons = computed(() =>
+  props.session.presetsUsed.map((name) => ({
+    name,
+    label: oemBranding.presetLabel(name),
+    image: presetsStore.presets.find((preset) => preset.name === name)?.image,
+  })),
+)
+
+const clearsName = computed(() => !renameTitle.value.trim())
+const typedOrHasNameToClear = computed(() => !clearsName.value || props.session.renamed)
+
+function saveRename() {
+  if (!typedOrHasNameToClear.value) return
+  emit('rename', renameTitle.value.trim())
+  renameOpen.value = false
+  menuOpen.value = false
+}
+</script>

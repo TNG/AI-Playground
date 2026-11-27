@@ -436,6 +436,7 @@ type ApiServiceInformation = {
   llamaCppPhisonInstalledVersion?: { version: string; releaseTag?: string }
   /** OpenVINO LLM was launched with `--draft_model_path`. Absent means not armed. */
   ovmsMtpArmed?: boolean
+  comfyUiInstalledVariant?: 'xpu' | 'cuda' | 'cpu'
   /** OpenVINO repo whose snapshot is missing `openvino_mtp_model.xml`. */
   ovmsMtpStaleModel?: string
 }

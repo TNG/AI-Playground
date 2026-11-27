@@ -42,6 +42,7 @@ vi.mock('../../kernel/orchestrator.ts', async (importOriginal) => {
 
 const { buildDirectMediaTools, setMediaCatalogProvider, resetMediaCatalogProviderForTest } =
   await import('../../agent/capabilities/mediaDirect.ts')
+const { setAppMediaPathResolver } = await import('../../agent/piCustomTools.ts')
 
 const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'media-direct-'))
 
@@ -285,6 +286,7 @@ describe('mediaDirect (in-process generateImage / editImage)', () => {
               settings: { seed: 0 },
             },
           ],
+          size: '512x512',
         }),
       },
     ])
@@ -329,6 +331,174 @@ describe('mediaDirect (in-process generateImage / editImage)', () => {
     expect(output.content[0].text).not.toContain('workspacePath')
   })
 
+  it("moves a Session's media straight into its files folder, served from there", async () => {
+    const appMedia = fs.mkdtempSync(path.join(os.tmpdir(), 'app-media-'))
+    fs.writeFileSync(path.join(appMedia, 'castle gate.png'), 'png-bytes')
+    setAppMediaPathResolver((url) => path.join(appMedia, decodeURIComponent(new URL(url).pathname)))
+    const filesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'session-files-'))
+    submitArtifactRunMock.mockImplementationOnce(async () => ({
+      state: 'completed',
+      items: [
+        {
+          id: 'item-0',
+          type: 'image',
+          imageUrl: 'aipg-media://media/castle%20gate.png',
+          mode: 'imageGen',
+          state: 'done',
+          settings: {},
+        },
+      ] as ArtifactRunResult['items'],
+    }))
+    const tool = await buildTool(
+      GENERATE_SPEC,
+      hostWith({
+        workspaceDir: filesDir,
+        sessionMedia: { sessionRef: 'session-7', workspace: 'files', folderId: 'folder-ws' },
+      }),
+    )
+    const output = (await tool.execute(
+      'call-1',
+      { prompt: 'a castle' },
+      new AbortController().signal,
+    )) as { content: Array<{ text: string }>; details: { items: unknown[] } }
+
+    expect(output.details.items).toMatchObject([
+      {
+        workspacePath: 'castle gate.png',
+        imageUrl: 'aipg-media://folders/session-7/folder-ws/castle%20gate.png',
+      },
+    ])
+    expect(parseOutput(output).savedFiles).toEqual(['castle gate.png'])
+    expect(fs.readFileSync(path.join(filesDir, 'castle gate.png'), 'utf8')).toBe('png-bytes')
+    expect(fs.existsSync(path.join(filesDir, 'generated'))).toBe(false)
+    expect(fs.existsSync(path.join(appMedia, 'castle gate.png'))).toBe(false)
+    setAppMediaPathResolver(null)
+  })
+
+  it("moves a Trial Run's media into its scratch folder, served from there", async () => {
+    const appMedia = fs.mkdtempSync(path.join(os.tmpdir(), 'app-media-'))
+    fs.writeFileSync(path.join(appMedia, 'robot.png'), 'png-bytes')
+    setAppMediaPathResolver((url) => path.join(appMedia, decodeURIComponent(new URL(url).pathname)))
+    const filesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'trial-files-'))
+    submitArtifactRunMock.mockImplementationOnce(async () => ({
+      state: 'completed',
+      items: [
+        {
+          id: 'item-0',
+          type: 'image',
+          imageUrl: 'aipg-media://media/robot.png',
+          mode: 'imageGen',
+          state: 'done',
+          settings: {},
+        },
+      ] as ArtifactRunResult['items'],
+    }))
+    const tool = await buildTool(
+      GENERATE_SPEC,
+      hostWith({
+        workspaceDir: filesDir,
+        sessionMedia: { workspace: 'trial', agentId: 'agent-3' },
+      }),
+    )
+    const output = (await tool.execute(
+      'call-1',
+      { prompt: 'a robot' },
+      new AbortController().signal,
+    )) as { content: Array<{ text: string }>; details: { items: unknown[] } }
+
+    expect(output.details.items).toMatchObject([
+      { workspacePath: 'robot.png', imageUrl: 'aipg-media://trials/agent-3/files/robot.png' },
+    ])
+    expect(fs.readFileSync(path.join(filesDir, 'robot.png'), 'utf8')).toBe('png-bytes')
+    expect(fs.existsSync(path.join(appMedia, 'robot.png'))).toBe(false)
+    setAppMediaPathResolver(null)
+  })
+
+  it("keeps a Session's earlier file when the agent's media has the same name", async () => {
+    const appMedia = fs.mkdtempSync(path.join(os.tmpdir(), 'app-media-'))
+    fs.writeFileSync(path.join(appMedia, 'ComfyUI_00001_.png'), 'agent-bytes')
+    setAppMediaPathResolver((url) => path.join(appMedia, decodeURIComponent(new URL(url).pathname)))
+    const filesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'session-files-'))
+    fs.writeFileSync(path.join(filesDir, 'ComfyUI_00001_.png'), 'chat-bytes')
+    submitArtifactRunMock.mockImplementationOnce(async () => ({
+      state: 'completed',
+      items: [
+        {
+          id: 'item-0',
+          type: 'image',
+          imageUrl: 'aipg-media://media/ComfyUI_00001_.png',
+          mode: 'imageGen',
+          state: 'done',
+          settings: {},
+        },
+      ] as ArtifactRunResult['items'],
+    }))
+    const tool = await buildTool(
+      GENERATE_SPEC,
+      hostWith({
+        workspaceDir: filesDir,
+        sessionMedia: { sessionRef: 'session-7', workspace: 'files', folderId: 'folder-ws' },
+      }),
+    )
+    const output = (await tool.execute(
+      'call-1',
+      { prompt: 'a castle' },
+      new AbortController().signal,
+    )) as { details: { items: Array<{ imageUrl: string }> } }
+
+    expect(fs.readFileSync(path.join(filesDir, 'ComfyUI_00001_.png'), 'utf8')).toBe('chat-bytes')
+    expect(output.details.items[0].imageUrl).not.toBe(
+      'aipg-media://folders/session-7/folder-ws/ComfyUI_00001_.png',
+    )
+    setAppMediaPathResolver(null)
+  })
+
+  it("puts a game's media in its game folder and the Session's files folder", async () => {
+    const appMedia = fs.mkdtempSync(path.join(os.tmpdir(), 'app-media-'))
+    fs.writeFileSync(path.join(appMedia, 'ship.png'), 'png-bytes')
+    setAppMediaPathResolver((url) => path.join(appMedia, decodeURIComponent(new URL(url).pathname)))
+    const gameDir = fs.mkdtempSync(path.join(os.tmpdir(), 'game-'))
+    const filesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'session-files-'))
+    submitArtifactRunMock.mockImplementationOnce(async () => ({
+      state: 'completed',
+      items: [
+        {
+          id: 'item-0',
+          type: 'image',
+          imageUrl: 'aipg-media://media/ship.png',
+          mode: 'imageGen',
+          state: 'done',
+          settings: {},
+        },
+      ] as ArtifactRunResult['items'],
+    }))
+    const tool = await buildTool(
+      GENERATE_SPEC,
+      hostWith({
+        workspaceDir: gameDir,
+        sessionMedia: {
+          sessionRef: 'session-8',
+          workspace: 'game',
+          filesDir: async () => filesDir,
+          folderId: 'folder-ws',
+        },
+      }),
+    )
+    const output = (await tool.execute(
+      'call-1',
+      { prompt: 'a ship' },
+      new AbortController().signal,
+    )) as { content: Array<{ text: string }>; details: { items: unknown[] } }
+
+    expect(parseOutput(output).savedFiles).toEqual(['generated/ship.png'])
+    expect(output.details.items).toMatchObject([
+      { imageUrl: 'aipg-media://folders/session-8/folder-ws/ship.png' },
+    ])
+    expect(fs.readFileSync(path.join(gameDir, 'generated', 'ship.png'), 'utf8')).toBe('png-bytes')
+    expect(fs.readFileSync(path.join(filesDir, 'ship.png'), 'utf8')).toBe('png-bytes')
+    setAppMediaPathResolver(null)
+  })
+
   it('gives an edit the same structured result', async () => {
     fs.writeFileSync(path.join(workspaceDir, 'source.png'), Buffer.from('89504e470d0a1a0a', 'hex'))
     const tool = await buildTool(EDIT_SPEC)
@@ -341,7 +511,7 @@ describe('mediaDirect (in-process generateImage / editImage)', () => {
     expect(output.details.items).toMatchObject([{ type: 'image', imageUrl: 'test://item-0.png' }])
   })
 
-  it('carries no media for a failed run', async () => {
+  it('carries no media for a failed run, only why it failed', async () => {
     submitArtifactRunMock.mockResolvedValueOnce({ state: 'failed', items: [], error: 'boom' })
     const tool = await buildTool(GENERATE_SPEC)
     const output = (await tool.execute(
@@ -349,11 +519,11 @@ describe('mediaDirect (in-process generateImage / editImage)', () => {
       { prompt: 'x' },
       new AbortController().signal,
     )) as { details: unknown }
-    expect(output.details).toBeUndefined()
+    expect(output.details).toEqual({ items: [], failure: { state: 'failed', error: 'boom' } })
   })
 
   it.each(['failed', 'cancelled'] as const)(
-    'shows no media for a %s run even when it returned items',
+    'keeps the finished items of a %s run beside how it ended',
     async (state) => {
       submitArtifactRunMock.mockImplementationOnce(async (payload) => ({
         ...completedResult(payload as Record<string, unknown>),
@@ -365,8 +535,9 @@ describe('mediaDirect (in-process generateImage / editImage)', () => {
         'call-1',
         { prompt: 'x' },
         new AbortController().signal,
-      )) as { details: unknown }
-      expect(output.details).toBeUndefined()
+      )) as { details: { items: { state: string }[]; failure: { state: string } } }
+      expect(output.details.items.map((item) => item.state)).toEqual(['done'])
+      expect(output.details.failure.state).toBe(state)
     },
   )
 
@@ -381,6 +552,27 @@ describe('mediaDirect (in-process generateImage / editImage)', () => {
       message: expect.stringContaining('not available'),
     })
     expect(submitArtifactRunMock).not.toHaveBeenCalled()
+  })
+
+  it("refuses a workflow the turn's settings did not enable, without running it", async () => {
+    const tool = await buildTool({ ...GENERATE_SPEC, allowedWorkflows: ['Draft Image'] })
+    const output = parseOutput(
+      await tool.execute(
+        'call-1',
+        { workflow: 'Edit By Prompt', prompt: 'x' },
+        new AbortController().signal,
+      ),
+    )
+
+    expect(output).toMatchObject({
+      success: false,
+      message: "Workflow 'Edit By Prompt' is not enabled for this agent. Enabled: Draft Image",
+      images: [],
+    })
+    expect(submitArtifactRunMock).not.toHaveBeenCalled()
+
+    await tool.execute('call-2', { prompt: 'x' }, new AbortController().signal)
+    expect((lastPayload.preset as ComfyUiPreset).name).toBe('Draft Image')
   })
 
   it('shapes a failed run as a tool failure message', async () => {
@@ -430,5 +622,50 @@ describe('mediaDirect (in-process generateImage / editImage)', () => {
     const output = parseOutput(await tool.execute('call-1', { prompt: 'x' }, controller.signal))
     expect(output).toMatchObject({ success: false, message: 'Generation cancelled.' })
     expect(submitArtifactRunMock).not.toHaveBeenCalled()
+  })
+
+  it('tells the model not to call it again once the user declined the download', async () => {
+    submitArtifactRunMock.mockResolvedValueOnce({ state: 'cancelled', items: [], declined: true })
+    const tool = await buildTool(GENERATE_SPEC)
+    const signal = new AbortController().signal
+
+    const first = parseOutput(await tool.execute('call-1', { prompt: 'x' }, signal))
+    const second = parseOutput(await tool.execute('call-2', { prompt: 'y' }, signal))
+
+    expect(first).toMatchObject({ success: false, declined: true })
+    expect(first.message).toContain('declined the download')
+    expect(first.message).toContain('Draft Image')
+    expect(first.message).toContain('Do not call generateImage')
+    expect(second).toEqual(first)
+    expect(submitArtifactRunMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('still offers a workflow whose models the user did not decline', async () => {
+    submitArtifactRunMock.mockResolvedValueOnce({ state: 'cancelled', items: [], declined: true })
+    const tool = await buildTool(GENERATE_SPEC)
+    const signal = new AbortController().signal
+
+    await tool.execute('call-1', { prompt: 'x' }, signal)
+    const other = parseOutput(
+      await tool.execute('call-2', { workflow: 'Edit By Prompt', prompt: 'y' }, signal),
+    )
+
+    expect(other.declined).toBeUndefined()
+    expect(submitArtifactRunMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('lets the model retry a download that failed rather than was declined', async () => {
+    submitArtifactRunMock.mockResolvedValueOnce({
+      state: 'failed',
+      items: [],
+      error: 'Model download failed: disk full',
+    })
+    const tool = await buildTool(GENERATE_SPEC)
+    const signal = new AbortController().signal
+
+    await tool.execute('call-1', { prompt: 'x' }, signal)
+    await tool.execute('call-2', { prompt: 'x' }, signal)
+
+    expect(submitArtifactRunMock).toHaveBeenCalledTimes(2)
   })
 })

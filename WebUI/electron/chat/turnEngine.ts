@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { isLocalSummaryModel } from '@/lib/summariser'
 import { z } from 'zod'
 import {
   APICallError,
@@ -31,7 +32,6 @@ import {
   type ChatToolSpec,
   type ChatTurnRequest,
   type ChatTurnSubmitResult,
-  type HomeAgentInferenceSnapshot,
   type MediaAgentCatalog,
   type WorkflowRepairData,
 } from '@/types/chatIpc'
@@ -56,7 +56,6 @@ import { executeChatMediaTool } from './chatMediaTool'
 import { executeChatScreenshotTool } from './chatScreenshotTool'
 import { CHAT_SPEECH_TOOLS, executeChatSpeechTool } from './chatSpeechTools'
 import { executeChatDetectionsTool } from './chatDetectionsTool'
-import { CHAT_HOME_AGENT_TOOLS, executeChatHomeAgentTool } from './chatHomeAgentTools'
 import {
   CHAT_WEB_TOOLS,
   executeChatWebTool,
@@ -74,8 +73,19 @@ import {
 import { saveChatTurnConversation } from '../persist/conversationFiles'
 import { titleFromMessages } from '@/lib/conversationTitle'
 import type { OpenChatTurn } from '@/types/lifecycleIpc'
+import type { BackendServiceName } from '@/assets/js/store/backendServices'
+import {
+  beginChatTurnInSession,
+  saveChatTranscript,
+  textOfMessage,
+  trackChatTurnInSession,
+  withSessionUpdatesInPrompt,
+  type ChatTranscriptMessage,
+} from '../session/sessionChatTurn'
+import { CHAT_SESSION_HISTORY_TOOL, executeChatSessionHistoryTool } from './chatSessionHistoryTool'
 import { cloneForIpc } from '@/lib/cloneForIpc'
 import { emitFailure } from '../kernel/kernelBus'
+import { claimSessionTurn, releaseSessionTurn, SESSION_BUSY_MESSAGE } from '../session/sessionTurns'
 
 // ── Main-side chat turn engine (docs/architecture-target.md §7, step 6) ──────
 //
@@ -109,6 +119,8 @@ export type ChatEngineDeps = {
   noteTraceContext?: (context: Record<string, unknown> | null) => void
   /** Tests inject retrieval; production uses `retrieveRagForTurn`. */
   prepareRag?: typeof retrieveRagForTurn
+  /** Resolves an `aipg-media://` URL to its file, so Session chat media can move into `files/`. */
+  localPathOf?: (url: string) => string | null
 }
 
 let engineDeps: ChatEngineDeps | null = null
@@ -122,7 +134,23 @@ export function resetChatEngineDepsForTest(): void {
   activeTurns.clear()
 }
 
-async function persistChatTurn(request: ChatTurnRequest, messages: unknown[]): Promise<void> {
+async function persistChatTurn(
+  request: ChatTurnRequest,
+  messages: unknown[],
+  settled?: { preset: string; prompt: string },
+): Promise<void> {
+  if (request.sessionRef) {
+    try {
+      await saveChatTranscript(
+        request.sessionRef,
+        cloneForIpc(messages) as ChatTranscriptMessage[],
+        settled,
+      )
+    } catch (error) {
+      appLogger.warn(`Session chat persist failed: ${extractMessage(error)}`, 'electron-backend')
+    }
+    return
+  }
   if (!request.persist) return
   try {
     await saveChatTurnConversation({
@@ -198,13 +226,14 @@ const LlamaCppRawValueSchema = z.object({
 
 // ── MCP instructions (ported from resolveMcpInstructions) ──────────────────────
 
-function buildMcpInstructions(include: boolean): string {
+function buildMcpInstructions(include: boolean, selectedServerIds?: readonly string[]): string {
   if (!include) return ''
   try {
     const blocks: string[] = []
     for (const server of listMcpServers()) {
       const trimmed = server.instructions?.trim()
       if (!trimmed) continue
+      if (selectedServerIds && !selectedServerIds.includes(server.id)) continue
       if (getMcpServerStatus(server.id).state !== 'running') continue
       blocks.push(`## MCP server: ${server.name}\n${trimmed}`)
     }
@@ -556,13 +585,20 @@ type BuildToolSetOptions = {
   screenshotWindow?: { id: string; name: string }
   /** Conversation title for the TTS file name; the thread's own title lives renderer-side. */
   conversationLabel?: string
-  /** What the Home Agent's settings tools read; absent on any other preset's turn. */
-  homeAgentInference?: HomeAgentInferenceSnapshot
   /** The turn's messages with their attachments intact — what `transcribeAudio` reads. */
   attachmentMessages?: ModelMessage[]
   /** Track each execute Promise so a null SDK tool result can still wait. */
   onExecute?: (toolCallId: string, work: Promise<unknown>) => void
+  /** The Session the turn runs in: `session_history` reads it, generated media moves into it. */
+  session?: { id: string; adoptToolMedia: (output: unknown) => Promise<unknown> }
 }
+
+const SESSION_MEDIA_TOOLS = new Set([
+  'media',
+  'comfyUI',
+  'comfyUiImageEdit',
+  'synthesizeTextToSpeech',
+])
 
 async function dispatchChatTool(
   spec: ChatToolSpec,
@@ -571,6 +607,7 @@ async function dispatchChatTool(
   ctx: {
     conversationKey: string
     defaultWorkflow?: string
+    allowedWorkflows?: string[]
     options?: BuildToolSetOptions
   },
 ): Promise<unknown> {
@@ -581,6 +618,28 @@ async function dispatchChatTool(
   }
   const options = ctx.options
   if (options?.execute) return await options.execute(spec, input, exec)
+  const result = await dispatchChatToolBody(spec, input, exec, ctx)
+  const session = options?.session
+  return session && SESSION_MEDIA_TOOLS.has(spec.name)
+    ? await session.adoptToolMedia(result)
+    : result
+}
+
+async function dispatchChatToolBody(
+  spec: ChatToolSpec,
+  input: unknown,
+  exec: ToolExecuteOptions,
+  ctx: {
+    conversationKey: string
+    defaultWorkflow?: string
+    allowedWorkflows?: string[]
+    options?: BuildToolSetOptions
+  },
+): Promise<unknown> {
+  const options = ctx.options
+  if (spec.name === CHAT_SESSION_HISTORY_TOOL && options?.session) {
+    return await executeChatSessionHistoryTool(options.session.id, input)
+  }
   if (spec.name === 'media') {
     if (!options?.parentMedia) {
       throw new Error(
@@ -612,6 +671,7 @@ async function dispatchChatTool(
       conversationKey: ctx.conversationKey,
       keepModelsLoaded: options.keepModelsLoaded ?? false,
       defaultWorkflow: ctx.defaultWorkflow,
+      allowedWorkflows: ctx.allowedWorkflows,
       readMediaAsDataUri: options.readMediaAsDataUri,
     })
   }
@@ -662,16 +722,6 @@ async function dispatchChatTool(
       abortSignal: exec.abortSignal,
     })
   }
-  if (CHAT_HOME_AGENT_TOOLS.has(spec.name)) {
-    return await executeChatHomeAgentTool({
-      toolName: spec.name,
-      input,
-      conversationKey: ctx.conversationKey,
-      toolCallId: exec.toolCallId,
-      snapshot: options?.homeAgentInference,
-      abortSignal: exec.abortSignal,
-    })
-  }
   throw new Error(`${spec.name} runs in main and cannot round-trip to the renderer`)
 }
 
@@ -701,7 +751,7 @@ export function buildToolSet(
               return {
                 success: false as const,
                 error: new Error(
-                  `Invalid workflow ${typeof workflow === 'string' ? `"${workflow}"` : '(missing)'} for ${spec.name}`,
+                  `Invalid workflow ${typeof workflow === 'string' ? `"${workflow}"` : '(missing)'} for ${spec.name}. Valid workflows: ${data.names.join(', ')}`,
                 ),
               }
             },
@@ -712,6 +762,7 @@ export function buildToolSet(
           dispatchChatTool(spec, input, execOptions, {
             conversationKey,
             defaultWorkflow: data?.defaultWorkflow,
+            allowedWorkflows: data?.names,
             options,
           }),
         )
@@ -738,7 +789,6 @@ type ActiveChatTurn = {
   turnId: string
   conversationKey: string
   controller: AbortController
-  homeAgent: boolean
   title?: string
 }
 
@@ -754,11 +804,7 @@ export function anyChatTurnActive(): boolean {
 }
 
 export function openChatTurns(): OpenChatTurn[] {
-  return [...activeTurns.values()].map(({ conversationKey, homeAgent, title }) => ({
-    conversationKey,
-    homeAgent,
-    title,
-  }))
+  return [...activeTurns.values()].map(({ conversationKey, title }) => ({ conversationKey, title }))
 }
 
 export function submitChatTurn(request: unknown): ChatTurnSubmitResult {
@@ -767,11 +813,21 @@ export function submitChatTurn(request: unknown): ChatTurnSubmitResult {
     throw new Error('A chat turn is already running for this conversation')
   }
   const turnId = randomUUID()
+  if (
+    req.sessionRef &&
+    !claimSessionTurn(req.sessionRef, {
+      turnId,
+      kind: 'chat',
+      conversationKey: req.conversationKey,
+      presetName: req.presetName,
+    })
+  ) {
+    throw new Error(SESSION_BUSY_MESSAGE)
+  }
   const turn: ActiveChatTurn = {
     turnId,
     conversationKey: req.conversationKey,
     controller: new AbortController(),
-    homeAgent: req.persist?.meta?.kind === 'homeAgent' || req.homeAgentDiagnostics === true,
     title: titleFromMessages(req.messages),
   }
   activeTurns.set(req.conversationKey, turn)
@@ -799,15 +855,31 @@ export function resumeChatTurn(conversationKey: string) {
 
 async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Promise<void> {
   const { conversationKey, turnId } = turn
-  const haDiag = request.homeAgentDiagnostics === true
   let ragSourceText: string | null = null
+  const sessionTurn = request.sessionRef
+    ? trackChatTurnInSession(
+        request.sessionRef,
+        (url) => engineDeps?.localPathOf?.(url) ?? null,
+        request.trigger,
+      )
+    : null
+  // Stored with the transcript, so later turns resend the same prompt prefix.
+  const turnMessages = request.sessionRef
+    ? await beginChatTurnInSession(
+        request.sessionRef,
+        request.messages as ChatTranscriptMessage[],
+        request.trigger,
+      )
+    : request.messages
+  let assistantMessage: UIMessage | undefined
+  let streamFailed = false
   try {
     // User message (and regenerate truncation) land on disk before GPU wait /
     // stream, so a crash mid-turn does not lose the prompt.
-    await persistChatTurn(request, request.messages)
+    await persistChatTurn(request, turnMessages)
 
     const config = request.model
-    // Local Chat and Home Agent turns wait in the Turn Queue; cloud ones run at once.
+    // Local Chat turns wait in the Turn Queue; cloud ones run at once.
     const local = config.backend !== 'cloud'
     const ready = async () => {
       if (config.backend === 'cloud') {
@@ -838,6 +910,9 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
         joinsTurnQueue: local,
         work: 'chat',
         ...(local ? { pause } : {}),
+        ...(local && config.readiness
+          ? { component: config.readiness.serviceName as BackendServiceName }
+          : {}),
       },
       turn.controller.signal,
     )
@@ -847,7 +922,11 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
     // convertToModelMessages/streamText throw "Tool result is missing …".
     let messages = await convertToModelMessages(
       sanitizeBulkyToolOutputs(
-        completeOrphanedToolParts(request.messages as unknown as AipgUiMessage[]),
+        completeOrphanedToolParts(
+          withSessionUpdatesInPrompt(
+            turnMessages as ChatTranscriptMessage[],
+          ) as unknown as AipgUiMessage[],
+        ),
       ),
     )
 
@@ -873,17 +952,11 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
     if (supportsVision) {
       const capped = capHistoryImages(messages)
       messages = capped.messages
-      if (haDiag && (capped.kept || capped.dropped)) {
-        appLogger.info(
-          `[HA-DIAG] images kept=${capped.kept} droppedFromHistory=${capped.dropped}`,
-          'home-agent-diag',
-        )
-      }
     } else {
       messages = filterNonVisionContent(messages)
     }
 
-    const mcp = buildMcpInstructions(request.includeMcpInstructions === true)
+    const mcp = buildMcpInstructions(request.includeMcpInstructions === true, request.mcpServerIds)
     let systemPromptToUse = `${request.systemPrompt ?? ''}${mcp}`
     const keepModelsLoaded = request.keepModelsLoaded ?? false
     const pendingToolExecutes = new Map<string, Promise<unknown>>()
@@ -892,11 +965,13 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
       readMediaAsDataUri,
       screenshotWindow: request.screenshotWindow,
       conversationLabel: request.conversationLabel,
-      homeAgentInference: request.homeAgentInference,
       attachmentMessages: messagesWithAttachments,
       onExecute: (toolCallId, work) => {
         pendingToolExecutes.set(toolCallId, work)
       },
+      ...(request.sessionRef && sessionTurn
+        ? { session: { id: request.sessionRef, adoptToolMedia: sessionTurn.adoptToolMedia } }
+        : {}),
       parentMedia: request.mediaAgent
         ? {
             catalog: request.mediaAgent,
@@ -907,16 +982,6 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
         : undefined,
     })
     const hasTools = Object.keys(tools).length > 0
-
-    if (haDiag) {
-      const toolNames = Object.keys(tools)
-      appLogger.info(
-        `[HA-DIAG] turn start model=${config.modelId} backend=${config.backend} ` +
-          `tools=${toolNames.length} [${toolNames.join(',')}] ` +
-          `systemPromptChars=${systemPromptToUse.length} inputMsgs=${messages.length} stepCap=20`,
-        'home-agent-diag',
-      )
-    }
 
     const repairData = request.repairData
 
@@ -939,8 +1004,6 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
       emitChatRag(conversationKey, turnId, prepared.sourceText)
     }
 
-    const diagTurnStart = Date.now()
-    let diagStepIdx = 0
     const startOfRequestTime = Date.now()
     let firstTokenTime = 0
     let finishTime = 0
@@ -991,10 +1054,12 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
             ...(repairData
               ? {
                   // Repair a comfy image tool call whose `workflow` the model
-                  // omitted or set to an unknown value: coerce it to that
-                  // tool's default workflow. Without this the SDK drops the
-                  // bad call and the chat renders an "unknown preset" card /
-                  // failed generation.
+                  // omitted or left blank: coerce it to that tool's default
+                  // workflow. A named-but-unknown workflow is left alone so the
+                  // validation error (with the valid names) reaches the model,
+                  // which retries with the workflow the user asked for.
+                  // Without any repair the SDK drops the bad call and the chat
+                  // renders an "unknown preset" card / failed generation.
                   experimental_repairToolCall: async ({ toolCall, error }) => {
                     if (NoSuchToolError.isInstance(error)) return null
                     const data: WorkflowRepairData | undefined =
@@ -1014,18 +1079,6 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
         : {}),
 
       onChunk: (chunk) => {
-        const chunkType = chunk.chunk.type
-        if (haDiag && (chunkType === 'tool-call' || chunkType === 'tool-result')) {
-          const c = chunk.chunk as { toolName?: string; toolCallId?: string }
-          const t = timings
-          appLogger.info(
-            `[HA-DIAG] ${chunkType} tool=${c.toolName ?? '?'} id=${c.toolCallId ?? '?'} ` +
-              `promptN=${t?.prompt_n ?? '?'} cacheN=${t?.cache_n ?? '?'} promptMs=${
-                t?.prompt_ms == null ? '?' : Math.round(t.prompt_ms)
-              }`,
-            'home-agent-diag',
-          )
-        }
         if (chunk.chunk.type === 'raw') {
           const rawValue = LlamaCppRawValueSchema.safeParse(chunk.chunk.rawValue)
           if (rawValue.success) {
@@ -1106,34 +1159,8 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
         }
       },
 
-      onStepEnd: (step) => {
-        if (haDiag) {
-          diagStepIdx++
-          const calls = step.toolCalls.map((c) => c.toolName).join(',') || 'none'
-          const t = timings
-          const ms = (v?: number) => (v == null ? '?' : Math.round(v))
-          appLogger.info(
-            `[HA-DIAG] step ${diagStepIdx} finishReason=${step.finishReason} ` +
-              `inTok=${step.usage?.inputTokens ?? '?'} outTok=${step.usage?.outputTokens ?? '?'} ` +
-              `promptN=${t?.prompt_n ?? '?'} cacheN=${t?.cache_n ?? '?'} promptMs=${ms(t?.prompt_ms)} ` +
-              `predN=${t?.predicted_n ?? '?'} predMs=${ms(t?.predicted_ms)} ` +
-              `toolCalls=${step.toolCalls.length} [${calls}] textLen=${step.text?.length ?? 0}`,
-            'home-agent-diag',
-          )
-        }
-      },
-
       onEnd: (result) => {
         finishTime = Date.now()
-        if (haDiag) {
-          appLogger.info(
-            `[HA-DIAG] turn done steps=${diagStepIdx} wallMs=${finishTime - diagTurnStart} ` +
-              `finalInTok=${result.usage?.inputTokens ?? '?'} finalOutTok=${
-                result.usage?.outputTokens ?? '?'
-              }`,
-            'home-agent-diag',
-          )
-        }
         if (result.usage) {
           usage = result.usage
         } else if (usageFromRawChunk) {
@@ -1163,6 +1190,7 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
       },
 
       onError: (error) => {
+        streamFailed = true
         appLogger.warn(`Chat turn failed: ${describeInferenceError(error)}`, 'electron-backend')
       },
 
@@ -1220,6 +1248,7 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
 
           return {
             model: config.modelId,
+            ...(request.presetName ? { preset: request.presetName } : {}),
             timestamp: Date.now(),
             timings,
             compute,
@@ -1232,12 +1261,19 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
     )
 
     const persistMessages = async (assistant: UIMessage | undefined) => {
-      const messages: unknown[] = [...request.messages]
+      const messages: unknown[] = [...turnMessages]
       if (assistant) messages.push(withRagSource(assistant, ragSourceText))
-      await persistChatTurn(request, messages)
+      assistantMessage = assistant
+      await persistChatTurn(
+        request,
+        messages,
+        request.presetName
+          ? { preset: request.presetName, prompt: lastUserText(turnMessages) }
+          : undefined,
+      )
     }
 
-    if (request.persist) {
+    if (request.persist || request.sessionRef) {
       const [busStream, persistStream] = stream.tee()
       const persistTask = assembleAssistantFromStream(persistStream)
       try {
@@ -1256,6 +1292,7 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
     // A user stop must not surface as an error chunk — the renderer's manual-
     // stop guard expects a clean stream end, same as the aborted fetch before
     // the move.
+    streamFailed = true
     if (!turn.controller.signal.aborted) {
       appLogger.error(`Chat turn crashed: ${describeInferenceError(error)}`, 'electron-backend')
       emitFailure({
@@ -1273,7 +1310,49 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
   } finally {
     if (turnQueueHolder() === turnId) setTurnChatBackendLoad(null)
     finishTextRequest(turnId)
+    const written = await sessionTurn?.settle({
+      preset: request.presetName ?? 'Chat',
+      variant: request.variant,
+      prompt: lastUserText(turnMessages),
+      status: turn.controller.signal.aborted ? 'cancelled' : streamFailed ? 'failed' : 'completed',
+      response: assistantMessage
+        ? textOfMessage(assistantMessage as unknown as ChatTranscriptMessage)
+        : undefined,
+      ...(isLocalSummaryModel(request.model)
+        ? {
+            summariser: {
+              model: request.model,
+              language: request.responseLocale ?? 'en-US',
+            },
+          }
+        : {}),
+      cloudTurn: request.model.backend === 'cloud',
+      abortSignal: turn.controller.signal,
+    })
+    if (written?.overviewUpdate && request.sessionRef) {
+      const promptMessage = [...turnMessages]
+        .reverse()
+        .find((message) => (message as { role?: string }).role === 'user')
+      const stamp = (message: unknown) => ({
+        ...(message as object),
+        metadata: {
+          ...((message as { metadata?: object }).metadata ?? {}),
+          historyEntryId: written.id,
+        },
+      })
+      const messages: unknown[] = turnMessages.map((message) =>
+        message === promptMessage ? stamp(message) : message,
+      )
+      if (assistantMessage) messages.push(stamp(withRagSource(assistantMessage, ragSourceText)))
+      await persistChatTurn(request, messages)
+    }
     activeTurns.delete(conversationKey)
+    if (request.sessionRef) releaseSessionTurn(request.sessionRef, turnId)
     endChatTurn(conversationKey, turnId)
   }
+}
+
+function lastUserText(messages: readonly unknown[]): string {
+  const prompt = (messages as ChatTranscriptMessage[]).findLast((m) => m.role === 'user')
+  return textOfMessage(prompt)
 }

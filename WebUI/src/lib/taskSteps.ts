@@ -18,31 +18,36 @@ export function stepPrompts(steps: readonly AgentTaskStep[]): string[] {
 }
 
 /**
- * The turn that starts a run of Steps: how it will be carried out, the user's prompt for this run
- * (when there is one) as an adjustment that wins over the Steps, and Step 1.
+ * The one turn an Agent Run is sent: how to carry out the Steps, every Step numbered, and the
+ * user's prompt for this run (when there is one) as an adjustment that wins over the Steps.
  * Model-facing, so not translated.
  */
-export function firstStepTurn(prompt: string, steps: readonly string[]): string {
-  const plan =
-    steps.length === 1
-      ? 'Carry this out in one step:'
-      : `Carry this out in ${steps.length} steps. I will send them one at a time; do only the ` +
-        'current one, then stop.'
+export function runPrompt(prompt: string, steps: readonly string[]): string {
+  const numbered = steps.map((step, index) => `${index + 1}. ${step}`).join('\n')
   const request = prompt.trim()
-  const adjustment = request
-    ? [
-        `For this run the user added: "${request}"`,
-        'Apply it to every step it is relevant to. Where it conflicts with a step, follow the user.',
-        '',
-      ]
-    : []
-  return [plan, '', ...adjustment, stepTurn(1, steps)].join('\n')
+  const adjustment = request ? ['', `${ADJUSTMENT_OPEN}${request}${ADJUSTMENT_CLOSE}`] : []
+  return [RUN_INSTRUCTION, '', numbered, ...adjustment].join('\n')
 }
 
-/** The turn for Step `index` (1-based) of a prompt's Steps. */
-export function stepTurn(index: number, steps: readonly string[]): string {
-  if (steps.length === 1) return steps[0]
-  return `Step ${index} of ${steps.length}: ${steps[index - 1]}`
+const RUN_INSTRUCTION =
+  'Carry out these steps now. They are instructions, not a script: follow them in order ' +
+  'unless a step says otherwise, and a step may be conditional or repeat. Do the work ' +
+  "directly; stop only when a step needs the user's input, then ask for it in your reply; " +
+  'the answer arrives as the next message. In your replies, tell the user only what matters ' +
+  'to them: results, findings and questions. Do not announce your plan or which step you are ' +
+  'on, and do not repeat the steps.'
+
+const ADJUSTMENT_OPEN = 'For this run the user added: "'
+const ADJUSTMENT_CLOSE =
+  '"\nApply it to every step it is relevant to. Where it conflicts with a step, follow the user.'
+
+/** The Start Prompt inside a run's first turn, run prompt or old first Step, when not recorded. */
+export function runInputOf(turn: string): string | undefined {
+  const start = turn.indexOf(ADJUSTMENT_OPEN)
+  if (start < 0) return undefined
+  const from = start + ADJUSTMENT_OPEN.length
+  const end = turn.indexOf(ADJUSTMENT_CLOSE, from)
+  return end < 0 ? undefined : turn.slice(from, end)
 }
 
 export function withStepRemoved(steps: AgentTaskStep[], id: string): AgentTaskStep[] {

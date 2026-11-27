@@ -90,7 +90,6 @@ const dummyImagePreset: ComfyUiPreset = {
     'Produces a single solid-colour image in a fraction of a second. Use it to verify that ' +
     'image generation is wired up correctly without paying for a real diffusion run.',
   toolInstructions: TEST_ONLY_NOTE,
-  excludeFromHomeAgentPicker: true,
   requiredCustomNodes: [],
   requiredPythonPackages: [],
   requiredModels: [],
@@ -142,7 +141,6 @@ const dummyVideoPreset: ComfyUiPreset = {
     'Encodes a handful of identical solid-colour frames into an mp4 in a fraction of a second, ' +
     'so the video path can be verified without a real video model.',
   toolInstructions: TEST_ONLY_NOTE,
-  excludeFromHomeAgentPicker: true,
   requiredCustomNodes: [],
   requiredPythonPackages: [],
   requiredModels: [],
@@ -218,7 +216,6 @@ const dummyEditPreset: ComfyUiPreset = {
   toolInstructions:
     TEST_ONLY_NOTE +
     ' It inverts the colours of the source image, so the result is recognisably derived from it.',
-  excludeFromHomeAgentPicker: true,
   requiredCustomNodes: [],
   requiredPythonPackages: [],
   requiredModels: [],
@@ -264,7 +261,6 @@ const dummy3dPreset: ComfyUiPreset = {
     'Returns a small placeholder pyramid mesh instead of running a real image-to-3D model, so ' +
     'the 3D output path can be verified in a fraction of a second.',
   toolInstructions: TEST_ONLY_NOTE + ' The returned mesh is always the same placeholder pyramid.',
-  excludeFromHomeAgentPicker: true,
   requiredCustomNodes: [],
   requiredPythonPackages: [],
   requiredModels: [],

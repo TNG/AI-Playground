@@ -1,4 +1,5 @@
 import path from 'node:path'
+import { app } from 'electron'
 import { externalResourcesDir } from '../kernel/aipgRoot.ts'
 
 export const getMediaDir = () => {
@@ -129,6 +130,9 @@ export const getPreferencesFile = () => path.join(aipgUserDataRoot(), 'preferenc
 /** Demo-mode preferences, wiped on exit like demo conversations (§6.1). */
 export const getPreferencesDemoFile = () => getPreferencesFile().replace(/\.json$/, '-demo.json')
 
+/** In the user-data root: the resources root is re-seeded on update and deleted on uninstall. */
+export const getMcpConfigFile = () => path.join(aipgUserDataRoot(), 'mcp.json')
+
 /**
  * The RAG document list (architecture-target §6.1, step 8): the indexed
  * document set, full split text included — its own file, not a preference.
@@ -155,6 +159,14 @@ export const getAgentTasksFile = () => path.join(aipgUserDataRoot(), 'agent-task
 /** Demo-mode Tasks, wiped on exit like demo conversations (§6.1). */
 export const getAgentTasksDemoFile = () => getAgentTasksFile().replace(/\.json$/, '-demo.json')
 
+/** The Agents' unsaved Drafts, beside the Agents file. */
+export const getAgentDraftsFile = () => path.join(aipgUserDataRoot(), 'agent-drafts.json')
+
+export const getAgentDraftsDemoFile = () => getAgentDraftsFile().replace(/\.json$/, '-demo.json')
+
+/** One scratch folder per Agent for its Trial Run; nothing in it outlives the app. */
+export const getAgentTrialsDir = () => path.join(aipgUserDataRoot(), 'agent-trials')
+
 /**
  * Remembered / pre-granted consent decisions (architecture-target §4.7, step 13).
  * Own file, not a preference section: Permissions is request/response, not a
@@ -172,3 +184,24 @@ export const getChannelMessageMapFile = () => path.join(aipgUserDataRoot(), 'cha
 /** Demo-mode channel message map, wiped on exit like demo conversations (§6.1). */
 export const getChannelMessageMapDemoFile = () =>
   getChannelMessageMapFile().replace(/\.json$/, '-demo.json')
+
+/**
+ * Each Session's internal storage (ADR-0013): `session.json`, the Session History and
+ * `attachments/`. In the app's own data folder, since `AI-Playground/Sessions/` holds the
+ * readable Workspaces and is the same folder as `sessions/` on case-insensitive file systems.
+ */
+export const getSessionsDir = () => path.join(app.getPath('userData'), 'sessions')
+
+/** Demo-mode Sessions, wiped on startup and exit like demo conversations (§6.1). */
+export const getSessionsDemoDir = () => path.join(app.getPath('userData'), 'sessions-demo')
+
+/** Where Sessions were kept before ADR-0013; older Sessions' `files/` still live here. */
+export const getLegacySessionsDir = () => path.join(aipgUserDataRoot(), 'sessions')
+
+export const getLegacySessionsDemoDir = () => path.join(aipgUserDataRoot(), 'sessions-demo')
+
+/** The Workspaces the app creates for Sessions, one readable folder each. */
+export const getAppWorkspacesDir = () => path.join(aipgUserDataRoot(), 'Sessions')
+
+/** Demo Sessions' Workspaces, wiped with the demo Sessions. */
+export const getAppWorkspacesDemoDir = () => path.join(aipgUserDataRoot(), 'Sessions-demo')

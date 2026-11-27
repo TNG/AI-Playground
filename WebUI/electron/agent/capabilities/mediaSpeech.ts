@@ -1,12 +1,22 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent'
-import { jsonResult, jsonSchemaParameters, resolveWorkspaceFile } from '../piCustomTools.ts'
+import {
+  jsonResult,
+  jsonSchemaParameters,
+  mediaFilesDirOf,
+  resolveWorkspaceFile,
+  trialMediaUrl,
+} from '../piCustomTools.ts'
 import { loadPi } from '../piRuntime.ts'
 import { askRenderer } from '../../chat/chatAsk.ts'
+import { speechFailure } from '../../chat/chatSpeechTools.ts'
 import { saveGeneratedAudioFile } from '../../persist/audioFiles.ts'
+import { freeName } from '../../persist/fileOps.ts'
 import { noteGeneratedMedia } from '../generatedMedia.ts'
+import { recordJournalMedia, recordWorkspaceWrite } from '../workspaceJournal.ts'
 import { buildTtsAudioFileName } from '@/lib/ttsAudioFileName'
+import { sessionFolderMediaUrl } from '@/lib/comfyWorkflow'
 import type { AgentMediaDetails } from '@/types/agentMediaDetails'
 import type { SpeechClipPayload, SpeechVoiceSelection } from '@/types/chatRequests'
 import { NOTIFY_USER_TOOL } from './notify.ts'
@@ -72,16 +82,43 @@ function generatedAudioPath(
   return { fullPath: path.join(dir, name), relativePath: path.posix.join('generated', name) }
 }
 
+function sessionClipUrl(
+  host: CapabilityHost,
+  relativePath: string,
+  sessionCopies: string[],
+): string | undefined {
+  const target = host.sessionMedia
+  if (!target) return undefined
+  const copy = sessionCopies[0]
+  if (target.workspace === 'trial') {
+    if (!mediaFilesDirOf(target)) return trialMediaUrl(target.agentId, `files/${relativePath}`)
+    return copy ? trialMediaUrl(target.agentId, `files/${path.basename(copy)}`) : undefined
+  }
+  if (target.workspace === 'files') {
+    return sessionFolderMediaUrl(target.sessionRef, target.folderId, relativePath)
+  }
+  return copy
+    ? sessionFolderMediaUrl(target.sessionRef, target.folderId, path.basename(copy))
+    : undefined
+}
+
+/** A clip kept apart from the workspace (a game's, say) also lands where it is shown from. */
+async function copyIntoSession(host: CapabilityHost, fullPath: string): Promise<string[]> {
+  const apart = host.sessionMedia && mediaFilesDirOf(host.sessionMedia)
+  if (!apart) return []
+  const filesDir = await apart()
+  await fs.promises.mkdir(filesDir, { recursive: true })
+  const target = path.join(filesDir, await freeName(filesDir, path.basename(fullPath)))
+  await fs.promises.copyFile(fullPath, target)
+  return [target]
+}
+
 function describeClip(clip: SpeechClipPayload): string {
   if (clip.engine === 'qwen3') {
     return `Synthesized ${clip.mode} speech (${clip.language}, ${clip.voice}).`
   }
   const engine = clip.engine === 'kokoro' ? 'Kokoro' : 'the external endpoint'
   return `Synthesized speech with ${engine} (${clip.voice}).`
-}
-
-function failure(error: unknown): { ok: false; message: string } {
-  return { ok: false, message: error instanceof Error ? error.message : String(error) }
 }
 
 type SpeechResult = { output: unknown; details?: AgentMediaDetails }
@@ -118,8 +155,12 @@ async function synthesize(
       stem,
       CLIP_EXT_BY_MIME[clip.mediaType] ?? '.wav',
     )
+    recordWorkspaceWrite(host.sessionId, fullPath)
     await fs.promises.writeFile(fullPath, Buffer.from(clip.audioBase64, 'base64'))
-    noteGeneratedMedia(host.workspaceDir, [relativePath])
+    const sessionCopies = await copyIntoSession(host, fullPath)
+    recordJournalMedia(host.sessionId, sessionCopies)
+    noteGeneratedMedia(host.workspaceDir, [relativePath], sessionCopies)
+    const url = sessionClipUrl(host, relativePath, sessionCopies)
     const appCopyPath = await saveGeneratedAudioFile(
       clip.audioBase64,
       buildTtsAudioFileName({
@@ -140,10 +181,17 @@ async function synthesize(
         speaker: clip.voice,
         ...(clip.engine === 'qwen3' ? { language: clip.language, mode: clip.mode } : {}),
       },
-      details: { audio: { savedFilePath: appCopyPath, workspacePath: relativePath, message } },
+      details: {
+        audio: {
+          savedFilePath: appCopyPath,
+          workspacePath: relativePath,
+          message,
+          ...(url ? { url } : {}),
+        },
+      },
     }
   } catch (error) {
-    return { output: failure(error) }
+    return { output: speechFailure(error, 'synthesizeTextToSpeech') }
   }
 }
 
@@ -153,7 +201,14 @@ async function transcribeWorkspaceAudio(
   signal?: AbortSignal,
 ): Promise<SpeechResult> {
   const raw = (params ?? {}) as { sourceAudioPath?: unknown }
-  const relativePath = typeof raw.sourceAudioPath === 'string' ? raw.sourceAudioPath.trim() : ''
+  // Attachments reach the prompt as `@attachments/<file>`, and models pass that on verbatim.
+  const relativePath =
+    typeof raw.sourceAudioPath === 'string'
+      ? raw.sourceAudioPath
+          .trim()
+          .replace(/^@/, '')
+          .replace(/^"(.*)"$/, '$1')
+      : ''
   if (!relativePath) {
     return {
       output: {
@@ -163,7 +218,7 @@ async function transcribeWorkspaceAudio(
     }
   }
   try {
-    const fullPath = resolveWorkspaceFile(host.workspaceDir, relativePath)
+    const fullPath = resolveWorkspaceFile(host, relativePath)
     const mediaType = AUDIO_MIME_BY_EXT[path.extname(fullPath).toLowerCase()]
     if (!mediaType) throw new Error(`Unsupported audio file type: ${relativePath}`)
     const { text } = await askRenderer<{ text: string }>(
@@ -176,7 +231,7 @@ async function transcribeWorkspaceAudio(
     )
     return { output: { ok: true, message: `Transcribed ${relativePath}.`, transcript: text } }
   } catch (error) {
-    return { output: failure(error) }
+    return { output: speechFailure(error, 'transcribeAudio') }
   }
 }
 
@@ -187,6 +242,7 @@ export async function buildSpeechTools(
 ): Promise<ToolDefinition[]> {
   if (specs.length === 0) return []
   const pi = await loadPi()
+  const declined = new Map<string, unknown>()
   return specs.map(
     (spec) =>
       pi.defineTool({
@@ -195,8 +251,10 @@ export async function buildSpeechTools(
         description: spec.description,
         parameters: jsonSchemaParameters(spec.inputSchema),
         execute: async (_toolCallId, params, signal) => {
+          if (declined.has(spec.name)) return jsonResult(declined.get(spec.name))
           const run = spec.name === 'synthesizeTextToSpeech' ? synthesize : transcribeWorkspaceAudio
           const { output, details } = await run(host, params, signal ?? undefined)
+          if ((output as { declined?: boolean }).declined) declined.set(spec.name, output)
           return { ...jsonResult(output), details }
         },
       }) as ToolDefinition,

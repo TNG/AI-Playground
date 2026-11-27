@@ -6,7 +6,7 @@ import type {
 } from '../ipcRegistries'
 import { ipcErrorText } from '../typedIpc'
 import type { setNotificationConfig } from '../../agent/notifier'
-import type { channelMessageOwner } from '../../persist/channelMessageMap'
+import type { channelMessageOwner, recordStartPromptRequest } from '../../persist/channelMessageMap'
 import type { appLoggerInstance } from '../../observability/logger'
 
 export type NotificationsDeps = {
@@ -15,6 +15,7 @@ export type NotificationsDeps = {
 
 export type NotificationsInvokeDeps = {
   channelMessageOwner: typeof channelMessageOwner
+  recordStartPromptRequest: typeof recordStartPromptRequest
   appLogger: typeof appLoggerInstance
 }
 
@@ -31,6 +32,15 @@ export function buildNotificationsRegistry(deps: NotificationsInvokeDeps) {
       return deps.channelMessageOwner(kind, ref).catch((e) => {
         deps.appLogger.warn(`channel message lookup failed: ${ipcErrorText(e)}`, 'notifications')
         return null
+      })
+    },
+    'notifications:recordStartPromptRequest': async (_event, kind, ref) => {
+      if (typeof ref !== 'string' || !ref) return
+      await deps.recordStartPromptRequest(kind, ref).catch((e) => {
+        deps.appLogger.warn(
+          `start prompt request record failed: ${ipcErrorText(e)}`,
+          'notifications',
+        )
       })
     },
   } satisfies InvokeHandlerMap<NotificationsInvokeName>

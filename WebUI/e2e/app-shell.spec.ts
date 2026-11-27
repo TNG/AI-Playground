@@ -1,0 +1,270 @@
+import { expect, test } from './fixtures'
+
+test.describe('App shell', () => {
+  test('app chrome is compact', async ({ app, window }) => {
+    test.setTimeout(40 * 60_000)
+    await app.installAllBackends()
+
+    await test.step('the footer is one line ending in the version', async () => {
+      const footer = app.shell.footer
+      await expect(footer).toBeVisible()
+      await expect(footer).toHaveText(
+        /^\s*User Guide\s*Notices & Disclaimers\s*Licenses\s*v\S+\s*$/,
+      )
+
+      const items = [
+        footer.getByRole('link', { name: 'User Guide' }),
+        footer.getByRole('link', { name: 'Notices & Disclaimers' }),
+        footer.getByRole('link', { name: 'Licenses' }),
+        footer.getByText(/^v\S+$/),
+      ]
+      const boxes = await Promise.all(items.map((item) => item.boundingBox()))
+      const middles = boxes.map((box) => box!.y + box!.height / 2)
+      for (const middle of middles) expect(Math.abs(middle - middles[0])).toBeLessThanOrEqual(2)
+      const lefts = boxes.map((box) => box!.x)
+      expect(lefts).toEqual([...lefts].sort((a, b) => a - b))
+
+      await expect(footer.getByRole('img')).toHaveCount(0)
+      await expect(window.getByRole('button', { name: /(hide|show) footer/i })).toHaveCount(0)
+    })
+
+    await test.step("A new Session can start with another Session's settings", async () => {
+      const sessions = app.sessions
+      await sessions.startNewSession()
+      await expect(sessions.untitledRows.first()).toBeVisible()
+      const before = await sessions.untitledRows.count()
+
+      await sessions.startNewSessionWithOpenSettings()
+      await expect(sessions.untitledRows).toHaveCount(before + 1)
+
+      await sessions.startNewSessionFromUntitledRow()
+      await expect(sessions.untitledRows).toHaveCount(before + 2)
+    })
+
+    await test.step('App Settings opens from the header and holds the developer console', async () => {
+      const shell = app.shell
+      await expect(shell.header.getByRole('button', { name: 'App Settings' })).toBeVisible()
+      await expect(shell.sessionsPanel.getByRole('button', { name: 'App Settings' })).toHaveCount(0)
+      await expect(
+        shell.sessionsPanel.getByRole('button', { name: 'Developer Tools' }),
+      ).toHaveCount(0)
+
+      await shell.openAppSettings()
+      await expect(shell.openDeveloperConsoleButton).toBeVisible()
+      await shell.ensureSettingsClosed()
+    })
+
+    await test.step('App Settings is a dialog with three vertical tabs', async () => {
+      const shell = app.shell
+      await shell.openAppSettings()
+      const tablist = shell.settingsDialog.getByRole('tablist')
+      await expect(tablist).toHaveAttribute('aria-orientation', 'vertical')
+      await expect(tablist.getByRole('tab')).toHaveText([
+        'App Settings',
+        'Component Manager',
+        'Model Library',
+      ])
+      await expect(shell.settingsTab('App Settings')).toHaveAttribute('aria-selected', 'true')
+      await expect(shell.settingsPanel('App Settings')).toBeVisible()
+      await expect(
+        shell.settingsDialog.getByRole('heading', { name: 'App Settings', exact: true }),
+      ).toBeVisible()
+
+      await shell.settingsTab('Component Manager').click()
+      await expect(app.components.healthLine).toBeVisible()
+      await expect(shell.settingsPanel('Component Manager')).not.toHaveText('Work in progress')
+      await shell.settingsTab('Model Library').click()
+      await expect(
+        shell.settingsPanel('Model Library').getByRole('searchbox', { name: 'Search models' }),
+      ).toBeVisible()
+      await expect(
+        shell.settingsDialog.getByRole('heading', { name: 'Model Library', exact: true }),
+      ).toBeVisible()
+
+      await shell.ensureSettingsClosed()
+      await shell.openAppSettings()
+      await expect(shell.settingsTab('App Settings')).toHaveAttribute('aria-selected', 'true')
+      await shell.ensureSettingsClosed()
+    })
+
+    await test.step('App Settings holds its eight sections in order', async () => {
+      const shell = app.shell
+      await shell.openAppSettings()
+      const panel = shell.settingsPanel('App Settings')
+      const sections = [
+        'Language',
+        'Theme',
+        'Prompt bar style',
+        'HuggingFace Settings',
+        'Speech',
+        'Media Modes',
+        'Permissions',
+        'Advanced',
+      ].map((name) => panel.getByRole('region', { name, exact: true }))
+      const tops: number[] = []
+      for (const section of sections) {
+        await expect(section).toHaveCount(1)
+        tops.push((await section.boundingBox())!.y)
+      }
+      expect(tops).toEqual([...tops].sort((a, b) => a - b))
+
+      const speech = panel.getByRole('region', { name: 'Speech', exact: true })
+      await expect(speech.getByText('Enable Text-to-Speech endpoint in Chat')).toBeVisible()
+      await expect(speech.getByText('Enable Speech-to-Text endpoint in Chat')).toBeVisible()
+
+      const advanced = panel.getByRole('region', { name: 'Advanced', exact: true })
+      await expect(advanced.getByRole('button', { name: 'Setup Wizard' })).toBeVisible()
+      await expect(advanced.getByRole('button', { name: 'Edit Settings JSON' })).toBeVisible()
+      await expect(advanced.getByRole('button', { name: 'Restart', exact: true })).toBeVisible()
+      await shell.ensureSettingsClosed()
+    })
+
+    await test.step('App Settings on/off settings are switches, not checkboxes', async () => {
+      const shell = app.shell
+      await shell.openAppSettings()
+      const panel = shell.settingsPanel('App Settings')
+      const switches = {
+        Language: ['Chat Aware'],
+        Speech: [
+          'Enable Text-to-Speech endpoint in Chat',
+          'Enable Speech-to-Text endpoint in Chat',
+        ],
+        'Media Modes': ['Media Modes'],
+        Advanced: ['Open Developer Console on Startup', 'Keep Models Loaded'],
+      }
+      for (const [section, names] of Object.entries(switches)) {
+        const region = panel.getByRole('region', { name: section, exact: true })
+        for (const name of names) {
+          await expect(region.getByRole('switch', { name, exact: true })).toBeVisible()
+        }
+      }
+      await expect(panel.getByRole('checkbox')).toHaveCount(0)
+      await shell.ensureSettingsClosed()
+    })
+
+    await test.step('Media Modes off leaves only the Assistant in the prompt bar', async () => {
+      const shell = app.shell
+      const mediaModes = ['Audio', 'Image Gen', 'Image Edit', 'Video'] as const
+      try {
+        await shell.setMediaModes(false)
+        for (const mode of [...mediaModes, 'Assistant'] as const) {
+          await expect(app.main.modeButton(mode)).toHaveCount(0)
+        }
+        await expect(window.getByRole('button', { name: /^Preset: / })).toBeVisible()
+
+        await shell.setMediaModes(true)
+        for (const mode of mediaModes) {
+          await expect(app.main.modeButton(mode)).toBeVisible()
+        }
+      } finally {
+        await shell.setMediaModes(true)
+      }
+    })
+
+    await test.step('Without a demo passcode the Demo Mode switch is disabled', async () => {
+      const shell = app.shell
+      await shell.openAppSettings()
+      const advanced = shell
+        .settingsPanel('App Settings')
+        .getByRole('region', { name: 'Advanced', exact: true })
+      await expect(advanced.getByRole('switch', { name: 'Demo Mode', exact: true })).toBeDisabled()
+      await expect(
+        advanced.getByText('Set a demo passcode first to turn demo mode on.'),
+      ).toBeVisible()
+      await expect(advanced.getByRole('button', { name: 'Set passcode…' })).toBeVisible()
+      await shell.ensureSettingsClosed()
+    })
+
+    await test.step('Only the dialog Close button dismisses App Settings', async () => {
+      const shell = app.shell
+      await shell.openAppSettings()
+      await window.keyboard.press('Escape')
+      await expect(shell.settingsDialog).toBeVisible()
+      await shell.settingsCloseButton.click()
+      await expect(shell.settingsDialog).toBeHidden()
+    })
+
+    await test.step('The Model Library button opens its App Settings tab', async () => {
+      const shell = app.shell
+      const modelLibrary = shell.header.getByRole('button', { name: 'Model management' })
+      await shell.openAppSettings()
+      await expect(shell.appSettingsButton).toHaveAttribute('aria-pressed', 'true')
+
+      await modelLibrary.click()
+      await expect(shell.settingsTab('Model Library')).toHaveAttribute('aria-selected', 'true')
+      await expect(shell.appSettingsButton).toHaveAttribute('aria-pressed', 'false')
+      await expect(modelLibrary).toHaveAttribute('aria-pressed', 'true')
+      await window.keyboard.press('Escape')
+      await expect(shell.settingsDialog).toBeVisible()
+
+      await shell.appSettingsButton.click()
+      await expect(shell.settingsTab('App Settings')).toHaveAttribute('aria-selected', 'true')
+      await expect(modelLibrary).toHaveAttribute('aria-pressed', 'false')
+
+      await modelLibrary.click()
+      await modelLibrary.click()
+      await expect(shell.settingsDialog).toBeHidden()
+      await expect(modelLibrary).toHaveAttribute('aria-pressed', 'false')
+    })
+
+    await test.step('The theme panel sits beside a usable app and guards its close', async () => {
+      const shell = app.shell
+      await shell.customizeTheme()
+      const panel = shell.themePanel
+      await shell.themeButton.click()
+      await expect(shell.themeOptions.first()).toBeVisible()
+      await shell.closeThemeMenu()
+
+      const unsaved = panel.getByRole('region', { name: 'Unsaved theme changes' })
+      await expect(unsaved).toBeHidden()
+      await panel.getByLabel('Background', { exact: true }).fill('#123456')
+      await expect(unsaved).toBeInViewport()
+      await expect(unsaved.getByRole('button', { name: 'Save' })).toBeVisible()
+      await expect(unsaved.getByRole('button', { name: 'Discard' })).toBeVisible()
+      const discard = window.getByRole('alertdialog', { name: 'Discard unsaved changes?' })
+
+      await shell.themePanelCloseButton.click()
+      await expect(discard).toBeVisible()
+      await discard.getByRole('button', { name: 'Cancel' }).click()
+      await expect(discard).toBeHidden()
+      await expect(panel).toBeVisible()
+
+      await shell.themePanelCloseButton.click()
+      await discard.getByRole('button', { name: 'Discard' }).click()
+      await expect(panel).toBeHidden()
+    })
+
+    await test.step('Theme switches from the header and App Settings opens the panel', async () => {
+      const shell = app.shell
+      await shell.themeButton.click()
+      await expect(shell.themeOptions).toHaveText([
+        'Default',
+        'Intel® Core™ Ultra',
+        'Intel® Arc™',
+        'Light',
+      ])
+      await shell.closeThemeMenu()
+
+      const original = await shell.activeTheme()
+      const other = original === 'Light' ? 'Default' : 'Light'
+      try {
+        await shell.chooseTheme(other)
+      } finally {
+        await shell.chooseTheme(original)
+      }
+
+      await shell.openAppSettings()
+      const themeSection = shell
+        .settingsPanel('App Settings')
+        .getByRole('region', { name: 'Theme', exact: true })
+      await expect(themeSection).toBeVisible()
+      await expect(themeSection.getByLabel('Background', { exact: true })).toHaveCount(0)
+
+      await themeSection.getByRole('button', { name: 'Customize…' }).click()
+      await expect(shell.settingsDialog).toBeHidden()
+      await expect(shell.themePanel).toBeVisible()
+      await shell.themePanelCloseButton.click()
+      await expect(shell.themePanel).toBeHidden()
+    })
+  })
+})

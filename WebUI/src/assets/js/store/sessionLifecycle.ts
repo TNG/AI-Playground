@@ -1,0 +1,164 @@
+import { acceptHMRUpdate, defineStore } from 'pinia'
+import { watch } from 'vue'
+import { useAgentMode } from '@/assets/js/store/agentMode'
+import { useArtifactRuns } from '@/assets/js/store/artifactRuns'
+import { usePresets } from '@/assets/js/store/presets'
+import { usePresetSwitching } from '@/assets/js/store/presetSwitching'
+import { useSessionAudio } from '@/assets/js/store/sessionAudio'
+import { useSessions, type NewSessionOptions } from '@/assets/js/store/sessions'
+import { useSessionFiles } from '@/assets/js/store/sessionFiles'
+import { useSessionSettings } from '@/assets/js/store/sessionSettings'
+import { useSessionTabs } from '@/assets/js/store/sessionTabs'
+import { modelDownloads } from '@/assets/js/models/modelDownloadQueue'
+import { downloadPercent } from '@/lib/downloadPercent'
+import { HARNESS_CHAT_PRESET } from '@/lib/harnessChatPreset'
+import { sessionReopenPreset } from '@/lib/sessionReopenPreset'
+import { usePromptBarPresetSwitch } from '@/lib/usePromptBarPresetSwitch'
+import { sessionRowStatus, type SessionRowStatus } from '@/lib/sessionRowStatus'
+import type { SessionTabLanding } from '@/lib/sessionTabs'
+import type { SessionDownload } from '@/assets/js/store/recordRows'
+import type { DesktopView } from '@/assets/js/store/channels/answerRouter'
+
+/**
+ * What happens around a Session's turns: opening one brings back the preset and
+ * variant of its last turn, each row shows where its turn stands, and Stop reaches
+ * the open Session's turn whichever mode is on screen.
+ */
+export const useSessionLifecycle = defineStore('sessionLifecycle', () => {
+  const sessions = useSessions()
+  const sessionSettings = useSessionSettings()
+  const presets = usePresets()
+  const presetSwitching = usePresetSwitching()
+  const agentMode = useAgentMode()
+  const artifactRuns = useArtifactRuns()
+  const sessionTabs = useSessionTabs()
+  const sessionAudio = useSessionAudio()
+  const sessionFiles = useSessionFiles()
+  const presetSwitch = usePromptBarPresetSwitch()
+
+  // The created-files listing is what the transcript chips read: re-scan it
+  // whenever the open Session's turn settles, wherever the user is — a
+  // same-named rewrite of a deleted file flips its entry back without the
+  // Artifacts tab having to be open for its own refresh.
+  watch(
+    () => sessions.openTurn,
+    (turn, previous) => {
+      if (previous && !turn) void sessionFiles.refresh()
+    },
+  )
+
+  async function openSession(
+    id: string,
+    landing: SessionTabLanding = 'open-session',
+  ): Promise<void> {
+    if (id === sessions.openSessionId) return sessionTabs.land(landing)
+    const opened = await sessions.open(id)
+    if (sessions.openSessionId === id) sessionTabs.land(landing)
+    if (sessions.openSessionId !== id) return
+    // The created-files listing is what the transcript chips read: a refresh on
+    // open catches files deleted outside the app since the last trigger.
+    void sessionFiles.refresh()
+    const last = sessionReopenPreset(
+      opened,
+      presets.presets.map((preset) => preset.name),
+      sessions.sessions[id]?.pickedAgentId,
+    )
+    if (!last) return
+    await sessionSettings.whenLoaded()
+    const sameVariant = !last.variant || presets.activeVariantName[last.preset] === last.variant
+    if (presets.activePresetName === last.preset && sameVariant) return
+    await presetSwitching.switchPreset(last.preset, {
+      variant: last.variant,
+      skipMemoryAlert: true,
+    })
+  }
+
+  /**
+   * Opens the Session a Channel switched to; a picked Agent shows only on Assistant. The Channel
+   * asked for it, so a switch to Assistant raises no warning or toast on the desktop.
+   */
+  async function openFromChannel(id: string, view: DesktopView): Promise<void> {
+    if (typeof view === 'object' && !(await sessions.pickAgent(id, view.agentId))) return
+    await openSession(id)
+    if (sessions.openSessionId === id && view !== 'as-is') await switchToAssistant()
+  }
+
+  async function switchToAssistant(): Promise<void> {
+    if (presets.activePresetName === HARNESS_CHAT_PRESET) return
+    const assistant = presets.presets.find((preset) => preset.name === HARNESS_CHAT_PRESET)
+    if (!assistant || !presetSwitch.gateOf(assistant).enabled || presetSwitching.isSwitching) return
+    await sessionSettings.whenLoaded()
+    await presetSwitching.switchPreset(HARNESS_CHAT_PRESET, { skipMemoryAlert: true })
+  }
+
+  /** A new Session starts on the Assistant preset, or keeps the active one where it is gated. */
+  async function newSession(options: NewSessionOptions = {}): Promise<void> {
+    if (!(await sessions.create(options))) return
+    const assistant = presets.presets.find((preset) => preset.name === HARNESS_CHAT_PRESET)
+    if (!assistant || !presetSwitch.gateOf(assistant).enabled) return
+    await sessionSettings.whenLoaded()
+    await presetSwitch.switchTo(HARNESS_CHAT_PRESET, { announce: false })
+  }
+
+  function downloadOf(group: string | undefined): SessionDownload | null {
+    const wait = group ? modelDownloads().snapshot(group) : null
+    if (!wait) return null
+    return { percent: Math.floor(downloadPercent(wait.progress)), queued: wait.status === 'queued' }
+  }
+
+  function agentUnseenFailed(sessionId: string): boolean {
+    return Object.values(agentMode.sessions).some(
+      (record) => record.sessionRef === sessionId && agentMode.unseenTurns[record.id] === 'failed',
+    )
+  }
+
+  function rowStatus(sessionId: string): SessionRowStatus {
+    const turn = sessions.turns[sessionId]
+    const harness = turn?.kind === 'agent' ? turn.harnessSessionId : undefined
+    return sessionRowStatus({
+      turn,
+      agentTurn: harness ? agentMode.sessionTurns[harness] : undefined,
+      mediaQueued:
+        turn?.kind === 'media' && artifactRuns.state.runs[turn.turnId]?.phase === 'queued',
+      mediaQueuePosition:
+        turn?.kind === 'media' ? artifactRuns.queuePositions[turn.turnId] : undefined,
+      download: downloadOf(harness),
+      unseen: sessions.unseen[sessionId]
+        ? agentUnseenFailed(sessionId)
+          ? 'failed'
+          : 'done'
+        : undefined,
+    })
+  }
+
+  /** Stops the open Session's turn by the engine that runs it; false when there is none. */
+  async function stopOpenTurn(): Promise<boolean> {
+    return sessions.openSessionId ? stopTurnIn(sessions.openSessionId) : false
+  }
+
+  /** Stops the Session's turn by the engine that runs it; false when there is none. */
+  async function stopTurnIn(sessionId: string): Promise<boolean> {
+    const turn = sessions.turns[sessionId]
+    if (!turn) return false
+    if (turn.kind === 'agent' && turn.harnessSessionId) {
+      await agentMode.stopSession(turn.harnessSessionId)
+      return true
+    }
+    if (turn.kind === 'media') {
+      await window.electronAPI.artifact.cancel(turn.turnId)
+      return true
+    }
+    if (turn.kind === 'chat' && turn.conversationKey) {
+      await window.electronAPI.chat.cancelTurn(turn.conversationKey, turn.turnId)
+      return true
+    }
+    if (turn.kind === 'audio') return sessionAudio.cancel(sessionId)
+    return false
+  }
+
+  return { openSession, openFromChannel, newSession, rowStatus, stopOpenTurn, stopTurnIn }
+})
+
+if (import.meta.hot) {
+  import.meta.hot.accept(acceptHMRUpdate(useSessionLifecycle, import.meta.hot))
+}

@@ -12,10 +12,20 @@ import {
   buildSkillsPromptSection,
   rejectPendingToolCalls,
   writeAgentSkills,
+  type SessionMediaTarget,
 } from './piCustomTools.ts'
 import { resolveCapabilities, type CapabilityHost } from './capabilities/index.ts'
-import { enabledCapabilityIds } from '@/types/agentCapabilities'
-import { createAgentToolAccess } from './piToolOperations.ts'
+import { enabledCapabilityIds, FILES_CAPABILITY_ID } from '@/types/agentCapabilities'
+import { mountedFolderSandboxPath, type ResolvedMountedFolder } from '@/lib/mountedFolders'
+import { turnModelToolUse } from '@/lib/modelToolUse'
+import { createAgentToolAccess, SANDBOX_WORKDIR } from './piToolOperations.ts'
+import { trialAgentIdOf, trialAgentOf, turnFolders, type TurnFolders } from './turnFolders.ts'
+import { trialFilesDir } from '../persist/trialRunFiles.ts'
+import {
+  assertMountedFoldersApart,
+  assertMountedFoldersPresent,
+  mountedFoldersChangeNote,
+} from './mountedFolderTurn.ts'
 import { buildWorkspaceInstructions, ensureWorkspaceRuntime } from './piWorkspaceRuntime.ts'
 import { createSamplingExtension } from './piSampling.ts'
 import { laminarPiExtensionPath } from '../observability/laminar.ts'
@@ -29,8 +39,24 @@ import {
 import type { AgentModeTurnConfig } from '@/types/agentIpc'
 import { chatModelFromAgentConfig } from './chatModelFromAgent.ts'
 import { setMediaSpecialistTurn } from './capabilities/mediaDelegation.ts'
-import { piAgentDir, piSessionDir, loadSessionFilePath, savePointer } from './piSessionStore.ts'
+import {
+  piAgentDir,
+  piSessionDir,
+  loadSessionFilePath,
+  readSessionStore,
+  savePointer,
+  type SessionPointer,
+} from './piSessionStore.ts'
 import { compactionSettingsForWindow } from './piCompaction.ts'
+import {
+  currentWorkspaceEntry,
+  ensureSessionWorkspace,
+  workspaceEntryAt,
+} from '../session/sessionWorkspace'
+import { attachmentsFolderFor } from '../session/sessionAttachments'
+import { attachmentsSeenBy, SANDBOX_ATTACHMENTS_DIR } from './workspaceAttachments.ts'
+import { agentHistoryReader, buildSessionHistoryTool } from './sessionHistoryTool.ts'
+import { replayChatEngineTurns } from './piHistoryReplay.ts'
 import {
   copySamplingParams,
   ensureModelRuntime,
@@ -49,7 +75,9 @@ import {
 
 const logger = appLoggerInstance
 
-function configKeyOf(config: AgentModeTurnConfig): string {
+const FALLBACK_OWN_PROMPT = 'You are a helpful assistant.'
+
+function configKeyOf(config: AgentModeTurnConfig, folders: TurnFolders): string {
   // The tool set is fixed at session construction, so a changed tool set needs a
   // rebuild — including the enabled capabilities, which decide what tools,
   // skills and extensions the session gets. The session id is part of the key
@@ -63,13 +91,17 @@ function configKeyOf(config: AgentModeTurnConfig): string {
     // Part of the system prompt, which is fixed once the session exists: editing
     // the preset's instructions (or switching preset) has to rebuild.
     config.instructions ?? '',
+    config.ownsPrompt ?? false,
     enabledCapabilityIds(config),
     config.unsandboxed ?? false,
+    folders,
     config.planningThinkingOnly ?? false,
     // The rag tool is frozen on the host at session build, so a different
     // embedding model or backend has to rebuild.
     config.embeddingModel ?? '',
     config.embeddingBackend ?? '',
+    // Decides whether session_history is among the frozen tools.
+    config.taskRun ? '' : (config.sessionRef ?? ''),
   ])
 }
 
@@ -124,7 +156,43 @@ async function shutdownSessionExtensions(session: AgentSession): Promise<void> {
   }
 }
 
-async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession> {
+/** A Session's turn works in its Workspace, an Agent's override or a game folder; media follows. */
+export function sessionMediaOf(
+  sessionRef: string | undefined,
+  workspaceDir: string,
+): SessionMediaTarget | undefined {
+  if (!sessionRef) {
+    const agentId = trialAgentIdOf(workspaceDir)
+    return agentId ? trialMediaOf(agentId, workspaceDir) : undefined
+  }
+  const workspace = currentWorkspaceEntry(sessionRef)
+  if (!workspace) return undefined
+  const own = workspaceEntryAt(sessionRef, workspaceDir)
+  if (own) return { sessionRef, workspace: 'files', folderId: own.id }
+  return {
+    sessionRef,
+    workspace: 'game',
+    filesDir: () => ensureSessionWorkspace(sessionRef),
+    folderId: workspace.id,
+  }
+}
+
+/** A Trial Run's media is always served from a copy in its scratch folder. */
+export function trialMediaOf(agentId: string, workspaceDir: string): SessionMediaTarget {
+  if (trialAgentIdOf(workspaceDir) === agentId) return { workspace: 'trial', agentId }
+  const filesDir = trialFilesDir(agentId)
+  return { workspace: 'trial', agentId, filesDir: async () => filesDir }
+}
+
+const realpathed = (folder: ResolvedMountedFolder): ResolvedMountedFolder => ({
+  ...folder,
+  hostPath: fs.realpathSync(path.resolve(folder.hostPath)),
+})
+
+async function createSession(
+  config: AgentModeTurnConfig,
+  turnMounts: TurnFolders,
+): Promise<ActiveSession> {
   if (!fs.existsSync(config.workspaceDir) || !fs.statSync(config.workspaceDir).isDirectory()) {
     throw new Error(`Workspace folder does not exist: ${config.workspaceDir}`)
   }
@@ -133,6 +201,32 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
   const workspaceDir = fs.realpathSync(path.resolve(config.workspaceDir))
   const sessionId = config.sessionId
   const unsandboxed = config.unsandboxed === true
+  const folders: TurnFolders = {
+    ...(turnMounts.workspace
+      ? { workspace: { ...turnMounts.workspace, hostPath: workspaceDir } }
+      : {}),
+    mounted: turnMounts.mounted.map(realpathed),
+  }
+  const mountedFolders = folders.mounted
+  const workspaceMount = folders.workspace && mountedFolderSandboxPath(folders.workspace)
+  const sandboxFolders = [...(folders.workspace ? [folders.workspace] : []), ...mountedFolders]
+  const trialAgent = await trialAgentOf(config)
+  const stored = attachmentsFolderFor({
+    sessionId: config.sessionRef,
+    workspaceDir,
+    ...(trialAgent && trialAgentIdOf(workspaceDir) !== trialAgent
+      ? { trialAgentId: trialAgent }
+      : {}),
+  })
+  const attachmentsDir = stored.reference === SANDBOX_ATTACHMENTS_DIR ? stored.dir : undefined
+  const attachments = attachmentsSeenBy(stored, unsandboxed)
+  const sessionMedia = trialAgent
+    ? trialMediaOf(trialAgent, workspaceDir)
+    : sessionMediaOf(config.sessionRef, workspaceDir)
+  const historyReader = agentHistoryReader(workspaceDir, folders, {
+    unsandboxed,
+    games: sessionMedia?.workspace === 'game',
+  })
   setLastSessionId(sessionId)
 
   const pi = await loadPi()
@@ -150,7 +244,9 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
   const samplingParams =
     config.modelConfig.source === 'local'
       ? copySamplingParams(config.modelConfig.samplingParams, config.modelConfig.backend)
-      : undefined
+      : config.modelConfig.temperature !== undefined
+        ? { temperature: config.modelConfig.temperature }
+        : undefined
   const sessionTraceContext = traceContext(config.modelConfig, () => samplingParams)
   setAgentTraceContext(sessionTraceContext)
   // The model still carries it as well, since that is where pi-ai's own request
@@ -165,15 +261,27 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
   // this session (capabilities/index.ts): its tools, skills and Pi extensions.
   // embeddingModel and embeddingBackend are in configKeyOf, so changing them
   // rebuilds and resolveCapabilities can start or stop offering rag.
+  const modelToolUse = turnModelToolUse(
+    config.modelConfig.source === 'local' ? config.modelConfig : {},
+  )
   const capabilityHost: CapabilityHost = {
     sessionId,
+    ...(config.sessionRef ? { sessionRef: config.sessionRef } : {}),
+    modelToolUse,
     workspaceDir,
+    ...(attachmentsDir ? { attachmentsDir } : {}),
+    mountedFolders,
+    ...(workspaceMount ? { workspaceMount } : {}),
     toolSpecs: config.toolSpecs ?? [],
     mediaAgent: config.mediaAgent,
     chatModel: chatModelFromAgentConfig(config.modelConfig),
     agentDir: piAgentDir(),
     contextWindow: config.modelConfig.contextWindow,
+    supportsVision: config.modelConfig.supportsVision === true,
     keepModelsLoaded: config.keepModelsLoaded ?? false,
+    sessionMedia,
+    ...(config.responseLocale ? { responseLocale: config.responseLocale } : {}),
+    ...(config.overviewChrome ? { overviewChrome: config.overviewChrome } : {}),
     ...(config.embeddingModel
       ? {
           embeddingModel: config.embeddingModel,
@@ -196,11 +304,21 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
   const skillsDir = path.join(piAgentDir(), 'skills')
   const skills = writeAgentSkills(skillsDir, capabilities.skillSources)
 
+  // A preset can own the prompt the way a capability owns the session; it keeps the file
+  // and shell builtins only while the user has `files` switched on.
+  const presetOwnsPrompt = config.ownsPrompt === true && !capabilities.ownSession
+  const presetFileTools =
+    presetOwnsPrompt &&
+    capabilities.resolved.some(({ capability }) => capability.id === FILES_CAPABILITY_ID)
   const access = await createAgentToolAccess({
     workspaceDir,
     unsandboxed,
+    sessionId,
     skillsDir,
     skills,
+    mountedFolders,
+    ...(workspaceMount ? { workspaceMount } : {}),
+    ...(attachmentsDir ? { attachmentsDir } : {}),
     ...(capabilities.ownSession
       ? {
           baseTools: capabilities.ownSession.baseTools,
@@ -208,7 +326,9 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
             ? { writableFiles: capabilities.ownSession.writableFiles }
             : {}),
         }
-      : {}),
+      : (presetOwnsPrompt && !presetFileTools) || !modelToolUse.toolCalling
+        ? { baseTools: [] }
+        : {}),
   })
 
   // Serve the workspace over localhost so the agent can preview/debug pages over
@@ -218,18 +338,46 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
 
   const instructions = buildWorkspaceInstructions({
     cwd: access.cwd,
-    workspaceDir,
+    ...(unsandboxed || !workspaceMount ? { workspaceDir } : {}),
     baseUrl: runtime.baseUrl,
     unsandboxed,
+    mountedFolders,
+    ...(folders.workspace ? { workspace: folders.workspace } : {}),
+    ...(attachmentsDir ? { attachments: attachments.reference } : {}),
   })
 
-  const sessionFilePath = loadSessionFilePath(sessionId, workspaceDir)
+  // A Session's conversation follows its starred Workspace; a game's stays with its folder.
+  const sessionFilePath = loadSessionFilePath(sessionId, workspaceDir, {
+    anyWorkspace: sessionMedia?.workspace === 'files',
+  })
   const sessionManager = sessionFilePath
     ? pi.SessionManager.open(sessionFilePath, piSessionDir(), access.cwd)
     : pi.SessionManager.create(access.cwd, piSessionDir())
   if (sessionFilePath) {
     logger.info(`resumed Pi session ${sessionId} (${workspaceDir})`, LOG_SOURCE)
   }
+  const replayedEntryIds =
+    !sessionFilePath && config.sessionRef && !config.taskRun && !config.followUp
+      ? await replayChatEngineTurns(sessionManager, {
+          sessionRef: config.sessionRef,
+          presetName: config.presetName ?? '',
+          reader: historyReader,
+          model,
+        })
+      : []
+  // Only a resumed conversation has a last turn; a new one learns its folders from the prompt.
+  const pointer = sessionFilePath ? readSessionStore()[sessionId] : undefined
+  const previousMountedFolders = pointer ? (pointer.mountedFolders ?? []) : sandboxFolders
+  const mountedFoldersNote = mountedFoldersChangeNote(
+    previousMountedFolders,
+    sandboxFolders,
+    unsandboxed,
+    {
+      before: pointer ? previousWorkdir(pointer, unsandboxed, workspaceDir) : access.cwd,
+      after: access.cwd,
+    },
+    turnMounts.leftOut,
+  )
 
   const announcedSkills = skills.filter((skill) =>
     capabilities.announcedSkillNames.includes(skill.name),
@@ -238,10 +386,20 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
   // coding-agent instructions, the workspace orientation, the skills index and
   // any AGENTS.md are replaced by the preset's own text, which is the point of
   // such a session. The orientation is the fallback for a preset whose
-  // instructions the user emptied, so the prompt is never blank.
+  // instructions the user emptied, so the prompt is never blank. A preset that owns its
+  // prompt gets the same replacement, plus what its enabled capabilities need.
+  const skillsSection = buildSkillsPromptSection(announcedSkills, access.skillsRoot)
   const ownPrompt = capabilities.ownSession
     ? (config.instructions ?? '').trim() || instructions
-    : undefined
+    : presetOwnsPrompt
+      ? [
+          (config.instructions ?? '').trim() || FALLBACK_OWN_PROMPT,
+          ...(presetFileTools ? [instructions, skillsSection] : []),
+          capabilities.dormantPromptSection,
+        ]
+          .filter((section) => section !== '')
+          .join('\n\n')
+      : undefined
   const resourceLoader = new pi.DefaultResourceLoader({
     cwd: workspaceDir,
     agentDir: piAgentDir(),
@@ -263,7 +421,7 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
     skillsOverride: () => ({ skills: [], diagnostics: [] }),
     extensionFactories: [
       ...capabilities.extensionFactories,
-      reclaimBeforeModelCall(sessionId),
+      beforeModelCall(sessionId),
       // Pi's agent path ignores `Model.samplingParams`, so the turn's sampling
       // is merged into each request here instead (piSampling.ts).
       createSamplingExtension(
@@ -293,7 +451,7 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
       instructions,
       // The preset's own instructions come last so they read as the task the app
       // was opened for, after the environment it is working in.
-      buildSkillsPromptSection(announcedSkills, access.skillsRoot),
+      skillsSection,
       capabilities.dormantPromptSection,
       (config.instructions ?? '').trim(),
     ].filter((section) => section !== ''),
@@ -315,7 +473,12 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
     // piToolOperations.ts, so its builtins are switched off entirely. Capability
     // tools arrive through their extensions, not here.
     noTools: 'builtin',
-    customTools: access.definitions,
+    customTools: [
+      ...access.definitions,
+      ...(config.sessionRef && !config.taskRun && modelToolUse.toolCalling
+        ? [await buildSessionHistoryTool(config.sessionRef, historyReader)]
+        : []),
+    ],
     resourceLoader,
   })
 
@@ -331,12 +494,20 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
     workspaceDir,
     sessionFilePath: session.getSessionStats().sessionFile ?? '',
     updatedAt: Date.now(),
+    mountedFolders: previousMountedFolders,
+    workdir: pointer ? previousWorkdir(pointer, unsandboxed, workspaceDir) : access.cwd,
   })
 
   return {
-    configKey: configKeyOf(config),
+    configKey: configKeyOf(config, turnMounts),
     sessionId,
     workspaceDir,
+    files: {
+      workspaceDir,
+      ...(workspaceMount ? { workspaceMount } : {}),
+      ...(attachmentsDir ? { attachmentsDir } : {}),
+    },
+    attachments,
     session,
     access,
     instructedBaseUrl: runtime.baseUrl,
@@ -352,7 +523,23 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
     // starts empty. A resumed one is past the point where a plan is what is
     // wanted, and the request it reopens with is a change to a finished game.
     planPending: Boolean(capabilities.planHandoff) && !sessionFilePath,
+    documentSearch: capabilities.resolved.some(({ capability }) => capability.id === 'rag'),
+    folders,
+    mountedFolders: sandboxFolders,
+    workdir: access.cwd,
+    ...(mountedFoldersNote ? { mountedFoldersNote } : {}),
+    replayedEntryIds,
+    historyReader,
   }
+}
+
+/** Where the conversation's last turn worked; pointers from before `/mnt` Workspaces lack it. */
+function previousWorkdir(
+  pointer: SessionPointer,
+  unsandboxed: boolean,
+  workspaceDir: string,
+): string {
+  return pointer.workdir ?? (unsandboxed ? workspaceDir : SANDBOX_WORKDIR)
 }
 
 /**
@@ -467,9 +654,17 @@ function withShellPolicy(config: AgentModeTurnConfig): AgentModeTurnConfig {
   return { ...config, unsandboxed: false }
 }
 
+/** The shell a turn actually runs with: the opt-in only counts in developer mode. */
+export function effectiveHostShell(config: AgentModeTurnConfig): boolean {
+  return withShellPolicy(config).unsandboxed === true
+}
+
 export async function ensureSession(requested: AgentModeTurnConfig): Promise<ActiveSession> {
   const config = withShellPolicy(requested)
-  const configKey = configKeyOf(config)
+  const folders = await turnFolders(config)
+  assertMountedFoldersPresent(folders.mounted)
+  assertMountedFoldersApart(config.workspaceDir, folders.mounted)
+  const configKey = configKeyOf(config, folders)
   if (active && active.configKey === configKey) {
     applyMediaSpecialistTurn(config)
     await reassertPreviewUrl(active)
@@ -479,7 +674,7 @@ export async function ensureSession(requested: AgentModeTurnConfig): Promise<Act
   // which disposes it when it ends (`releaseTurnSession`).
   if (active && agentTurns.get(active.sessionId)?.live === active) setActive(null)
   await endActiveSession()
-  const next = await createSession(config)
+  const next = await createSession(config, folders)
   applyMediaSpecialistTurn(config)
   setActive(next)
   return next
@@ -507,14 +702,14 @@ export async function releaseTurnSession(current: ActiveSession): Promise<void> 
 }
 
 /**
- * A paused turn gave up its Turn Queue place, and Pi is about to call the model
- * for it again: take the place back first. The `context` event is awaited before
- * the request is built, so the request goes to the endpoint readiness left behind.
+ * Pi is about to call the model: a stopped turn stops here, and a paused one takes
+ * its Turn Queue place back first. The `context` event is awaited before the
+ * request is built, so the request goes to the endpoint readiness left behind.
  */
-function reclaimBeforeModelCall(sessionId: string): ExtensionFactory {
+function beforeModelCall(sessionId: string): ExtensionFactory {
   return (pi) => {
     pi.on('context', async () => {
-      await agentTurns.get(sessionId)?.reclaim?.()
+      await agentTurns.get(sessionId)?.beforeModelCall?.()
     })
   }
 }

@@ -13,10 +13,12 @@ type Bag = Record<string, unknown>
 const AGENT: ChatPreset = {
   type: 'chat',
   category: 'chat',
-  name: 'Agent',
+  name: 'Assistant',
   backends: ['llamaCPP', 'openVINO'],
   agentPreset: true,
   agentWorkspace: 'pick',
+  agentOwnsPrompt: true,
+  systemPrompt: 'You are the Assistant.',
 } as ChatPreset
 
 const GAME_AGENT: ChatPreset = {
@@ -63,7 +65,7 @@ const chat = vi.hoisted(() => {
     binding: null as Binding | null,
     live: {} as Bag,
     settingsPerPreset: {} as Record<string, Bag>,
-    presetName: () => 'Agent',
+    presetName: () => 'Assistant',
     catalog: [] as { name: string; type: string }[],
   }
   const models = () => (state.live.selectedModels ?? {}) as Record<string, string | null>
@@ -71,7 +73,7 @@ const chat = vi.hoisted(() => {
   const apply = (bag: Bag) => {
     state.live = { backend: 'llamaCPP', ...JSON.parse(JSON.stringify(bag)) }
   }
-  const sessionScoped = () => state.presetName() === 'Agent'
+  const sessionScoped = () => state.presetName() === 'Assistant'
   return {
     state,
     store: {
@@ -80,6 +82,9 @@ const chat = vi.hoisted(() => {
       },
       get activeModel() {
         return models()[state.live.backend as string] ?? undefined
+      },
+      get systemPrompt() {
+        return state.live.systemPrompt as string | undefined
       },
       get settingsPerPreset() {
         return state.settingsPerPreset
@@ -161,7 +166,12 @@ vi.mock('@/assets/js/store/errors', () => ({
 
 const turnConfig = vi.hoisted(() => ({
   build: null as ((sessionId: string) => unknown) | null,
-  lastInput: null as { planningThinkingOnly?: boolean } | null,
+  lastInput: null as {
+    planningThinkingOnly?: boolean
+    folderOverrides?: unknown
+    instructions?: string
+    userSampling?: boolean
+  } | null,
 }))
 
 vi.mock('@/assets/js/store/agentModeTurn', async (importOriginal) => {
@@ -217,6 +227,7 @@ function fakeWindow(): void {
   globalThis.window = {
     electronAPI: {
       agentMode: {
+        sessionDocuments: vi.fn(async () => []),
         cancel: vi.fn(async () => {}),
         onExecuteTool: vi.fn(),
         bootstrapSessions: vi.fn(async () => bootstrap),
@@ -238,6 +249,7 @@ function fakeWindow(): void {
 }
 
 const { useAgentMode } = await import('@/assets/js/store/agentMode')
+const { useSessions } = await import('@/assets/js/store/sessions')
 
 beforeEach(() => {
   setActivePinia(createPinia())
@@ -255,7 +267,7 @@ beforeEach(() => {
   chat.state.presetName = () => activePreset.value.name
   chat.state.live = { backend: 'llamaCPP' }
   chat.state.settingsPerPreset = {
-    Agent: { backend: 'llamaCPP', selectedModels: { llamaCPP: 'Default-9B' } },
+    Assistant: { backend: 'llamaCPP', selectedModels: { llamaCPP: 'Default-9B' } },
   }
 })
 
@@ -315,7 +327,7 @@ describe('Agent Session Settings', () => {
 
     expect(savedSettings(first)).toMatchObject({ backend: 'llamaCPP', model: 'Default-9B' })
     expect(savedSettings(second)).toMatchObject({ backend: 'openVINO', model: 'Phi-4' })
-    expect(chat.state.settingsPerPreset.Agent).toMatchObject({
+    expect(chat.state.settingsPerPreset.Assistant).toMatchObject({
       backend: 'llamaCPP',
       selectedModels: { llamaCPP: 'Default-9B' },
     })
@@ -358,11 +370,9 @@ describe('Agent Session Settings', () => {
     expect(store.sessions[store.openSessionId]?.settings).toBeUndefined()
   })
 
-  it('keeps device, provider, context, thinking, embeddings and workflows per session', async () => {
+  it('keeps provider, context, thinking, embeddings and workflows per session', async () => {
     const store = await startedStore()
     chat.edit({
-      selectedDeviceId: 'NPU',
-      selectedDeviceUuid: 'u-npu',
       cloudProviderId: 'zai',
       requestedContextSize: 65536,
       contextSizeEdited: true,
@@ -375,12 +385,9 @@ describe('Agent Session Settings', () => {
 
     await store.newSession()
     expect(chat.state.live.thinkingEnabled).toBeUndefined()
-    expect(chat.state.live.selectedDeviceId).toBeUndefined()
 
     await store.switchSession(first)
     expect(chat.state.live).toMatchObject({
-      selectedDeviceId: 'NPU',
-      selectedDeviceUuid: 'u-npu',
       cloudProviderId: 'zai',
       requestedContextSize: 65536,
       contextSizeEdited: true,
@@ -389,7 +396,6 @@ describe('Agent Session Settings', () => {
       builtinToolPresetEnablement: { Flux: false },
     })
     expect(savedSettings(first)).toMatchObject({
-      device: { id: 'NPU', uuid: 'u-npu' },
       cloudProviderId: 'zai',
       contextSize: 65536,
       thinkingEnabled: false,
@@ -398,26 +404,36 @@ describe('Agent Session Settings', () => {
     })
   })
 
-  it('leaves an earlier session alone when the next one changes its device and thinking', async () => {
+  it('neither saves nor restores the device, which applies to every session', async () => {
     const store = await startedStore()
-    chat.edit({ selectedDeviceId: 'GPU.0', thinkingEnabled: true })
+    chat.edit({ selectedDeviceId: 'NPU', selectedDeviceUuid: 'u-npu' })
+    await store.generate('first')
+    const first = store.openSessionId
+    expect(savedSettings(first)?.device).toBeUndefined()
+
+    await store.newSession()
+    await store.switchSession(first)
+    expect(chat.state.live.selectedDeviceId).toBeUndefined()
+    expect(chat.state.live.selectedDeviceUuid).toBeUndefined()
+  })
+
+  it('leaves an earlier session alone when the next one changes its thinking', async () => {
+    const store = await startedStore()
+    chat.edit({ thinkingEnabled: true })
     await store.generate('first')
     const first = store.openSessionId
 
     await store.newSession()
-    chat.edit({ selectedDeviceId: 'NPU', thinkingEnabled: false })
+    chat.edit({ thinkingEnabled: false })
     await store.generate('second')
 
-    expect(savedSettings(first)).toMatchObject({ device: { id: 'GPU.0' }, thinkingEnabled: true })
-    expect(savedSettings(store.openSessionId)).toMatchObject({
-      device: { id: 'NPU' },
-      thinkingEnabled: false,
-    })
+    expect(savedSettings(first)).toMatchObject({ thinkingEnabled: true })
+    expect(savedSettings(store.openSessionId)).toMatchObject({ thinkingEnabled: false })
   })
 
   it('starts a Draft Session with the default capabilities and planning flag', async () => {
-    chat.state.settingsPerPreset.Agent = {
-      ...chat.state.settingsPerPreset.Agent,
+    chat.state.settingsPerPreset.Assistant = {
+      ...chat.state.settingsPerPreset.Assistant,
       agentCapabilities: ['web', 'mcp:blender'],
       agentPlanningThinkingOnly: false,
     }
@@ -425,6 +441,42 @@ describe('Agent Session Settings', () => {
 
     expect(store.capabilities).toEqual(['web', 'mcp:blender'])
     expect(store.effectivePlanningThinkingOnly).toBe(false)
+  })
+
+  it('starts Draft Sessions with the current defaults after an upgrade, keeping MCP servers', async () => {
+    const upgraded = ['media', 'web-debug', 'rag', 'web', 'notify', 'mcp:blender']
+    chat.state.settingsPerPreset.Assistant = {
+      ...chat.state.settingsPerPreset.Assistant,
+      agentCapabilities: upgraded,
+    }
+    const store = useAgentMode()
+    store.defaultCapabilities = upgraded
+    store.adoptDefaultCapabilities()
+    await store.init()
+    await store.newSession()
+
+    expect([...store.capabilities].sort()).toEqual([
+      'files',
+      'mcp:blender',
+      'media',
+      'rag',
+      'web',
+      'web-screenshot',
+    ])
+  })
+
+  it('adopts the defaults only once', async () => {
+    const store = useAgentMode()
+    store.adoptDefaultCapabilities()
+    chat.state.settingsPerPreset.Assistant = {
+      ...chat.state.settingsPerPreset.Assistant,
+      agentCapabilities: ['media', 'notify'],
+    }
+    store.adoptDefaultCapabilities()
+    await store.init()
+    await store.newSession()
+
+    expect(store.capabilities).toEqual(['media', 'notify'])
   })
 
   it('keeps a capability or planning change in its own session', async () => {
@@ -455,6 +507,100 @@ describe('Agent Session Settings', () => {
     expect(turnConfig.lastInput?.planningThinkingOnly).toBe(false)
   })
 
+  it('keeps sampling, the system prompt and metrics per session', async () => {
+    const store = await startedStore()
+    chat.edit({
+      maxTokens: 512,
+      temperature: 0.3,
+      reasoningEffort: 'low',
+      systemPrompt: 'Be terse.',
+      metricsEnabled: true,
+      speakReplies: true,
+    })
+    await store.generate('first')
+    const first = store.openSessionId
+
+    await store.newSession()
+    expect(chat.state.live.systemPrompt).toBeUndefined()
+
+    await store.switchSession(first)
+    expect(chat.state.live).toMatchObject({
+      maxTokens: 512,
+      temperature: 0.3,
+      metricsEnabled: true,
+    })
+    expect(savedSettings(first)).toMatchObject({
+      maxTokens: 512,
+      temperature: 0.3,
+      reasoningEffort: 'low',
+      systemPrompt: 'Be terse.',
+      metricsEnabled: true,
+      speakReplies: true,
+    })
+    expect(chat.state.settingsPerPreset.Assistant).not.toHaveProperty('systemPrompt')
+  })
+
+  it("sends the session's own system prompt, and the preset's while it is empty", async () => {
+    const store = await startedStore()
+    chat.edit({ systemPrompt: 'Be terse.' })
+    await turnConfig.build?.(store.openSessionId)
+    expect(turnConfig.lastInput?.instructions).toContain('Be terse.')
+    expect(turnConfig.lastInput?.instructions).not.toContain('You are the Assistant.')
+    expect(turnConfig.lastInput?.userSampling).toBe(true)
+
+    chat.edit({ systemPrompt: '  ' })
+    await turnConfig.build?.(store.openSessionId)
+    expect(turnConfig.lastInput?.instructions).toContain('You are the Assistant.')
+  })
+
+  it('keeps Game Agent on its preset prompt and its own output budget', async () => {
+    const store = await startedStore()
+    await presetSwitchingMock.switchPreset('Game Agent')
+    chat.edit({ systemPrompt: 'Be terse.' })
+    await turnConfig.build?.(store.openSessionId)
+    expect(turnConfig.lastInput?.instructions).not.toContain('Be terse.')
+    expect(turnConfig.lastInput?.userSampling).toBe(false)
+  })
+
+  describe("the Session's folders", () => {
+    function openSessionWithFolders(): void {
+      const sessions = useSessions()
+      sessions.sessions = {
+        s1: {
+          id: 's1',
+          title: '',
+          renamed: false,
+          pinned: false,
+          reachable: false,
+          includedInOverviews: false,
+          createdAt: 1,
+          updatedAt: 1,
+          presetsUsed: [],
+          hiddenMessageIds: [],
+          folderList: {
+            workspaceId: 'ws',
+            folders: [
+              { id: 'ws', hostPath: '/sessions/s1/files', access: 'read-write', slug: 'files' },
+              { id: 'a', hostPath: '/Users/ada/notes', access: 'read-only', slug: 'notes' },
+              { id: 'b', hostPath: '/Volumes/usb/notes', access: 'read-write', slug: 'notes-2' },
+            ],
+          },
+        },
+      }
+      sessions.openSessionId = 's1'
+    }
+
+    // Main mounts them from the Session's list, which the turn names by its Session.
+    it.each(['Assistant', 'Game Agent'])('are not sent with a %s turn', async (preset) => {
+      const store = await startedStore()
+      openSessionWithFolders()
+      if (preset !== 'Assistant') await presetSwitchingMock.switchPreset(preset)
+
+      await turnConfig.build?.(store.openSessionId)
+      expect(turnConfig.lastInput?.folderOverrides).toBeUndefined()
+    })
+  })
+
   it('moves the global defaults into the Default Settings once', async () => {
     const store = useAgentMode()
     store.defaultCapabilities = ['web', 'mcp:old']
@@ -462,7 +608,7 @@ describe('Agent Session Settings', () => {
     await store.init()
     await store.newSession()
 
-    expect(chat.state.settingsPerPreset.Agent).toMatchObject({
+    expect(chat.state.settingsPerPreset.Assistant).toMatchObject({
       agentCapabilities: ['web', 'mcp:old'],
       agentPlanningThinkingOnly: false,
     })
@@ -470,7 +616,7 @@ describe('Agent Session Settings', () => {
     store.defaultCapabilities = ['media']
     store.planningThinkingOnly = true
     await store.newSession()
-    expect(chat.state.settingsPerPreset.Agent).toMatchObject({
+    expect(chat.state.settingsPerPreset.Assistant).toMatchObject({
       agentCapabilities: ['web', 'mcp:old'],
       agentPlanningThinkingOnly: false,
     })
@@ -487,7 +633,7 @@ describe('Agent Session Settings', () => {
           title: 'old',
           createdAt: 1,
           updatedAt: 2,
-          presetName: 'Agent',
+          presetName: 'Assistant',
           capabilities: ['web', 'mcp:legacy'],
           messages: [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }],
         },
@@ -519,12 +665,12 @@ describe('Agent Session Settings', () => {
     store.saveAsDefault()
 
     expect(saveSession).not.toHaveBeenCalled()
-    expect(chat.state.settingsPerPreset.Agent).toMatchObject({
+    expect(chat.state.settingsPerPreset.Assistant).toMatchObject({
       backend: 'openVINO',
       selectedModels: { openVINO: 'Phi-4' },
       thinkingEnabled: false,
     })
-    expect(chat.state.settingsPerPreset.Agent.agentCapabilities).toContain('mcp:blender')
+    expect(chat.state.settingsPerPreset.Assistant.agentCapabilities).toContain('mcp:blender')
 
     await store.newSession()
     expect(live()).toEqual({ backend: 'openVINO', model: 'Phi-4' })
@@ -577,7 +723,7 @@ describe('Agent Session Settings', () => {
     title: 'old',
     createdAt: 1,
     updatedAt: 2,
-    presetName: 'Agent',
+    presetName: 'Assistant',
     messages: [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }],
     ...overrides,
   })
@@ -590,8 +736,8 @@ describe('Agent Session Settings', () => {
   }
 
   it('fills a record saved without settings from the defaults and stores it once', async () => {
-    chat.state.settingsPerPreset.Agent = {
-      ...chat.state.settingsPerPreset.Agent,
+    chat.state.settingsPerPreset.Assistant = {
+      ...chat.state.settingsPerPreset.Assistant,
       thinkingEnabled: false,
     }
     await openedWith(oldRecord('aipg-agent-old'))
@@ -606,8 +752,8 @@ describe('Agent Session Settings', () => {
   })
 
   it('fills only the missing field and keeps what the session stored', async () => {
-    chat.state.settingsPerPreset.Agent = {
-      ...chat.state.settingsPerPreset.Agent,
+    chat.state.settingsPerPreset.Assistant = {
+      ...chat.state.settingsPerPreset.Assistant,
       thinkingEnabled: false,
     }
     await openedWith(
@@ -623,8 +769,8 @@ describe('Agent Session Settings', () => {
 
   it('stops following the defaults once filled', async () => {
     const store = await openedWith(oldRecord('aipg-agent-old'))
-    chat.state.settingsPerPreset.Agent = {
-      ...chat.state.settingsPerPreset.Agent,
+    chat.state.settingsPerPreset.Assistant = {
+      ...chat.state.settingsPerPreset.Assistant,
       selectedModels: { llamaCPP: 'Changed-27B' },
     }
     await store.newSession()

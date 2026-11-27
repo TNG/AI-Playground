@@ -35,14 +35,13 @@ import {
 } from '@/lib/ovmsMtp'
 import { usePresets, type ChatPreset } from './presets'
 import { useDeveloperSettings } from './developerSettings'
-import { useHomeAgent } from './homeAgent'
 import { useCloudMode, CLOUD_DEFAULT_MODEL, ASSUME_ALL_CAPABILITIES } from './cloudMode'
-import { useConversations, HOME_AGENT_CHAT_PRESET_NAME } from './conversations'
+import { useConversations } from './conversations'
 import * as toast from '@/assets/js/toast.ts'
 import { useActivities } from './activities'
 import { useI18N } from './i18n'
 import { useUIStore } from './ui'
-import { renamePresetKeys } from '@/lib/presetRenames'
+import { renamePresetSettings } from '@/lib/presetRenames'
 import { repairChatSettings } from '@/lib/chatSettingsRepair'
 import {
   sessionSettingsToBag,
@@ -74,12 +73,14 @@ import {
 } from '@/assets/js/phisonKmRag'
 import { useModelPreferences } from './modelPreferences'
 import { pathKeyForCatalogModel } from '../models/library'
+import { CLOUD_MODEL_PATH_KEY } from '../models/types'
 import { withPreferenceFlags } from '../models/favorites'
 import {
   contextSizeSettingSupported as contextSizeSupportedFor,
   isNpuDevice,
 } from '@/lib/llmBackendChoices'
 import { modelSupportsThinkingToggle as supportsThinkingToggleFor } from '@/lib/llmModelChoices'
+import { sessionIdOfChatKey } from '@/lib/sessionChat'
 
 const LlmBackendSchema = z.enum(llmBackendTypes)
 export type LlmBackend = z.infer<typeof LlmBackendSchema>
@@ -125,9 +126,11 @@ export type LlmModel = {
 
 /**
  * Cloud model ids are remote and have no model directory, but favoriting one
- * should still work, so their preferences are keyed under this synthetic path key.
+ * should still work, so their preferences are keyed under this synthetic path
+ * key. Defined in `models/types.ts` (pure) so the model library can build the
+ * same id without importing this store; re-exported for existing importers.
  */
-export const CLOUD_MODEL_PATH_KEY = 'cloud'
+export { CLOUD_MODEL_PATH_KEY }
 
 // Thinking model markers for different models
 export const thinkingModels: Record<string, string> = {
@@ -165,7 +168,6 @@ export const useTextInference = defineStore(
     const models = useModels()
     const presetsStore = usePresets()
     const developerSettings = useDeveloperSettings()
-    const homeAgent = useHomeAgent()
     const cloudMode = useCloudMode()
     const conversations = useConversations()
     const activities = useActivities()
@@ -332,23 +334,30 @@ export const useTextInference = defineStore(
           // claim the thinking toggle for cloud models (reasoning still surfaces
           // via the <think> extraction middleware in the chat store).
           const caps = cloudMode.capabilitiesFor(name)
+          // The provider's word can be corrected per model: an override saved in
+          // the model library (Edit Capabilities) is keyed under the same
+          // CLOUD_MODEL_PATH_KEY id and lands here, so the pickers and the chat
+          // follow it. The mapping below is field-by-field on purpose — the
+          // thinking toggle is never overridden, since `enable_thinking` is a
+          // local-template kwarg remote providers may reject.
+          const overrides = modelPreferences.capabilityOverridesFor(CLOUD_MODEL_PATH_KEY, name)
           newModels.push({
             name,
             mmproj: undefined,
             type: 'cloud',
             downloaded: true, // remote — nothing to download
             active: name === selectedCloud || (!hasValidCloudSelection && index === 0),
-            supportsToolCalling: caps.supportsToolCalling,
-            supportsVision: caps.supportsVision,
-            supportsReasoning: caps.supportsReasoning,
+            supportsToolCalling: overrides?.supportsToolCalling ?? caps.supportsToolCalling,
+            supportsVision: overrides?.supportsVision ?? caps.supportsVision,
+            supportsReasoning: overrides?.supportsReasoning ?? caps.supportsReasoning,
             // Remote providers say nothing about coding fitness; the picker does
             // not filter cloud models on capability anyway.
-            supportsCoding: undefined,
-            supportsAgentic: undefined,
+            supportsCoding: overrides?.supportsCoding,
+            supportsAgentic: overrides?.supportsAgentic,
             supportsThinkingToggle: false,
             // From the provider's `context_length`; undefined when it stays
             // silent, in which case consumers fall back to their own defaults.
-            maxContextSize: caps.contextLength,
+            maxContextSize: overrides?.maxContextSize ?? caps.contextLength,
             // Sampling recommendations come from our own catalog, which only
             // describes local models.
             inferenceDefaults: undefined,
@@ -461,15 +470,6 @@ export const useTextInference = defineStore(
     const getDeviceNameForBackend = (which: LlmBackend): string | null =>
       selectedDeviceFor(which)?.name ?? null
 
-    // Stable UUID of the currently selected device, when the backend exposes one.
-    // Persisted alongside the id so a preset re-binds to the same physical device
-    // even if its backend-local id shifts (driver update / enumeration reorder).
-    const getCurrentDeviceUuid = (): string | null => {
-      const serviceName = backendToService[backend.value] as BackendServiceName
-      const serviceInfo = backendServices.info.find((s) => s.serviceName === serviceName)
-      return serviceInfo?.devices.find((d) => d.selected)?.uuid ?? null
-    }
-
     const backendToAipgModelType = {
       openVINO: 'openvinoLLM',
       llamaCPP: 'ggufLLM',
@@ -574,12 +574,12 @@ export const useTextInference = defineStore(
     const aipgToolsEnabled = ref(true)
     // "Speak replies": read a reply aloud when the user's input was speech. Edited on
     // the Text To Speech tool row (SettingsBuiltinTools) and stored per chat preset
-    // like the other tool settings, so it applies to whichever preset is active —
-    // the assistant auto-plays in the app, the Home Agent answers a voice message
-    // with a voice message. Initialized per preset on load; see
-    // `defaultSpeakReplies` / `speakRepliesAllowed`.
+    // like the other tool settings, so it applies to whichever preset is active.
+    // Off until the user turns it on; see `speakRepliesAllowed`.
     const speakReplies = ref(false)
     const mcpToolsEnabled = ref(true)
+    // Opt-in: empty until the user ticks servers in the Attributes tab.
+    const mcpServerIds = ref<string[]>([])
     // Route the heavy media tools (comfyUI + comfyUiImageEdit) through the
     // nested media specialist agent: the parent model sees one thin `media`
     // tool instead of the full workflow catalog/schemas. In Agent Mode,
@@ -608,7 +608,9 @@ export const useTextInference = defineStore(
     const screenshotWindow = ref<ScreenshotWindow | null>(null)
 
     function isBuiltinToolEnabled(toolName: string): boolean {
-      return isToolEnabled(builtinToolEnablement.value, toolName)
+      return isToolEnabled(builtinToolEnablement.value, toolName, {
+        onNpu: runningOnOpenvinoNpu.value && activePreset.value?.agentPreset === true,
+      })
     }
 
     function setBuiltinToolEnabled(toolName: string, enabled: boolean): void {
@@ -628,32 +630,14 @@ export const useTextInference = defineStore(
     }
 
     /**
-     * Default for "Speak replies": on for the Home Agent, where a voice message
-     * asks for a voice answer, and off elsewhere so the desktop app never starts
-     * talking without the user having asked for it.
-     */
-    function defaultSpeakReplies(presetName?: string): boolean {
-      return presetName === HOME_AGENT_CHAT_PRESET_NAME
-    }
-
-    /**
-     * Whether replies may be spoken for a preset: its "Speak replies" toggle and
-     * tools must be on, and the Text To Speech tool (which supplies the voice) must
+     * Whether replies may be spoken for the active preset: its "Speak replies" toggle
+     * and tools must be on, and the Text To Speech tool (which supplies the voice) must
      * be enabled — that is what the toggle rides on in the UI.
-     *
-     * Pass `presetName` to read the *stored* value for a preset instead of the live
-     * refs. The Home Agent needs that: it answers on its own preset, while the live
-     * refs may already hold the desktop user's preset again. A preset with nothing
-     * saved yet falls back to that preset's default.
      */
-    function speakRepliesAllowed(presetName?: string): boolean {
-      if (!isBuiltinToolEnabled('synthesizeTextToSpeech')) return false
-      if (!presetName) return aipgToolsEnabled.value && speakReplies.value
-      const saved = findSettingsForPreset(presetName)
-      const toolsOn = (saved?.aipgToolsEnabled as boolean | undefined) ?? aipgToolsEnabled.value
-      const speakOn =
-        (saved?.speakReplies as boolean | undefined) ?? defaultSpeakReplies(presetName)
-      return toolsOn && speakOn
+    function speakRepliesAllowed(): boolean {
+      // Not the NPU default: speaking replies costs the prompt nothing.
+      if (!isToolEnabled(builtinToolEnablement.value, 'synthesizeTextToSpeech')) return false
+      return aipgToolsEnabled.value && speakReplies.value
     }
 
     /** Stored settings for a preset, by exact key or the first of its variants. */
@@ -1002,10 +986,6 @@ export const useTextInference = defineStore(
       syncRagSelectionForActiveKey()
     }
 
-    // Raw URL of the selected local inference backend. When Home Agent is
-    // active, `currentBackendUrl` is that agent's loopback proxy instead
-    // (X-AIPG-Auth / X-Upstream-Url); callers that cannot attach those headers
-    // dial the backend through this.
     const localBackendUrl = computed(
       () =>
         backendServices.info.find((item) => item.serviceName === backendToService[backend.value])
@@ -1016,16 +996,8 @@ export const useTextInference = defineStore(
       if (backend.value === 'cloud') {
         return cloudMode.activeProviderBaseUrl
       }
-      if (homeAgent.isHomeAgentActive && homeAgent.homeAgentBaseUrl) {
-        return homeAgent.homeAgentBaseUrl
-      }
       return localBackendUrl.value
     })
-
-    // When Home Agent is active, the real inference backend URL to proxy through
-    const homeAgentUpstreamUrl = computed(() =>
-      homeAgent.isHomeAgentActive ? localBackendUrl.value : undefined,
-    )
 
     async function getDownloadParamsForCurrentModelIfRequired(
       type: 'llm' | 'embedding',
@@ -1077,7 +1049,7 @@ export const useTextInference = defineStore(
       const checkList = [{ repo_id: model, type: modelType, backend: backendName }]
       // A text turn runs without the projector (llama.cpp only passes --mmproj when
       // the file is beside the model), so asking for it would be a gigabyte the
-      // turn does not use — and on a remote Home Agent turn, a download question
+      // turn does not use — and on a Channel, a download question
       // nobody expected.
       const mmproj = llmModels.value.find(
         (m) => m.type === localBackend && m.name === model,
@@ -1165,7 +1137,7 @@ export const useTextInference = defineStore(
       const existing = ragList.value.find((item) => item.hash === langchainDocument.hash)
       if (existing) {
         // Same content (by hash) is already indexed. Don't duplicate, but honor
-        // an explicit request to enable it (e.g. a Home Agent document upload
+        // an explicit request to enable it (e.g. an attached document
         // stub arrives with isChecked: true) so re-sending a file the user
         // already has makes it usable instead of silently no-op'ing.
         if (langchainDocument.isChecked) {
@@ -1184,9 +1156,7 @@ export const useTextInference = defineStore(
       // Content is derived here from splitDB + the boundary-only mergedGroups — this
       // WarmupRequest payload is transient (never persisted), so carrying full text
       // in it is fine.
-      // Prefer the direct llama.cpp upstream URL when Home Agent is active —
-      // currentBackendUrl points at the Home Agent proxy, which does not own the KV cache.
-      const warmupBackendUrl = homeAgentUpstreamUrl.value ?? currentBackendUrl.value
+      const warmupBackendUrl = currentBackendUrl.value
       if (
         isPhisonKmRag.value &&
         langchainDocument.mergedGroups?.length &&
@@ -1332,7 +1302,7 @@ export const useTextInference = defineStore(
       if (!claimOvmsMtpStaleNotice(modelRepoId, localStorage)) return
       const message = (i18nState.OVMS_MTP_STALE_MODEL ?? '').replace('{model}', modelRepoId ?? '')
       notify(message, () => {
-        uiStore.openModelManager()
+        uiStore.openModelLibrary()
       })
     }
 
@@ -1380,16 +1350,6 @@ export const useTextInference = defineStore(
           throw error
         }
       }
-
-      // If Home Agent is active, also ensure it is running
-      if (homeAgent.isHomeAgentActive) {
-        const homeAgentInfo = backendServices.info.find(
-          (s) => s.serviceName === 'home-agent-backend',
-        )
-        if (homeAgentInfo && homeAgentInfo.isSetUp && homeAgentInfo.status !== 'running') {
-          await backendServices.startService('home-agent-backend')
-        }
-      }
     }
 
     async function checkModelAvailability(
@@ -1413,7 +1373,7 @@ export const useTextInference = defineStore(
 
       if (uniqueDownloads.length === 0) return
       // The permissions layer owns the prompt: the download modal, or the
-      // channel when a remote Home Agent turn is active.
+      // Channel when a remote turn is active.
       await requestDownload(uniqueDownloads, { conversationKey: options.conversationKey })
     }
 
@@ -1497,7 +1457,7 @@ export const useTextInference = defineStore(
      * it (the settings key is the preset's name, plus its variant).
      */
     function migrateRenamedPresetSettings(): void {
-      settingsPerPreset.value = renamePresetKeys(settingsPerPreset.value)
+      settingsPerPreset.value = renamePresetSettings(settingsPerPreset.value)
     }
 
     const isSystemPromptVisible = computed(() => activePreset.value?.advancedMode === true)
@@ -1525,7 +1485,7 @@ export const useTextInference = defineStore(
       isLoadingSettings = true
 
       const defaultSettings = settingsPerPreset.value[settingsKey] || {}
-      const binding = usesSessionSettings(activePreset.value) ? sessionSettingsBinding : null
+      const binding = activeSettingsBinding()
       const sessionSettings = binding?.load(defaultSettings, embeddingBackend.value) ?? null
       const savedSettings = sessionSettings ?? defaultSettings
       // A sent session's stored backend is applied as-is; an unusable one blocks Send instead.
@@ -1534,19 +1494,11 @@ export const useTextInference = defineStore(
       console.log('Loading settings for preset', settingsKey, savedSettings)
       const preset = activePreset.value
 
-      // Backend, device and preferred model go through the shared silent repair:
-      // an unavailable choice is replaced rather than restored. A preset with no
-      // saved backend never inherits the previously active preset's backend.
-      const savedDeviceId = savedSettings.selectedDeviceId as string | undefined
+      // Backend and preferred model go through the shared silent repair: an unavailable
+      // choice is replaced rather than restored. A preset with no saved backend never
+      // inherits the previously active preset's backend. The device is a Machine Setting.
       const repaired = repairChatSettings(
-        {
-          backend: savedSettings.backend as LlmBackend | undefined,
-          deviceId: savedDeviceId,
-          deviceUuid:
-            typeof savedSettings.selectedDeviceUuid === 'string'
-              ? savedSettings.selectedDeviceUuid
-              : null,
-        },
+        { backend: savedSettings.backend as LlmBackend | undefined },
         {
           presetBackends: pinnedBackend ? [pinnedBackend] : (preset.backends ?? []),
           presetPreferredModels: preset.preferredModels,
@@ -1555,19 +1507,15 @@ export const useTextInference = defineStore(
             const info = backendServices.info.find((s) => s.serviceName === backendToService[b])
             return info?.status === 'running'
           }),
-          devices: (b) =>
-            backendServices.info.find((s) => s.serviceName === backendToService[b])?.devices ?? [],
           models: llmModels.value,
+          onNpu: isNpuDevice(
+            backendServices.info
+              .find((s) => s.serviceName === backendToService.openVINO)
+              ?.devices.find((d) => d.selected)?.id,
+          ),
         },
       )
       if (repaired.backend) backend.value = repaired.backend
-
-      const serviceName = backendToService[backend.value] as BackendServiceName
-      const serviceInfo = backendServices.info.find((s) => s.serviceName === serviceName)
-      const targetDevice = serviceInfo?.devices.find((d) => d.id === repaired.deviceId)
-      if (targetDevice && (savedDeviceId !== undefined || !targetDevice.selected)) {
-        backendServices.selectDevice(serviceName, targetDevice.id)
-      }
 
       // Load selected models (per backend)
       if (savedSettings.selectedModels !== undefined) {
@@ -1682,6 +1630,9 @@ export const useTextInference = defineStore(
         (savedSettings.aipgToolsEnabled as boolean | undefined) ?? defaultToolsEnabled
       mcpToolsEnabled.value =
         (savedSettings.mcpToolsEnabled as boolean | undefined) ?? defaultToolsEnabled
+      mcpServerIds.value = ((savedSettings.mcpServerIds as unknown[] | undefined) ?? []).filter(
+        (id): id is string => typeof id === 'string',
+      )
       toolDelegationEnabled.value =
         (savedSettings.toolDelegationEnabled as boolean | undefined) ?? true
 
@@ -1692,8 +1643,7 @@ export const useTextInference = defineStore(
         legacyToolEnablement.value,
       )
 
-      speakReplies.value =
-        (savedSettings.speakReplies as boolean | undefined) ?? defaultSpeakReplies(preset.name)
+      speakReplies.value = (savedSettings.speakReplies as boolean | undefined) ?? false
 
       // Per-workflow enablement for preset-backed tools (defaults to all-enabled
       // when unsaved, matching isWorkflowPresetEnabled's default).
@@ -1789,7 +1739,10 @@ export const useTextInference = defineStore(
       }
 
       // A session with no settings of its own (a Draft Session) takes the repaired defaults.
-      if (binding && !sessionSettings) binding.save(sessionSettingsBag(), embeddingBackend.value)
+      const repairedFromDefaults = !pinned && binding === presetSessionBinding
+      if (binding && (!sessionSettings || repairedFromDefaults)) {
+        binding.save(sessionSettingsBag(), embeddingBackend.value, true)
+      }
       if (pinned) binding.loaded(sessionSettingsBag(), embeddingBackend.value)
 
       // Defer clearing the flag so the persistence watcher (default flush:
@@ -1820,20 +1773,11 @@ export const useTextInference = defineStore(
 
     /**
      * Resolve the chat preset (+ variant) that should drive inference for a
-     * given conversation. Home Agent threads are always pinned to the bundled
-     * Home Agent preset; main threads mirror the live sidebar selection.
+     * given conversation: the live settings selection.
      */
     function resolvePresetForConversation(
-      conversationKey: string,
+      _conversationKey: string,
     ): { presetName: string; variant: string | null } | null {
-      const kind = conversations.getThreadKind(conversationKey)
-      if (kind === 'homeAgent') {
-        const meta = conversations.getThreadMeta(conversationKey)
-        return {
-          presetName: HOME_AGENT_CHAT_PRESET_NAME,
-          variant: meta?.variant ?? null,
-        }
-      }
       const presetName = presetsStore.activePresetName
       if (!presetName) return null
       return {
@@ -1876,23 +1820,18 @@ export const useTextInference = defineStore(
      * Stamp `conversationThreadMeta[conversationKey]` so the thread keeps a
      * record of which preset (+ variant) drove its most recent inference.
      * Called from generate/regenerate before running inference.
-     *
-     * For Home Agent threads this also enforces routing to the bundled preset
-     * regardless of what the desktop sidebar happened to show.
      */
     function stampMetaForConversation(conversationKey: string): void {
       const resolved = resolvePresetForConversation(conversationKey)
       if (!resolved) return
-      const existingKind = conversations.getThreadMeta(conversationKey)?.kind
       conversations.setThreadMeta(conversationKey, {
         presetName: resolved.presetName,
         variant: resolved.variant,
-        kind: existingKind ?? 'main',
       })
     }
 
     /**
-     * Ensure the live sidebar/`textInference` refs match the meta (or kind)
+     * Ensure the live `textInference` refs match the meta
      * of the target conversation, then return what was applied. Used by
      * `generate`/`regenerate` so the in-flight stream uses the thread's
      * preset, not whatever was last selected for an unrelated chat.
@@ -1909,14 +1848,22 @@ export const useTextInference = defineStore(
     // Track if we're currently loading settings to prevent watcher from saving during load
     let isLoadingSettings = false
 
+    /** Ticks/unticks one MCP server for the active chat preset (Attributes tab). */
+    function setMcpServerSelected(serverId: string, selected: boolean) {
+      const current = mcpServerIds.value
+      mcpServerIds.value = selected
+        ? current.includes(serverId)
+          ? current
+          : [...current, serverId]
+        : current.filter((id) => id !== serverId)
+    }
+
     /** The live settings in the shape `settingsPerPreset` stores them. */
     function currentSettingsBag(): SettingsBag {
       return {
         backend: backend.value,
         selectedModels: { ...selectedModels.value },
         selectedEmbeddingModels: { ...selectedEmbeddingModels.value },
-        selectedDeviceId: getCurrentDeviceId(),
-        selectedDeviceUuid: getCurrentDeviceUuid(),
         maxTokens: maxTokens.value,
         contextSize: contextSize.value,
         requestedContextSize: requestedContextSize.value,
@@ -1929,6 +1876,7 @@ export const useTextInference = defineStore(
         metricsEnabled: metricsEnabled.value,
         aipgToolsEnabled: aipgToolsEnabled.value,
         mcpToolsEnabled: mcpToolsEnabled.value,
+        mcpServerIds: [...mcpServerIds.value],
         toolDelegationEnabled: toolDelegationEnabled.value,
         builtinToolEnablement: { ...builtinToolEnablement.value },
         speakReplies: speakReplies.value,
@@ -1953,7 +1901,12 @@ export const useTextInference = defineStore(
         defaults: SettingsBag,
         embeddingBackend: Exclude<LlmBackend, 'cloud'>,
       ) => SettingsBag | null
-      save: (bag: SettingsBag, embeddingBackend: Exclude<LlmBackend, 'cloud'>) => void
+      /** `fromLoad` marks the repaired values a load hands back, as opposed to an edit. */
+      save: (
+        bag: SettingsBag,
+        embeddingBackend: Exclude<LlmBackend, 'cloud'>,
+        fromLoad?: boolean,
+      ) => void
       /** Whether the active session was already sent, so its stored values must not be swapped. */
       pinned: () => boolean
       /** The live values right after a pinned session loaded. */
@@ -1973,12 +1926,36 @@ export const useTextInference = defineStore(
       sessionSettingsBindingRef.value = binding
     }
 
-    /** True while the Agent preset shows a sent session: nothing may replace its stored model. */
-    const sessionSettingsPinned = computed(
-      () =>
-        usesSessionSettings(activePreset.value) &&
-        sessionSettingsBindingRef.value?.pinned() === true,
-    )
+    /**
+     * Every other chat preset's Session Settings (ADR-0004), bound by the Session Settings
+     * store. `applies` says whether the open Session holds the given preset's settings.
+     */
+    type PresetSessionBinding = SessionSettingsBinding & {
+      applies: (preset: ChatPreset) => boolean
+    }
+    let presetSessionBinding: PresetSessionBinding | null = null
+    const presetSessionBindingRef = shallowRef<PresetSessionBinding | null>(null)
+
+    function bindPresetSessionSettings(binding: PresetSessionBinding | null): void {
+      presetSessionBinding = binding
+      presetSessionBindingRef.value = binding
+    }
+
+    function activeSettingsBinding(): SessionSettingsBinding | null {
+      const preset = activePreset.value
+      if (!preset) return null
+      if (usesSessionSettings(preset)) return sessionSettingsBinding
+      return presetSessionBinding?.applies(preset) ? presetSessionBinding : null
+    }
+
+    /** True while the active preset shows settings the Session sent with: nothing may replace its stored model. */
+    const sessionSettingsPinned = computed(() => {
+      const preset = activePreset.value
+      if (!preset) return false
+      if (usesSessionSettings(preset)) return sessionSettingsBindingRef.value?.pinned() === true
+      const binding = presetSessionBindingRef.value
+      return binding?.applies(preset) === true && binding.pinned()
+    })
 
     /** What can be served right now, for checking a sent session's stored settings. */
     const settingsAvailability = computed(() => ({
@@ -2030,6 +2007,7 @@ export const useTextInference = defineStore(
           cloudEmbeddingBackend: embeddingBackend.value,
           presetTemperature: chatPreset?.temperature,
           presetContextSize: chatPreset?.contextSize,
+          presetMaxTokens: chatPreset?.maxNewTokens,
         },
       )
     }
@@ -2051,6 +2029,7 @@ export const useTextInference = defineStore(
         metricsEnabled,
         aipgToolsEnabled,
         mcpToolsEnabled,
+        mcpServerIds,
         toolDelegationEnabled,
         builtinToolEnablement,
         speakReplies,
@@ -2071,7 +2050,11 @@ export const useTextInference = defineStore(
         if (!settingsKey) return
 
         const bag = currentSettingsBag()
-        const binding = usesSessionSettings(activePreset.value) ? sessionSettingsBinding : null
+        const binding = activeSettingsBinding()
+        if (binding && binding === presetSessionBinding) {
+          binding.save(sessionSettingsBag(), embeddingBackend.value)
+          return
+        }
         if (binding) {
           // The preset's bag holds the Default Settings; session-owned values go to the session.
           binding.save(sessionSettingsBag(), embeddingBackend.value)
@@ -2082,31 +2065,6 @@ export const useTextInference = defineStore(
           return
         }
         settingsPerPreset.value[settingsKey] = { ...settingsPerPreset.value[settingsKey], ...bag }
-      },
-      { deep: true },
-    )
-
-    // Watch for device changes to save per-preset
-    watch(
-      () => backendServices.info,
-      () => {
-        // Don't save if we're loading settings (prevents overwriting during preset switch)
-        if (isLoadingSettings) return
-
-        const settingsKey = getSettingsKey()
-        if (!settingsKey) return
-
-        const currentDeviceId = getCurrentDeviceId()
-        const binding = usesSessionSettings(activePreset.value) ? sessionSettingsBinding : null
-        if (currentDeviceId && binding) {
-          binding.save(sessionSettingsBag(), embeddingBackend.value)
-        } else if (currentDeviceId) {
-          settingsPerPreset.value[settingsKey] = {
-            ...settingsPerPreset.value[settingsKey],
-            selectedDeviceId: currentDeviceId,
-            selectedDeviceUuid: getCurrentDeviceUuid(),
-          }
-        }
       },
       { deep: true },
     )
@@ -2126,18 +2084,13 @@ export const useTextInference = defineStore(
     watch(
       () => conversations.activeKey,
       (newKey) => {
-        if (!newKey) return
+        // A Session's chat follows the live preset; opening a Session restores its preset itself.
+        if (!newKey || sessionIdOfChatKey(newKey)) return
         const meta = conversations.getThreadMeta(newKey)
-        // Home Agent threads are always pinned to the bundled Home Agent preset,
-        // even before they've been stamped, so opening one switches the picker.
-        if (conversations.getThreadKind(newKey) === 'homeAgent') {
-          applyPresetToGlobals(HOME_AGENT_CHAT_PRESET_NAME, meta?.variant ?? null)
-          return
-        }
         if (!meta?.presetName) return
         const exists = presetsStore.presets.some((p) => p.name === meta.presetName)
         if (!exists) {
-          // Preset removed since last use — leave the sidebar untouched and let
+          // Preset removed since last use — leave the settings untouched and let
           // the next outbound generate stamp meta from current globals.
           return
         }
@@ -2153,9 +2106,7 @@ export const useTextInference = defineStore(
     // Mirror the active conversation's RAG selection into the shared library's
     // live `isChecked` flags whenever the active conversation changes. A new /
     // empty conversation has no stored selection, so it starts with no enabled
-    // RAG documents; switching back to a thread restores its selection. Home
-    // Agent turns set `activeKey` to the remote thread before generating, so
-    // this works uniformly for remote threads too. `immediate: true` restores
+    // RAG documents; switching back to a thread restores its selection. `immediate: true` restores
     // the resumed thread's selection on startup.
     watch(() => conversations.activeKey, syncRagSelectionForActiveKey, {
       flush: 'post',
@@ -2175,7 +2126,7 @@ export const useTextInference = defineStore(
     //   1. First launch: activePresetName is null.
     //   2. Subsequent launches: the persisted activePresetName can point at a
     //      non-chat preset (e.g. an image preset left active after the last
-    //      image-gen session, or a picker-excluded one like Home Agent).
+    //      image-gen session).
     // In both cases, reconcile it to the last-used chat preset (falling back to
     // the highest-priority one). Without this, Chat Settings' PresetSelector —
     // which filters to chat presets — can't find the active preset and renders
@@ -2215,11 +2166,13 @@ export const useTextInference = defineStore(
 
     return {
       bindSessionSettings,
+      bindPresetSessionSettings,
       sessionSettingsPinned,
       settingsAvailability,
       inferenceForSettings,
       backend,
       activeModel,
+      activeLlmModel,
       selectedModels,
       loadedInferenceProfile,
       applyInferenceProfile,
@@ -2232,6 +2185,8 @@ export const useTextInference = defineStore(
       metricsEnabled,
       aipgToolsEnabled,
       mcpToolsEnabled,
+      mcpServerIds,
+      setMcpServerSelected,
       toolDelegationEnabled,
       builtinToolEnablement,
       isBuiltinToolEnabled,
@@ -2345,9 +2300,6 @@ export const useTextInference = defineStore(
 
       // RAG state
       willUseRag,
-
-      // Home Agent
-      homeAgentUpstreamUrl,
 
       // In-flight inference stream tracking (used by image tools to avoid
       // resetting an open chat-backend socket when freeing the GPU)

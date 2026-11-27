@@ -1,22 +1,47 @@
 import z from 'zod'
 import { ChannelKindSchema } from '@/assets/js/store/channels/types'
 import { ChatModelConfigSchema, MediaAgentCatalogSchema } from './chatIpc'
+import {
+  AgentFolderOverridesSchema,
+  AgentFollowUpTagSchema,
+  AgentRunTagSchema,
+} from './agentSessionIpc'
+import type { IpcDataResult, IpcFail } from './ipcChannels'
+import { OverviewChromeSchema } from './overviewChrome'
 
 /** The error an agent turn fails with when the user declines its model's download. */
 export const MODEL_DOWNLOAD_DECLINED = 'model download declined'
 
-// Attachments reach the prompt as `@attachments/<file>` (agentModeWorkspace.ts).
-const IMAGE_ATTACHMENT = /@"?attachments\/[^"\n]*?\.(png|jpe?g|webp|gif|bmp)\b/i
+/** Open a file an agent turn wrote with the OS default application, reveal it in the file manager, or trash it. */
+export const SESSION_FILE_ACTIONS = ['open', 'reveal', 'delete'] as const
+export type SessionFileAction = (typeof SESSION_FILE_ACTIONS)[number]
+
+/** Reading a session file either yields its text or fails — and a file that is
+ * gone from disk fails with `missing: true`, so a chip click can strike it out. */
+export type SessionFileReadResult =
+  IpcDataResult<{ content: string; truncated: boolean }> | (IpcFail & { missing?: true })
+
+// Attachments reach the prompt as `@/attachments/<file>` in a Session, `@attachments/<file>` in a game.
+const IMAGE_ATTACHMENT = /@"?\/?attachments\/[^"\n]*?\.(png|jpe?g|webp|gif|bmp)\b/i
+const IMAGE_ATTACHMENTS =
+  /@(?:"(\/?attachments\/[^"\n]+?\.(?:png|jpe?g|webp|gif|bmp))"|(\/?attachments\/\S+?\.(?:png|jpe?g|webp|gif|bmp)))(?![\w.])/gi
 
 /** Whether an agent prompt hands the model an image, so a vision model needs its projector. */
 export function promptHasImageAttachment(prompt: string): boolean {
   return IMAGE_ATTACHMENT.test(prompt)
 }
 
-/** Where an Answer came from: its channel, and the platform ref a reply to it names. */
+/** The workspace-relative paths of the images an agent prompt references, in order, once each. */
+export function promptImageAttachments(prompt: string): string[] {
+  const paths = [...prompt.matchAll(IMAGE_ATTACHMENTS)].map((match) => match[1] ?? match[2])
+  return [...new Set(paths)]
+}
+
+/** Where an Answer came from: its channel, the platform ref a reply to it names, and whether it was spoken. */
 export const AgentAnswerOriginSchema = z.object({
   channel: ChannelKindSchema,
   replyTo: z.string().optional(),
+  voice: z.boolean().optional(),
 })
 
 export type AgentAnswerOrigin = z.infer<typeof AgentAnswerOriginSchema>
@@ -32,7 +57,13 @@ const LocalModelConfigSchema = z.object({
   deviceName: z.string().optional(),
   contextWindow: z.number().optional(),
   supportsVision: z.boolean().optional(),
+  /** False: the session gets no tools at all, not even `session_history`. */
+  supportsToolCalling: z.boolean().optional(),
+  /** False: the heavy capabilities (files, game studio) are withheld. */
+  supportsAgentic: z.boolean().optional(),
   samplingParams: SamplingParamsSchema.optional(),
+  /** The user's max tokens; caps the per-step budget Pi would otherwise choose. */
+  maxOutputTokens: z.number().int().positive().optional(),
 })
 
 const CloudModelConfigSchema = z.object({
@@ -50,6 +81,8 @@ const CloudModelConfigSchema = z.object({
    * loose a signal to put request parameters on.
    */
   reasoningAdvertised: z.boolean().optional(),
+  temperature: z.number().optional(),
+  maxOutputTokens: z.number().int().positive().optional(),
 })
 
 export const AgentModeModelConfigSchema = z.discriminatedUnion('source', [
@@ -64,10 +97,38 @@ export const AgentToolSpecSchema = z.object({
   workspacePathInputs: z.array(z.string()).optional(),
   /** Workflow to run when the model's call names none (generate tool). */
   defaultWorkflow: z.string().optional(),
+  /** The workflows this turn's settings enable; main refuses any other. */
+  allowedWorkflows: z.array(z.string()).optional(),
 })
 
+/** Assistant turns to delete from a Harness Session, with their messages in the Session's timeline. */
+export const DeleteAgentTurnsRequestSchema = z.object({
+  sessionRef: z.string().optional(),
+  harnessSessionId: z.string(),
+  turnIds: z.array(z.string()),
+  messageIds: z.array(z.string()),
+})
+export type DeleteAgentTurnsRequest = z.infer<typeof DeleteAgentTurnsRequestSchema>
+
+/** Why main refuses to edit a Harness Session's turns, sent as the i18n key the renderer shows. */
+export const HARNESS_TURN_REFUSALS = {
+  running: 'AGENT_TURN_EDIT_RUNNING',
+  notLatest: 'AGENT_REGENERATE_NOT_LATEST',
+  noPrompt: 'AGENT_REGENERATE_NO_PROMPT',
+  hostShell: 'AGENT_TURN_EDIT_HOST_SHELL',
+} as const
+
+export type HarnessTurnRefusal = (typeof HARNESS_TURN_REFUSALS)[keyof typeof HARNESS_TURN_REFUSALS]
+
+export function harnessTurnRefusal(text: string | undefined): HarnessTurnRefusal | undefined {
+  return Object.values(HARNESS_TURN_REFUSALS).find((key) => key === text)
+}
+
 export const AgentModeTurnConfigSchema = z.object({
+  /** The Harness Session (`aipg-agent-*`) the turn continues. */
   sessionId: z.string().min(1),
+  /** The Session the turn runs in; its History gets the turn's entry. */
+  sessionRef: z.string().min(1).optional(),
   workspaceDir: z.string().min(1),
   modelConfig: AgentModeModelConfigSchema,
   toolSpecs: z.array(AgentToolSpecSchema).optional(),
@@ -78,11 +139,15 @@ export const AgentModeTurnConfigSchema = z.object({
    */
   mediaAgent: MediaAgentCatalogSchema.optional(),
   instructions: z.string().optional(),
+  /** `instructions` replace Pi's coding-agent prompt; file and shell tools need `files`. */
+  ownsPrompt: z.boolean().optional(),
   /** The agent preset this turn was held with, for labelling its trace. */
   presetName: z.string().optional(),
   capabilities: z.array(z.string()).optional(),
   mcpServerIds: z.array(z.string()).optional(),
   unsandboxed: z.boolean().optional(),
+  /** An Agent Run's folder overrides; main resolves them against its Session's list. */
+  folderOverrides: AgentFolderOverridesSchema.optional(),
   planningThinkingOnly: z.boolean().optional(),
   /** Downloaded embedding model for the `rag` capability; absent disables it. */
   embeddingModel: z.string().optional(),
@@ -90,12 +155,42 @@ export const AgentModeTurnConfigSchema = z.object({
   /** Developer setting: skip the GPU swap around in-process media calls. */
   keepModelsLoaded: z.boolean().optional(),
   /**
+   * The language the Session was frozen with, carried even when the reply is not
+   * language-directed.
+   */
+  responseLocale: z.string().optional(),
+  /**
+   * The Overview chrome and its locale, resolved by the renderer. Main reads no
+   * translation files, so the renderer ships the resolved strings.
+   */
+  overviewChrome: OverviewChromeSchema.optional(),
+  /**
    * Local backend load facts (step 15). Main occupies as a `text` request then
    * loads; absent for cloud and for older tests that only exercise the harness.
    */
   readiness: ChatModelConfigSchema.shape.readiness,
   /** Set when a channel Answer started this turn: its result is replied under the Answer. */
   answer: AgentAnswerOriginSchema.optional(),
+  /** An Agent Run's turn: no Session Update, no `session_history`, its entry tagged with the Agent. */
+  taskRun: z
+    .object({
+      /** The saved Agent that runs; its own Workspace is registered in the Session as its. */
+      taskId: z.string().optional(),
+      taskName: z.string(),
+      /** The Start Prompt, which the run's History Entry records instead of the run prompt. */
+      input: z.string().optional(),
+      /** A Scheduled or Channel-started run: its result is a Notification. */
+      notifiesResult: z.boolean().optional(),
+    })
+    .optional(),
+  /** A Follow-up to a saved Agent's run: its History Entry is marked as the Agent's. */
+  followUp: AgentFollowUpTagSchema.optional(),
+  /** The run a Follow-up continues, whose Steps may predate its Session Update cursor. */
+  followedRun: AgentRunTagSchema.pick({ taskName: true, startedAt: true }).optional(),
+  /** Regenerate: the latest harness turn, which this one replaces from just before it. */
+  rewindTurnId: z.string().optional(),
+  /** The rewind carries an edited prompt: send it instead of replaying the stored one. */
+  editedPrompt: z.boolean().optional(),
 })
 
 export type AgentModeModelConfig = z.infer<typeof AgentModeModelConfigSchema>
@@ -106,6 +201,9 @@ export type AgentModeTurnConfig = z.infer<typeof AgentModeTurnConfigSchema>
  * An `agentMode:executeTool` dispatch: main hands a renderer-implemented tool
  * call to the window to run, and the renderer answers over `agentMode:toolResult`.
  */
+/** Who a file is attached for: the folder a turn works in, and its Session or Trial Run. */
+export type AttachmentTarget = { workspaceDir: string; sessionId?: string; trialAgentId?: string }
+
 export type AgentToolExecuteRequest = {
   requestId: string
   /** The Agent Session whose turn called the tool. */
@@ -122,6 +220,8 @@ export type AgentCapabilityInfo = {
   summary: string
   requires: string[]
   commands: { command: string; description: string }[]
+  /** Set when only a preset naming the capability offers it in its checklist. */
+  presetOwned?: boolean
   unavailableReason?: string
 }
 

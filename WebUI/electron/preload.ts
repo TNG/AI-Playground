@@ -4,14 +4,32 @@ import type { LocalSettings } from './kernel/localSettings.ts'
 import { ModelPaths } from '@/assets/js/store/models'
 import { cloneForIpc } from '@/lib/cloneForIpc'
 import type { ChannelKind } from '@/assets/js/store/channels/types'
-import type { EmbedInquiry, IndexedDocument } from '@/types/rag'
+import type { DocumentEmbedding, EmbedInquiry, IndexedDocument } from '@/types/rag'
 import type { PhisonKmIngestConfig, WarmupRequest } from '@/types/phisonKmRag'
-import type { AgentModeTurnConfig, AgentToolExecuteRequest, AgentToolSpec } from '@/types/agentIpc'
+import type {
+  AgentModeTurnConfig,
+  AgentToolExecuteRequest,
+  AgentToolSpec,
+  AttachmentTarget,
+  DeleteAgentTurnsRequest,
+  SessionFileAction,
+} from '@/types/agentIpc'
 import type { AgentMediaFileAction, AgentMediaFileRef } from '@/types/agentMediaDetails'
-import type { AgentSessionRecordWire } from '@/types/agentSessionIpc'
-import type { AgentTask } from '@/types/agentTaskIpc'
+import type { AgentSessionRecordWire, MountedFolderAccess } from '@/types/agentSessionIpc'
+import type {
+  ArtifactMediaType,
+  AssistantCapabilityDefaults,
+  AudioTurnRequest,
+  HarnessGameWorkspace,
+  Summariser,
+  SessionCreateOptions,
+  SessionTurn,
+  ShowMoreSection,
+} from '@/types/sessionIpc'
+import type { AgentDraft, AgentTask, TrialRunRecord } from '@/types/agentTaskIpc'
+import type { PresetSessionSettings } from '@/types/sessionSettings'
 import type { ArtifactRunRequest } from '@/types/artifactIpc'
-import type { ChatSummarizeRequest, ChatTurnRequest } from '@/types/chatIpc'
+import type { ChatTurnRequest } from '@/types/chatIpc'
 import type { ChatAnswerPayload, ChatAskPayload } from '@/types/chatRequests'
 import type { ComfyUICustomNodeRepoId } from '@/types/comfyuiIpc'
 import type { ComputeSnapshot } from '@/types/computeMetrics'
@@ -20,6 +38,7 @@ import type { DemoConfigUpdate } from '@/types/demoModeIpc'
 import type { McpServerConfig } from '@/types/mcpIpc'
 import type { PauseReason } from '@/types/kernelEvents'
 import type { CloseAnswerPayload, CloseAskPayload, InFlightWorkItem } from '@/types/lifecycleIpc'
+import type { HeldComponent } from '@/types/componentChange'
 import type { MediaRequestPayload, MediaResponsePayload } from '@/types/mediaRequests'
 import type { SpeechSynthesisRequest } from '@/types/speechIpc'
 import type { NotificationConfig } from '@/types/notificationsIpc'
@@ -99,6 +118,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   startService: (serviceName: string) => invoke('startService', serviceName),
   stopService: (serviceName: string) => invoke('stopService', serviceName),
   setUpService: (serviceName: BackendServiceName) => invoke('setUpService', serviceName),
+  componentChangeAdmission: (serviceName: BackendServiceName) =>
+    invoke('componentChangeAdmission', serviceName),
   updatePresetsFromIntelRepo: () => invoke('updatePresetsFromIntelRepo'),
   reloadPresets: () => invoke('reloadPresets'),
   getUserPresetsPath: () => invoke('getUserPresetsPath'),
@@ -120,6 +141,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getWinSize: () => invoke('getWinSize'),
   setWinSize: (width: number, height: number) => invoke('setWinSize', width, height),
   showSaveDialog: (options: SaveDialogOptions) => invoke('showSaveDialog', options),
+  saveMediaCopy: (url: string) => invoke('saveMediaCopy', url),
   showMessageBox: (options: MessageBoxOptions) => invoke('showMessageBox', options),
   miniWindow: () => send('miniWindow'),
   getInitialPage: () => invoke('getInitialPage'),
@@ -138,6 +160,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   screenChange: (callback: (metrics: { width: number; height: number }) => void) =>
     onRaw('display-metrics-changed', callback),
   existsPath: (path: string) => invoke('existsPath', path),
+  isFolderPath: (path: string) => invoke('isFolderPath', path),
   addDocumentToRAGList: (doc: IndexedDocument, phisonKmConfig?: PhisonKmIngestConfig) =>
     invoke('addDocumentToRAGList', doc, phisonKmConfig),
   embedInputUsingRag: (embedInquiry: EmbedInquiry) => invoke('embedInputUsingRag', embedInquiry),
@@ -168,6 +191,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   showModelInFolder: (modelPath: string) => invoke('showModelInFolder', modelPath),
   deleteModelPath: (modelPath: string) => invoke('deleteModelPath', modelPath),
   getPlatform: () => invoke('getPlatform'),
+  getHomePath: () => invoke('getHomePath'),
   demoMode: {
     leave: () => invoke('demoMode:leave'),
     enter: () => invoke('demoMode:enter'),
@@ -200,6 +224,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     listen('kernel:event', callback),
   getKernelSnapshot: () => invoke('kernel:getSnapshot'),
   reportInFlightWork: (work: InFlightWorkItem[]) => send('lifecycle:reportWork', work),
+  reportComponentHolds: (holds: HeldComponent[]) => send('lifecycle:reportComponentHolds', holds),
   requestAppClose: () => send('lifecycle:requestClose'),
   lifecycle: {
     onAskClose: (callback: (payload: CloseAskPayload) => void) =>
@@ -210,6 +235,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       onPush('lifecycle:holdSchedules', callback),
     answerClose: (payload: CloseAnswerPayload) => send('lifecycle:answerClose', payload),
     bridgeReady: () => send('lifecycle:bridgeReady'),
+    restart: () => invoke('lifecycle:restart'),
+    openSettingsFile: () => invoke('lifecycle:openSettingsFile'),
   },
   onShowToast: (callback: (data: { type: string; message: string }) => void) =>
     onRaw('show-toast', callback),
@@ -265,15 +292,93 @@ contextBridge.exposeInMainWorld('electronAPI', {
     setConfig: (config: NotificationConfig) => send('notifications:setConfig', config),
     lookupMessage: (kind: ChannelKind, ref: string) =>
       invoke('notifications:lookupMessage', kind, ref),
+    recordStartPromptRequest: (kind: ChannelKind, ref: string) =>
+      invoke('notifications:recordStartPromptRequest', kind, ref),
   },
   chat: {
     submitTurn: (request: ChatTurnRequest) => invoke('chat:submitTurn', cloneForIpc(request)),
     resumeTurn: (conversationKey: string) => invoke('chat:resumeTurn', conversationKey),
     cancelTurn: (conversationKey: string, turnId: string) =>
       invoke('chat:cancelTurn', conversationKey, turnId),
-    summarize: (request: ChatSummarizeRequest) => invoke('chat:summarize', request),
     answer: (payload: ChatAnswerPayload) => invoke('chat:answer', cloneForIpc(payload)),
     onAsk: (callback: (payload: ChatAskPayload) => void) => onPush('chat:ask', callback),
+  },
+  sessions: {
+    list: () => invoke('sessions:list'),
+    create: (groupId?: string, options?: SessionCreateOptions) =>
+      invoke('sessions:create', groupId, options && cloneForIpc(options)),
+    open: (id: string) => invoke('sessions:open', id),
+    missingArtifacts: (id: string) => invoke('sessions:missingArtifacts', id),
+    rename: (id: string, title: string) => invoke('sessions:rename', id, title),
+    setReachable: (id: string, reachable: boolean, options?: AssistantCapabilityDefaults) =>
+      invoke('sessions:setReachable', id, reachable, options && cloneForIpc(options)),
+    setRealShellFolders: (folders: string[]) =>
+      invoke('sessions:setRealShellFolders', cloneForIpc(folders)),
+    migrateHomeAgentThreads: (input: { routingKey: string | null } & AssistantCapabilityDefaults) =>
+      invoke('sessions:migrateHomeAgentThreads', cloneForIpc(input)),
+    pin: (id: string, pinned: boolean) => invoke('sessions:pin', id, pinned),
+    setIncludedInOverviews: (id: string, included: boolean, request?: Summariser) =>
+      request === undefined
+        ? invoke('sessions:setIncludedInOverviews', id, included)
+        : invoke('sessions:setIncludedInOverviews', id, included, cloneForIpc(request)),
+    refreshOverviewSummary: (id: string, request: Summariser) =>
+      invoke('sessions:refreshOverviewSummary', id, cloneForIpc(request)),
+    retryOverviewUpdate: (id: string, entryId: string, request: Summariser) =>
+      invoke('sessions:retryOverviewUpdate', id, entryId, cloneForIpc(request)),
+    resumePendingOverviewUpdates: (request: Summariser) =>
+      invoke('sessions:resumePendingOverviewUpdates', cloneForIpc(request)),
+    overviewUpdates: (id: string) => invoke('sessions:overviewUpdates', id),
+    addFolder: (id: string, hostPath: string) => invoke('sessions:addFolder', id, hostPath),
+    removeFolder: (id: string, folderId: string) => invoke('sessions:removeFolder', id, folderId),
+    setFolderAccess: (id: string, folderId: string, access: MountedFolderAccess) =>
+      invoke('sessions:setFolderAccess', id, folderId, access),
+    starFolder: (id: string, folderId: string) => invoke('sessions:starFolder', id, folderId),
+    openFolder: (id: string, folderId?: string) => invoke('sessions:openFolder', id, folderId),
+    missingWorkspace: (id: string) => invoke('sessions:missingWorkspace', id),
+    locateWorkspace: (id: string, hostPath: string) =>
+      invoke('sessions:locateWorkspace', id, hostPath),
+    startNewWorkspace: (id: string) => invoke('sessions:startNewWorkspace', id),
+    pickAgent: (id: string, agentId: string | null) => invoke('sessions:pickAgent', id, agentId),
+    createGroup: (id: string, name: string) => invoke('sessions:createGroup', id, name),
+    moveToGroup: (id: string, groupId: string | null) =>
+      invoke('sessions:moveToGroup', id, groupId),
+    renameGroup: (groupId: string, name: string) => invoke('sessions:renameGroup', groupId, name),
+    deleteGroup: (groupId: string) => invoke('sessions:deleteGroup', groupId),
+    setGroupExpanded: (groupId: string, expanded: boolean) =>
+      invoke('sessions:setGroupExpanded', groupId, expanded),
+    setShowMore: (section: ShowMoreSection, shown: boolean) =>
+      invoke('sessions:setShowMore', section, shown),
+    delete: (id: string) => invoke('sessions:delete', id),
+    deletePreview: (id: string) => invoke('sessions:deletePreview', id),
+    harnessSession: (id: string, presetName: string, game?: HarnessGameWorkspace) =>
+      invoke('sessions:harnessSession', id, presetName, game),
+    taskRunHarness: (id: string) => invoke('sessions:taskRunHarness', id),
+    saveTimelineMessages: (id: string, messages: unknown[]) =>
+      invoke('sessions:saveTimelineMessages', id, cloneForIpc(messages)),
+    removeTimelineMessages: (id: string, messageIds: string[]) =>
+      invoke('sessions:removeTimelineMessages', id, messageIds),
+    addHiddenMessages: (id: string, messageIds: string[]) =>
+      invoke('sessions:addHiddenMessages', id, messageIds),
+    clearHiddenMessages: (id: string) => invoke('sessions:clearHiddenMessages', id),
+    clearAllHiddenMessages: () => invoke('sessions:clearAllHiddenMessages'),
+    saveChatTranscript: (id: string, messages: unknown[]) =>
+      invoke('sessions:saveChatTranscript', id, cloneForIpc(messages)),
+    recordAudioTurn: (turn: AudioTurnRequest) =>
+      invoke('sessions:recordAudioTurn', cloneForIpc(turn)),
+    listArtifacts: () => invoke('sessions:listArtifacts'),
+    listCreatedFiles: () => invoke('sessions:listCreatedFiles'),
+    deleteArtifact: (sessionId: string, url: string) =>
+      invoke('sessions:deleteArtifact', sessionId, url),
+    openArtifact: (sessionId: string, url: string) =>
+      invoke('sessions:openArtifact', sessionId, url),
+    readSettings: (id: string) => invoke('sessions:readSettings', id),
+    writePresetSettings: (id: string, presetName: string, entry: PresetSessionSettings) =>
+      invoke('sessions:writePresetSettings', id, presetName, cloneForIpc(entry)),
+    beginTurn: (id: string, turn: SessionTurn) =>
+      invoke('sessions:beginTurn', id, cloneForIpc(turn)),
+    endTurn: (id: string, turnId: string) => invoke('sessions:endTurn', id, turnId),
+    newestArtifact: (id: string, mediaType: ArtifactMediaType) =>
+      invoke('sessions:newestArtifact', id, mediaType),
   },
   conversations: {
     bootstrap: () => invoke('conversations:bootstrap'),
@@ -360,6 +465,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     cancel: (sessionId: string, turnId?: string) => invoke('agentMode:cancel', sessionId, turnId),
     resetSession: () => invoke('agentMode:resetSession'),
     deleteSession: (sessionId: string) => invoke('agentMode:deleteSession', sessionId),
+    deleteTurns: (request: DeleteAgentTurnsRequest) => invoke('agentMode:deleteTurns', request),
     bootstrapSessions: () => invoke('agentMode:bootstrapSessions'),
     migrateSessions: (legacy: unknown) => invoke('agentMode:migrateSessions', cloneForIpc(legacy)),
     saveSession: (record: AgentSessionRecordWire) =>
@@ -373,8 +479,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
     readTasks: () => invoke('agentMode:readTasks'),
     saveTask: (task: AgentTask) => invoke('agentMode:saveTask', cloneForIpc(task)),
     deleteTask: (id: string) => invoke('agentMode:deleteTask', id),
-    importAttachment: (workspaceDir: string, name: string, bytes: Uint8Array) =>
-      invoke('agentMode:importAttachment', workspaceDir, name, bytes),
+    openTaskFolder: (id: string, hostPath: string) =>
+      invoke('agentMode:openTaskFolder', id, hostPath),
+    readDrafts: () => invoke('agentMode:readDrafts'),
+    saveDraft: (draft: AgentDraft) => invoke('agentMode:saveDraft', cloneForIpc(draft)),
+    deleteDraft: (agentId: string) => invoke('agentMode:deleteDraft', agentId),
+    trialRunHarness: (agentId: string) => invoke('agentMode:trialRunHarness', agentId),
+    discardTrialRun: (agentId: string) => invoke('agentMode:discardTrialRun', agentId),
+    readTrialRuns: () => invoke('agentMode:readTrialRuns'),
+    saveTrialRun: (run: TrialRunRecord) => invoke('agentMode:saveTrialRun', cloneForIpc(run)),
+    importAttachment: (target: AttachmentTarget, name: string, bytes: Uint8Array) =>
+      invoke('agentMode:importAttachment', target, name, bytes),
+    sessionDocuments: (target: AttachmentTarget) => invoke('agentMode:sessionDocuments', target),
+    indexDocument: (target: AttachmentTarget, relativePath: string, embedding: DocumentEmbedding) =>
+      invoke('agentMode:indexDocument', target, relativePath, embedding),
+    removeSessionDocument: (target: AttachmentTarget, relativePath: string) =>
+      invoke('agentMode:removeSessionDocument', target, relativePath),
     listCapabilities: (options: {
       workspaceDir?: string
       toolSpecs?: AgentToolSpec[]
@@ -384,6 +504,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     mediaFileAction: (ref: AgentMediaFileRef, action: AgentMediaFileAction) =>
       invoke('agentMode:mediaFileAction', cloneForIpc(ref), action),
     openWorkspaceFolder: (dir: string) => invoke('agentMode:openWorkspaceFolder', dir),
+    sessionFileAction: (sessionId: string, filePath: string, action: SessionFileAction) =>
+      invoke('agentMode:sessionFileAction', sessionId, filePath, action),
+    readSessionFile: (sessionId: string, filePath: string, full?: boolean) =>
+      invoke('agentMode:readSessionFile', sessionId, filePath, full),
     onExecuteTool: (callback: (data: AgentToolExecuteRequest) => void) =>
       onPush('agentMode:executeTool', callback),
     submitToolResult: (requestId: string, result: unknown, error?: string) =>
@@ -429,55 +553,49 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getPermissionStatus: () => invoke('screenshot:getPermissionStatus'),
     openPermissionSettings: () => send('screenshot:openPermissionSettings'),
   },
-  homeAgent: {
-    // Persist an inbound document (base64) to disk for RAG ingestion.
-    saveDocument: (filename: string, base64: string) =>
-      invoke('saveHomeAgentDocument', filename, base64),
+  channels: {
     // Local web chat — URL discovery (the chat server lives in the Python
     // backend; this only enumerates reachable addresses for the setup screen).
     // `allowLan` mirrors the bind: loopback only unless LAN access is on.
     localWeb: {
       getUrls: (port: number, allowLan: boolean): Promise<string[]> =>
-        invoke('homeAgent:localWeb:getUrls', port, allowLan),
+        invoke('channels:localWeb:getUrls', port, allowLan),
     },
     // Channel-agnostic dispatcher. Every method is keyed by ChannelKind
     // (`'telegram'` | `'slack'` | `'discord'` | `'local-web'`) so adding a new
     // platform requires zero edits here — only a new entry in the renderer-side
     // channel registry and a Python channel module.
-    channel: {
-      saveConfig: (kind: ChannelKind, config: Record<string, string>) =>
-        invoke('channel:saveConfig', kind, config),
-      loadConfig: (kind: ChannelKind) => invoke('channel:loadConfig', kind),
-      clearConfig: (kind: ChannelKind) => invoke('channel:clearConfig', kind),
-      savePrefs: (kind: ChannelKind, prefs: { verified?: boolean; enabled?: boolean }) =>
-        invoke('channel:savePrefs', kind, prefs),
-      loadPrefs: (kind: ChannelKind) => invoke('channel:loadPrefs', kind),
-      test: (kind: ChannelKind) => invoke('channel:test', kind),
-      inject: (kind: ChannelKind, config: Record<string, string | undefined>) =>
-        invoke('channel:inject', kind, config),
-      detectIdentity: (kind: ChannelKind, config: Record<string, string | undefined>) =>
-        invoke('channel:detectIdentity', kind, config),
-      detectIdentityFromSaved: (kind: ChannelKind) =>
-        invoke('channel:detectIdentityFromSaved', kind),
-      poll: (kind: ChannelKind) => invoke('channel:poll', kind),
-      flushPending: (kind: ChannelKind) => invoke('channel:flushPending', kind),
-      send: (
-        kind: ChannelKind,
-        action:
-          | 'reply'
-          | 'update'
-          | 'photo'
-          | 'video'
-          | 'voice'
-          | 'document'
-          | 'typing'
-          | 'keyboard'
-          | 'editMessage'
-          | 'history'
-          | 'post',
-        payload: Record<string, unknown>,
-      ) => invoke('channel:send', kind, action, payload),
-    },
+    saveConfig: (kind: ChannelKind, config: Record<string, string>) =>
+      invoke('channel:saveConfig', kind, config),
+    loadConfig: (kind: ChannelKind) => invoke('channel:loadConfig', kind),
+    clearConfig: (kind: ChannelKind) => invoke('channel:clearConfig', kind),
+    savePrefs: (kind: ChannelKind, prefs: { verified?: boolean; enabled?: boolean }) =>
+      invoke('channel:savePrefs', kind, prefs),
+    loadPrefs: (kind: ChannelKind) => invoke('channel:loadPrefs', kind),
+    test: (kind: ChannelKind) => invoke('channel:test', kind),
+    inject: (kind: ChannelKind, config: Record<string, string | undefined>) =>
+      invoke('channel:inject', kind, config),
+    detectIdentity: (kind: ChannelKind, config: Record<string, string | undefined>) =>
+      invoke('channel:detectIdentity', kind, config),
+    detectIdentityFromSaved: (kind: ChannelKind) => invoke('channel:detectIdentityFromSaved', kind),
+    poll: (kind: ChannelKind) => invoke('channel:poll', kind),
+    flushPending: (kind: ChannelKind) => invoke('channel:flushPending', kind),
+    send: (
+      kind: ChannelKind,
+      action:
+        | 'reply'
+        | 'update'
+        | 'photo'
+        | 'video'
+        | 'voice'
+        | 'document'
+        | 'typing'
+        | 'keyboard'
+        | 'editMessage'
+        | 'history'
+        | 'post',
+      payload: Record<string, unknown>,
+    ) => invoke('channel:send', kind, action, payload),
   },
   // Cloud Mode provider secrets, encrypted at rest via safeStorage in main.
   cloudProvider: {

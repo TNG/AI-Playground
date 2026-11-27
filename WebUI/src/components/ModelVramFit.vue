@@ -11,19 +11,34 @@ const props = withDefaults(
   defineProps<{
     /**
      * Defaults to the active model; pass one to judge a model in a list. Already
-     * narrowed to llama.cpp by the caller (`llamaCppFitTarget`), since only the
-     * caller knows which backend the row it is rendering belongs to.
+     * narrowed to a backend the estimator speaks for by the caller
+     * (`vramFitTarget`), since only the caller knows which backend the row it
+     * is rendering belongs to.
      */
     model?: VramFitTarget
+    /** Defaults to the chat store's context size. */
+    contextSize?: number
     iconSize?: string
     delayDuration?: number
+    /**
+     * `span` where the chip sits inside the control itself (a picker row): a nested
+     * button would take the menu's focus and swallow the click that selects the model.
+     */
+    as?: 'button' | 'span'
   }>(),
-  { model: undefined, iconSize: 'size-4', delayDuration: 200 },
+  {
+    model: undefined,
+    contextSize: undefined,
+    iconSize: 'size-4',
+    delayDuration: 200,
+    as: 'button',
+  },
 )
 
 const i18nState = useI18N().state
-const { summary, verdict } = useLlamaCppVramFit(
+const { summary, verdict, isCloud } = useLlamaCppVramFit(
   props.model ? computed(() => props.model) : undefined,
+  computed(() => props.contextSize),
 )
 
 const bars = computed<VramFitBars>(() =>
@@ -75,12 +90,10 @@ const budgetLine = computed(() =>
   <TooltipProvider v-if="verdict">
     <Tooltip :delay-duration="delayDuration">
       <TooltipTrigger as-child>
-        <!-- A row of the picker is itself the control: a nested button would take
-             the menu's focus and swallow the click that selects the model. -->
         <component
-          :is="model ? 'span' : 'button'"
-          :type="model ? undefined : 'button'"
-          :role="model ? 'img' : undefined"
+          :is="as"
+          :type="as === 'button' ? 'button' : undefined"
+          :role="as === 'span' ? 'img' : undefined"
           class="flex flex-none items-center cursor-help"
           :aria-label="t('VRAM_FIT_ARIA', { level: levelLabel })"
         >
@@ -92,10 +105,10 @@ const budgetLine = computed(() =>
         class="max-w-xs bg-card border border-border text-foreground px-3 py-2 z-[200]"
       >
         <p class="text-sm font-semibold">{{ levelLabel }}</p>
-        <!-- Nothing was measured, so there is no breakdown to show — only why the
-             estimate is missing. -->
+        <!-- Nothing was measured, so there is no breakdown to show — why the
+             estimate is missing, or why a cloud model never needed one. -->
         <p v-if="!summary" class="text-xs text-muted-foreground">
-          {{ t('VRAM_FIT_UNKNOWN_EXPLANATION') }}
+          {{ isCloud ? t('VRAM_FIT_CLOUD_EXPLANATION') : t('VRAM_FIT_UNKNOWN_EXPLANATION') }}
         </p>
         <template v-else>
           <p class="text-xs text-muted-foreground">{{ breakdownLine }}</p>

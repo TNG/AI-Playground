@@ -270,20 +270,9 @@ describe('useConversations write-through', () => {
   it('does not persist stamp-style setThreadMeta; the engine snapshot does', async () => {
     const store = await hydratedStore()
     const key = store.addNewConversation()
-    store.setThreadMeta(key, { presetName: 'Qwen', kind: 'main' })
+    store.setThreadMeta(key, { presetName: 'Qwen' })
     expect(api.save).not.toHaveBeenCalled()
-    expect(store.getThreadMeta(key)).toMatchObject({ presetName: 'Qwen', kind: 'main' })
-  })
-
-  it('persists a Home Agent thread on create, before any content', async () => {
-    const store = await hydratedStore()
-
-    store.createConversation({ kind: 'homeAgent', presetName: 'Home Agent' })
-
-    expect(api.save).toHaveBeenCalledTimes(1)
-    expect(api.save.mock.calls[0][0]).toMatchObject({
-      meta: { kind: 'homeAgent', presetName: 'Home Agent' },
-    })
+    expect(store.getThreadMeta(key)).toMatchObject({ presetName: 'Qwen' })
   })
 
   it('does not write an empty main draft until it has content', async () => {

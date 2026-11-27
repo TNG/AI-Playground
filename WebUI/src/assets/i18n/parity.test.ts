@@ -78,3 +78,32 @@ describe('i18n parity', () => {
     expect(empty).toEqual([])
   })
 })
+
+describe('Stop, Stopping and Cancelled vocabulary', () => {
+  it('en-US words the Turn vocabulary', () => {
+    expect(english.SESSION_TURN_STOP).toBe('Stop generating')
+    expect(english.SESSION_TURN_STOPPING).toBe('Stopping…')
+    expect(english.SESSION_TURN_STILL_STOPPING).toBe('Still stopping…')
+    expect(english.SESSION_TURN_CANCELLED).toBe('Cancelled')
+  })
+
+  it.each(localeFiles)('%s carries the Turn vocabulary and no audio-only cancelled key', (file) => {
+    const locale = read(file)
+    expect(locale.SESSION_TURN_STOP).toBeTruthy()
+    expect(locale.SESSION_TURN_STOPPING).toBeTruthy()
+    expect(locale.SESSION_TURN_STILL_STOPPING).toBeTruthy()
+    expect(locale.SESSION_TURN_CANCELLED).toBeTruthy()
+    expect(locale).not.toHaveProperty('SESSION_AUDIO_CANCELLED')
+  })
+})
+
+describe('glossary wording', () => {
+  // Lowercase "task" is ordinary English ("AI tasks"); capitalised it is the old name of an Agent.
+  it('en-US never calls an Agent a Task', () => {
+    const stale = Object.entries(english)
+      .filter(([, value]) => /\bTasks?\b/.test(value))
+      .map(([key]) => key)
+
+    expect(stale).toEqual([])
+  })
+})

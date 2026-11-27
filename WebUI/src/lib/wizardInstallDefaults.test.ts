@@ -47,17 +47,17 @@ describe('selectDefaultInstalls', () => {
     expect(selectDefaultInstalls(freshMachine())).not.toContain('ai-backend')
   })
 
-  it('leaves Home Agent off on a machine that does not have it', () => {
+  it('leaves Channels off on a machine that does not have it', () => {
     expect(selectDefaultInstalls(freshMachine())).not.toContain('home-agent-backend')
   })
 
-  it('pre-selects Home Agent once it is installed, so reopening the wizard keeps it', () => {
+  it('pre-selects Channels once they are installed, so reopening the wizard keeps it', () => {
     const candidates = withCandidate(freshMachine(), 'home-agent-backend', { isSetUp: true })
 
     expect(selectDefaultInstalls(candidates)).toContain('home-agent-backend')
   })
 
-  it('respects an installed Home Agent the user switched off', () => {
+  it('respects installed Channels the user switched off', () => {
     const candidates = withCandidate(freshMachine(), 'home-agent-backend', {
       isSetUp: true,
       userDisabled: true,
@@ -113,7 +113,7 @@ describe('component classification', () => {
     expect(isCoreDependentBackend('comfyui-backend')).toBe(false)
   })
 
-  it('treats only Home Agent as opt-in', () => {
+  it('treats only Channels as opt-in', () => {
     expect([...OPT_IN_BACKENDS]).toEqual(['home-agent-backend'])
   })
 })

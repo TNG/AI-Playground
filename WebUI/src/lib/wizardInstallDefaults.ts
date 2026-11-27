@@ -3,7 +3,7 @@
  *
  * Pure on purpose: the wizard store gathers live service info, this decides. The
  * policy used to be "every optional component that is available and not switched
- * off", which pre-selected Home Agent — a feature nobody gets by default — on
+ * off", which pre-selected Channels — a feature nobody gets by default — on
  * every fresh machine.
  */
 
@@ -20,7 +20,7 @@ export const CORE_DEPENDENT_BACKENDS = [
 
 /**
  * Opt-in components: never pre-selected on a machine that does not already have
- * them. They add a surface the user has to configure (Home Agent needs a chat
+ * them. They add a surface the user has to configure (Channels need a chat
  * channel), so installing one nobody asked for is cost without a feature.
  */
 export const OPT_IN_BACKENDS = [

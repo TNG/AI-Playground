@@ -23,11 +23,11 @@ import {
   countByUseCase,
   entriesForProductMode,
   filterEntries,
+  hasActiveFilters,
   normalizeModelKey,
   sortEntries,
   type ModelLibraryFilters,
   type ModelSort,
-  type ModelSortKey,
   type RequiredModelInput,
   type SpeechModelInput,
 } from '../models/library'
@@ -130,6 +130,8 @@ export const useModelLibrary = defineStore('modelLibrary', () => {
 
   // On an NVIDIA box this leaves Llama.cpp (and the CUDA sidecars), which is also
   // what locks the toolbar's backend filter — there is nothing else to pick.
+  // Hybrid Cloud rows are remote, so they survive it: cloud needs no backend
+  // installed at all.
   const entries = computed<ModelEntry[]>(() =>
     entriesForProductMode(
       buildEntries({
@@ -137,6 +139,10 @@ export const useModelLibrary = defineStore('modelLibrary', () => {
         scanned: scanned.value,
         requiredModels: requiredModels.value,
         speechModels: speechModels.value,
+        // The chat store's cloud models, already capability-resolved (provider
+        // data plus the user's per-model overrides). Reactively follows the
+        // provider list, so a refresh or an edit re-keys the rows by itself.
+        cloudModels: textInference.llmModels.filter((model) => model.type === 'cloud'),
         preferences: modelPreferences.preferences,
       }),
       nvidiaMode.value,
@@ -154,6 +160,10 @@ export const useModelLibrary = defineStore('modelLibrary', () => {
   const categoryEntries = computed(() =>
     filterEntries(entries.value, { ...DEFAULT_FILTERS, useCase: filters.value.useCase }),
   )
+
+  const useCaseTotal = computed(() => categoryEntries.value.length)
+
+  const filtersActive = computed(() => hasActiveFilters(filters.value))
 
   const backendOptions = computed(() => availableBackends(categoryEntries.value))
   const downloadStateOptions = computed(() => availableDownloadStates(categoryEntries.value))
@@ -186,6 +196,11 @@ export const useModelLibrary = defineStore('modelLibrary', () => {
   )
 
   function fitTargetFor(entry: ModelEntry): VramFitTarget | undefined {
+    // A cloud model has no header and needs no card: the 0 GB verdict the chip
+    // shows is decided by the target's `cloud` flag alone.
+    if (entry.serviceBackend === 'cloud') {
+      return { name: entry.name, downloaded: true, cloud: true }
+    }
     if (entry.useCase !== 'llm' || entry.serviceBackend !== 'llama_cpp') return undefined
     const known = llamaCppCatalog.value.get(normalizeModelKey(entry.name))
     return {
@@ -285,16 +300,13 @@ export const useModelLibrary = defineStore('modelLibrary', () => {
     pruneSelection()
   }
 
-  function resetFilters() {
-    filters.value = { ...DEFAULT_FILTERS }
+  function clearFilters() {
+    filters.value = { ...DEFAULT_FILTERS, useCase: filters.value.useCase }
     pruneSelection()
   }
 
-  function toggleSortKey(key: ModelSortKey) {
-    sort.value =
-      sort.value.key === key
-        ? { key, direction: sort.value.direction === 'asc' ? 'desc' : 'asc' }
-        : { key, direction: 'asc' }
+  function setSort(next: ModelSort) {
+    sort.value = { ...next }
   }
 
   function pruneSelection() {
@@ -452,6 +464,8 @@ export const useModelLibrary = defineStore('modelLibrary', () => {
     entries,
     visibleEntries,
     useCaseCounts,
+    useCaseTotal,
+    filtersActive,
     backendOptions,
     downloadStateOptions,
     fitTargetFor,
@@ -470,8 +484,8 @@ export const useModelLibrary = defineStore('modelLibrary', () => {
     byId,
     refresh,
     setFilters,
-    resetFilters,
-    toggleSortKey,
+    clearFilters,
+    setSort,
     toggleSelected,
     toggleSelectAllVisible,
     clearSelection,

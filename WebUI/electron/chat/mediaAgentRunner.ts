@@ -1,9 +1,16 @@
-import { NoSuchToolError, type ModelMessage, type ToolSet } from 'ai'
+import {
+  NoSuchToolError,
+  wrapLanguageModel,
+  type LanguageModel,
+  type ModelMessage,
+  type ToolSet,
+} from 'ai'
 import { jsonSchema, tool } from '@ai-sdk/provider-utils'
-import type { JSONSchema7 } from '@ai-sdk/provider'
+import type { JSONSchema7, LanguageModelV4Prompt } from '@ai-sdk/provider'
 import { appLoggerInstance } from '../observability/logger'
 import { createToolAgent, type ToolAgentEvent, type ToolAgentRunOptions } from '@/lib/toolAgent'
 import { repairWorkflowToolInput } from '@/lib/comfyToolRepair'
+import { slimItemSettings } from '@/lib/mediaAgentResult'
 import type {
   ChatToolSpec,
   MediaAgentRunRequest,
@@ -31,6 +38,8 @@ const INNER_COMFY_TOOLS = new Set(['comfyUI', 'comfyUiImageEdit'])
 
 type MediaAgentRunArgs = MediaAgentRunRequest & {
   readMediaAsDataUri?: (url: string) => Promise<string>
+  /** Workflows whose download the user declined; the caller keeps them for its session. */
+  declinedWorkflows?: Set<string>
 }
 
 type InnerExecOptions = {
@@ -48,6 +57,9 @@ function slimInnerComfyOutput(output: Record<string, unknown>): Record<string, u
   return {
     ...(typeof output.success === 'boolean' ? { success: output.success } : {}),
     ...(typeof output.message === 'string' ? { message: output.message } : {}),
+    ...(output.declined === true ? { declined: true } : {}),
+    ...(typeof output.size === 'string' ? { size: output.size } : {}),
+    ...(typeof output.sizeNotice === 'string' ? { sizeNotice: output.sizeNotice } : {}),
     images: images.map((item) => {
       if (typeof item !== 'object' || item === null) return item
       const media = item as Record<string, unknown>
@@ -55,18 +67,34 @@ function slimInnerComfyOutput(output: Record<string, unknown>): Record<string, u
       for (const key of SLIM_IMAGE_KEYS) {
         if (media[key] !== undefined) slim[key] = media[key]
       }
+      // The workflow names stay, so a settled turn can still say which one made the image.
+      const settings = slimItemSettings(media.settings as Record<string, unknown> | undefined)
+      if (Object.keys(settings).length > 0) slim.settings = settings
       return slim
     }),
   }
 }
 
+function allowedWorkflowsOf(
+  repairData: MediaAgentRunRequest['repairData'],
+  toolName: string,
+): { allowedWorkflows?: string[] } {
+  const data = toolName === 'comfyUiImageEdit' ? repairData?.comfyUiImageEdit : repairData?.comfyUI
+  return data ? { allowedWorkflows: data.names } : {}
+}
+
 async function executeInnerComfy(
-  request: MediaAgentRunRequest,
+  request: MediaAgentRunArgs,
   toolName: string,
   input: unknown,
   execOptions: InnerExecOptions,
   controller: AbortController,
-): Promise<Record<string, unknown>> {
+): Promise<{
+  /** What the inner tool produced, full generation settings included — the transcript's only source. */
+  raw: Record<string, unknown>
+  /** What the specialist's own context sees, stripped to what the model needs. */
+  slim: Record<string, unknown>
+}> {
   const raw = await executeChatComfyTool({
     toolName,
     input,
@@ -80,12 +108,14 @@ async function executeInnerComfy(
     },
     conversationKey: request.conversationKey,
     keepModelsLoaded: request.keepModelsLoaded ?? false,
+    declinedWorkflows: request.declinedWorkflows,
+    ...allowedWorkflowsOf(request.repairData, toolName),
   })
-  const output = slimInnerComfyOutput(raw)
+  const slim = slimInnerComfyOutput(raw)
   console.info(
-    `[mediaAgent] inner ${toolName} returned ${Array.isArray(output.images) ? output.images.length : 0} image(s)`,
+    `[mediaAgent] inner ${toolName} returned ${Array.isArray(slim.images) ? slim.images.length : 0} image(s)`,
   )
-  return output
+  return { raw, slim }
 }
 
 function innerComfyTools(
@@ -115,7 +145,7 @@ function innerComfyTools(
                 error: new Error(
                   `Invalid workflow ${
                     typeof workflow === 'string' ? `"${workflow}"` : '(missing)'
-                  } for ${spec.name}`,
+                  } for ${spec.name}. Valid workflows: ${data.names.join(', ')}`,
                 ),
               }
             },
@@ -136,6 +166,34 @@ function sourceImageMessage(dataUri: string): ModelMessage {
   }
 }
 
+const HIDDEN_IMAGE_TEXT = 'A source image is attached for the edit tools; you cannot see it.'
+
+function withoutImages(prompt: LanguageModelV4Prompt): LanguageModelV4Prompt {
+  return prompt.map((message) =>
+    message.role === 'user'
+      ? {
+          ...message,
+          content: message.content.map((part) =>
+            part.type === 'file' && part.mediaType.startsWith('image/')
+              ? { type: 'text' as const, text: HIDDEN_IMAGE_TEXT }
+              : part,
+          ),
+        }
+      : message,
+  )
+}
+
+// Only the request is filtered: the edit tools find the Source Image in the loop's own history.
+function hideImagesFromModel(model: LanguageModel): LanguageModel {
+  if (typeof model === 'string') return model
+  return wrapLanguageModel({
+    model,
+    middleware: {
+      transformParams: async ({ params }) => ({ ...params, prompt: withoutImages(params.prompt) }),
+    },
+  })
+}
+
 /**
  * Runs one delegated media request. Its tools execute in-process; edit
  * source-image discovery reads the nested ModelMessage history in main.
@@ -153,18 +211,23 @@ export async function runMediaAgentInMain(
   }
   abortSignal?.addEventListener('abort', onAbort, { once: true })
   activeRuns.set(request.runKey, controller)
+  let settled: 'done' | 'failed' = 'failed'
   try {
     // One media-request bracket at a time, and never while a generation holds
     // the GPU for media: the bracket's own LLM steps need the chat backend
     // (the orchestrator's request lane — the old renderer pipeline's
     // queueMediaRequest, moved to where the specialist runs).
-    return await runMediaRequest(() => runMediaAgentBracket(request, controller), {
+    const result = await runMediaRequest(() => runMediaAgentBracket(request, controller), {
       runKey: request.runKey,
       conversationKey: request.conversationKey,
       abortSignal: controller.signal,
     })
+    settled = 'done'
+    return result
   } finally {
     abortSignal?.removeEventListener('abort', onAbort)
+    // A stopped turn may never settle its tool part, so the timeline ends on this.
+    emitMediaAgentEvent(request.runKey, { type: 'run-end', state: settled })
     endMediaAgentRun(request.runKey)
     activeRuns.delete(request.runKey)
   }
@@ -174,6 +237,7 @@ async function runMediaAgentBracket(
   request: MediaAgentRunArgs,
   controller: AbortController,
 ): Promise<MediaAgentRunResult> {
+  const inner = { ...request, declinedWorkflows: request.declinedWorkflows ?? new Set<string>() }
   const priorMessages: ModelMessage[] = request.sourceImage
     ? [sourceImageMessage(request.sourceImage)]
     : []
@@ -185,9 +249,12 @@ async function runMediaAgentBracket(
       if (!INNER_COMFY_TOOLS.has(spec.name)) {
         throw new Error(`${spec.name} is not a media specialist tool`)
       }
-      const output = await executeInnerComfy(request, spec.name, input, exec, controller)
-      captured.push({ toolName: spec.name, input, output })
-      return output
+      const { raw, slim } = await executeInnerComfy(inner, spec.name, input, exec, controller)
+      // The captured steps are the transcript's items: they keep the full
+      // generation settings. Only the value returned to the specialist's
+      // context is slim.
+      captured.push({ toolName: spec.name, input, output: raw })
+      return slim
     },
   )
   const agent = createToolAgent({
@@ -202,15 +269,17 @@ async function runMediaAgentBracket(
   // Laminar config).
   noteMainChatTurnContext(request.model.trace)
   markDelegatedMediaRun()
+  const vision = request.model.supportsVision === true
+  const model = createMainChatModel(request.model)
   const result = await agent.run({
-    model: createMainChatModel(request.model),
+    model: vision ? model : hideImagesFromModel(model),
     request: request.request,
     priorMessages,
     ...(request.readMediaAsDataUri
       ? {
           presentGeneratedImages: {
             read: request.readMediaAsDataUri,
-            vision: request.model.supportsVision === true,
+            vision,
           },
         }
       : {}),

@@ -61,6 +61,7 @@ import { WhisperBackendService } from './adapters/backends/whisperBackendService
 import { LLAMACPP_DEFAULT_PARAMETERS } from './adapters/backends/llamaCppBackendService'
 import { filterPartnerPresets, updateIntelPresets } from './adapters/updateIntelPresets.ts'
 import {
+  getUserPresetsDir,
   invalidatePresetCatalog,
   loadPresetFiles,
   readPresetsFromDir,
@@ -106,6 +107,7 @@ import {
 import {
   cancelAgentTurn,
   deleteAgentSession,
+  deleteAgentTurns,
   listAgentCapabilities,
   openAgentTurnSessionIds,
   resetAgentSession,
@@ -114,7 +116,12 @@ import {
   startAgentTurn,
   submitAgentToolResult,
 } from './agent/piAgentManager'
-import { getKernelSnapshot, onKernelEvent, setKernelEventWindow } from './kernel/kernelBus'
+import {
+  getKernelSnapshot,
+  onKernelEvent,
+  setComponentHolds,
+  setKernelEventWindow,
+} from './kernel/kernelBus'
 import { registerInvokeHandlers, registerSendHandlers } from './kernel/ipcRegistries'
 import { typedSend } from './kernel/typedIpc'
 import { bindRendererWorkReset, createCloseCoordinator } from './kernel/closeCoordinator'
@@ -126,12 +133,23 @@ import {
   refreshWhileAsking,
   showRefreshedCloseQuestion,
 } from './kernel/closeAsk'
-import { createInFlightWork } from './kernel/inFlightWork'
+import { createInFlightWork, queuedChannelMessages } from './kernel/inFlightWork'
+import { createComponentChanges } from './kernel/componentChanges'
+import type { HeldComponent } from '@/types/componentChange'
+import { openAgentTaskFolder } from './agent/agentTaskFolders.ts'
 import { setVerboseLogging as setVerboseAgentLogging } from './agent/piAgentLog.ts'
 import { setRagAccess } from './agent/ragAccess.ts'
 import { importAttachment } from './agent/workspaceAttachments.ts'
+import {
+  indexSessionDocument,
+  removeSessionDocument,
+  sessionDocuments,
+} from './agent/sessionDocuments.ts'
 import { workspaceMediaFileActions } from './agent/workspaceMediaFile.ts'
-import { sessionWorkspaceDir } from './agent/sessionWorkspace.ts'
+import { sessionFileActions, sessionFileReader } from './agent/sessionFileAction.ts'
+import { sessionFileMounts, sessionWorkspaceDir } from './agent/sessionWorkspace.ts'
+import { migrateAgentLibrary } from './agent/agentLibraryMigration.ts'
+import { migrateAgentMakerSessions } from './agent/agentMakerMigration.ts'
 import {
   openDirectory,
   openFileWithSystem,
@@ -156,11 +174,15 @@ import {
   type RunnerComfyService,
 } from './artifact/runner'
 import {
+  artifactWorkOpen,
   awaitChatWindow,
   cancelArtifactRun,
   cancelAllArtifactRuns,
+  mediaRequestsQueued,
   openArtifactRuns,
+  openComponentHolds,
   openTextRequests,
+  prepareChatForSettlement,
   setOrchestratorDeps,
   submitArtifactRun,
 } from './kernel/orchestrator'
@@ -184,22 +206,25 @@ import {
 import {
   handlePermissionsPromptResponse,
   rejectAllPermissionPrompts,
+  type CancellableError,
 } from './permissions/promptAdapter'
 import { clearRendererWaits, setAwaitingUser } from './kernel/userWait'
 import {
   setNotificationChannel,
   setNotificationConfig,
+  tellQueuesDroppedOnQuit,
   setNotificationWindowShown,
   startAutoNotifications,
 } from './agent/notifier'
-import { homeAgentNotificationChannel } from './agent/notificationChannelSend'
+import { createNotificationChannel } from './agent/notificationChannelSend'
 import {
   buildNotificationsRegistry,
   buildNotificationsSendRegistry,
 } from './kernel/registries/notifications'
 import {
   channelMessageOwner,
-  forgetSessionMessages,
+  forgetHarnessSessionMessages,
+  recordStartPromptRequest,
   setChannelMessageMapDeps,
   wipeDemoChannelMessageMap,
 } from './persist/channelMessageMap'
@@ -220,7 +245,6 @@ import {
   setChatEngineDeps,
   submitChatTurn,
 } from './chat/turnEngine'
-import { summarizeConversationText } from './chat/chatSummarize'
 import { setChatModelDeps } from './chat/chatModelMain'
 import { setRagRetrievalDeps } from './chat/ragRetrieval'
 import { activeMediaAgentRunKeys, cancelMediaAgentRun } from './chat/mediaAgentRunner'
@@ -234,6 +258,80 @@ import {
   wipeDemoConversations,
 } from './persist/conversationFiles'
 import { buildConversationsRegistry } from './kernel/registries/conversations'
+import { buildSessionsRegistry } from './kernel/registries/sessions'
+import { recordAudioTurn } from './session/sessionAudioTurn'
+import {
+  createSession,
+  createSessionGroup,
+  deleteSession,
+  sessionDeletePreview,
+  listSessionGroups,
+  listSessions,
+  moveSessionToGroup,
+  openSession,
+  renameSessionGroup,
+  deleteSessionGroup,
+  setSessionGroupExpanded,
+  readShowMore,
+  setShowMore,
+  renameSession,
+  pinSession,
+  setSessionIncludedInOverviews,
+  pickSessionAgent,
+  setSessionDeps,
+  wipeDemoSessions,
+} from './session/sessions'
+import { attachmentsFolderFor } from './session/sessionAttachments'
+import { migrateSessionLayout } from './session/sessionLayoutMigration'
+import { moveSessionBookkeeping } from './persist/sessionBookkeepingMove'
+import { sessionFolderMediaFile, sessionLegacyMediaFile } from './session/sessionFolderMedia'
+import { assertSessionWorkspacePresent, missingSessionWorkspace } from './session/sessionWorkspace'
+import {
+  addSessionFolder,
+  locateSessionWorkspace,
+  openSessionFolder,
+  removeSessionFolder,
+  setSessionFolderAccess,
+  starSessionFolder,
+  startNewSessionWorkspace,
+} from './session/sessionFolders'
+import {
+  deleteArtifact,
+  listAllArtifacts,
+  missingArtifactUrls,
+  newestArtifact,
+  openArtifactActions,
+} from './session/sessionArtifacts'
+import { listAllCreatedFiles } from './session/sessionCreatedFiles'
+import {
+  cleanUpHarnessSessionsOnDelete,
+  harnessSessionFor,
+  harnessSessionOwners,
+} from './session/sessionHarness'
+import { dropSchedulesWithSession, taskRunHarnessFor } from './session/sessionTaskRuns'
+import {
+  forgetChannelMessagesOnDelete,
+  setRealShellFolders,
+  setSessionReachable,
+} from './session/sessionChannels'
+import {
+  migrateHomeAgentThreads,
+  setHomeAgentThreadMigrationDeps,
+} from './session/homeAgentThreadMigration'
+import {
+  addHiddenMessages,
+  clearAllHiddenMessages,
+  clearHiddenMessages,
+  removeTimelineMessages,
+  upsertTimelineMessages,
+} from './session/sessionTimeline'
+import { saveChatTranscript } from './session/sessionChatTurn'
+import { setAppMediaPathResolver } from './agent/piCustomTools'
+import { readSessionSettings, writePresetSettings } from './session/sessionSettings'
+import { historyOverviewUpdates, lastTurnPreset } from './session/sessionHistory'
+import { setOverviewSummaryComplete } from './session/overviewSummary'
+import { runOverviewSummaryCompletion } from './session/overviewSummaryRunner'
+import { claimSessionTurn, inSessionTurn, releaseSessionTurn } from './session/sessionTurns'
 import { buildAgentModeRegistry } from './kernel/registries/agentMode'
 import { buildChatRegistry } from './kernel/registries/chat'
 import { buildComfyuiRegistry } from './kernel/registries/comfyui'
@@ -252,7 +350,10 @@ import {
   type CoreDeps,
 } from './kernel/registries/core'
 import { buildKernelRegistry } from './kernel/registries/kernel'
-import { buildLifecycleSendRegistry } from './kernel/registries/lifecycle'
+import {
+  buildLifecycleInvokeRegistry,
+  buildLifecycleSendRegistry,
+} from './kernel/registries/lifecycle'
 import { buildMediaItemsRegistry } from './kernel/registries/mediaItems'
 import { buildPreferencesRegistry } from './kernel/registries/preferences'
 import { buildRagDocumentsRegistry } from './kernel/registries/ragDocuments'
@@ -304,8 +405,13 @@ import {
   writeAgentWorkspaceState,
 } from './persist/workspaceStateFiles'
 import {
+  deleteAgentDraft,
   deleteAgentTask,
+  adoptWebScreenshotInAgents,
+  dropAgentMountedFolders,
+  readAgentDrafts,
   readAgentTasks,
+  saveAgentDraft,
   saveAgentTask,
   setAgentTaskFilesDeps,
   settleTaskRunsOnQuit,
@@ -321,8 +427,22 @@ import {
 } from './persist/ragDocumentFiles'
 
 import { llmServerBaseUrl } from './adapters/llmServerSnapshot'
-import { getAudioDir, getGamesDir, getMediaDir } from './persist/userDataPaths.ts'
+import {
+  getAgentTrialsDir,
+  getAudioDir,
+  getGamesDir,
+  getMediaDir,
+} from './persist/userDataPaths.ts'
+import {
+  discardTrialRun,
+  readTrialRuns,
+  saveTrialRun,
+  trialRunHarnessFor,
+  wipeTrialRuns,
+} from './agent/trialRuns'
+import { wireTrialRuns } from './agent/trialRunsWiring'
 import { saveGeneratedAudioFile } from './persist/audioFiles.ts'
+import { discardPath } from './persist/sessionFiles'
 import {
   arcadeCatalog,
   createGame,
@@ -494,6 +614,32 @@ const inFlightWork = createInFlightWork({
   readAgentTasks,
 })
 
+/** Components the window reports holding (speech turns, model downloads), as last heard. */
+let windowComponentHolds: HeldComponent[] = []
+
+// Main's own work plus the window's report, in one admission rule the IPC
+// handlers and the Component Manager both consult.
+const componentChanges = createComponentChanges({
+  heldComponents: () => [...openComponentHolds(), ...windowComponentHolds],
+  hasInFlightWork: () =>
+    openTextRequests().length > 0 ||
+    openArtifactRuns().length > 0 ||
+    artifactWorkOpen() ||
+    mediaRequestsQueued() > 0 ||
+    windowComponentHolds.length > 0 ||
+    inFlightWork.rendererWork().length > 0,
+})
+
+/** Push the guard's current view through the kernel stream so the tab can re-enable actions. */
+function publishComponentState(): void {
+  setComponentHolds(openComponentHolds(), componentChanges.anyInFlightWork())
+}
+
+function setWindowComponentHolds(holds: HeldComponent[]): void {
+  windowComponentHolds = holds
+  publishComponentState()
+}
+
 const closeCoordinator = createCloseCoordinator({
   listInFlightWork: inFlightWork.list,
   askWindow: (question) => askWindowToClose(win, question),
@@ -503,6 +649,7 @@ const closeCoordinator = createCloseCoordinator({
     destroyWebBrowser()
     quitApp()
   },
+  relaunch: () => app.relaunch(),
   suspendSchedules: () => holdSchedules(win, true),
   resumeSchedules: () => holdSchedules(win, false),
   minimizeWindow: () => {
@@ -535,12 +682,17 @@ const audioDir = getAudioDir()
 fs.mkdirSync(audioDir, { recursive: true })
 
 /**
- * Roots the `aipg-media` scheme serves, keyed by URL authority: generated media
- * and the game library (a game's icon lives next to its HTML, not in the media
- * folder — see gameLibrary.ts).
+ * Roots the `aipg-media` scheme serves, keyed by URL authority: generated media,
+ * the game library (a game's icon lives next to its HTML, not in the media
+ * folder — see gameLibrary.ts) and the Session Folders. A Session's listed folders are served
+ * under `folders`, resolved through its folder list.
  */
 function aipgMediaRoots(): Record<string, string> {
-  return { media: mediaDir, games: getGamesDir() }
+  return {
+    media: mediaDir,
+    games: getGamesDir(),
+    trials: getAgentTrialsDir(),
+  }
 }
 
 /** Resolve aipg-media://… to an absolute file path under a served root (no path traversal). */
@@ -563,6 +715,8 @@ function getLocalPathFromAipgMediaUrl(url: string): string | null {
   } catch {
     return null
   }
+  if (parsed.host === 'folders') return sessionFolderMediaFile(url)
+  if (parsed.host === 'sessions') return sessionLegacyMediaFile(url)
   const roots = aipgMediaRoots()
   const root = roots[parsed.host] ?? mediaDir
   const relativeRaw = roots[parsed.host] ? parsed.pathname : parsed.host + parsed.pathname
@@ -778,6 +932,7 @@ async function createWindow() {
   setAgentModeMainWindow(win)
   setKernelEventWindow(win)
   bindRendererWorkReset(win.webContents, inFlightWork.setRendererWork)
+  bindRendererWorkReset(win.webContents, () => setWindowComponentHolds([]))
   // The renderer that was asked a media request cannot answer from a new
   // window; settle its pendings so waiters fail instead of hanging. The same
   // holds for a chat tool execution the old renderer was told to run. Artifact
@@ -807,35 +962,9 @@ async function createWindow() {
     void appShutdown.shutdown('session-end', 3000)
   })
 
-  // [HA-DIAG] Temporary: surface renderer `[HA-DIAG]` perf logs in the main
-  // terminal stream (renderer console.log normally only reaches DevTools).
-  // Remove together with the renderer-side [HA-DIAG] logging.
-  win.webContents.on('console-message', (event: unknown, ...rest: unknown[]) => {
-    const e = event as { message?: string }
-    // Electron 35+ passes a single event object with `.message`; older builds
-    // pass (event, level, message, line, sourceId).
-    const message =
-      typeof e?.message === 'string' ? e.message : ((rest[1] as string | undefined) ?? '')
-    // Route through appLogger so the line reaches the in-app debug viewer (fed
-    // by the `debugLog` IPC). appLogger also mirrors back to the renderer, which
-    // App.vue re-logs as `[ha-diag] <message>` — that re-enters this handler. The
-    // `[ha-diag]` source prefix (absent from the original renderer line) marks
-    // the echo, so skipping it breaks the otherwise-infinite loop.
-    if (message.includes('[HA-DIAG]') && !message.includes('[ha-diag]')) {
-      appLogger.info(message, 'ha-diag')
-    }
-  })
-
   win.webContents.on('did-finish-load', () => {
     setTimeout(() => {
       appLogger.onWebcontentReady(win!.webContents)
-      // [HA-DIAG] One-shot marker: if you see this line, the rebuilt main process
-      // with the renderer-log forwarder is running. If it's absent, main.ts did
-      // not reload — fully restart Electron (HMR only reloads the renderer).
-      appLogger.info(
-        '[HA-DIAG] forwarder installed — renderer perf logs will appear here',
-        'ha-diag',
-      )
     }, 100)
 
     // Check the kernel-owned preferences file after page loads. `undefined`
@@ -1004,7 +1133,7 @@ async function createWindow() {
  * Load the app document into an already-created window.
  *
  * Split from createWindow so the renderer only boots once the service registry
- * exists: several stores fire IPC the moment they are created — homeAgent's
+ * exists: several stores fire IPC the moment they are created — the Channels store's
  * `channel:loadConfig`, whose handler is registered off the registry's
  * home-agent service, and the setup wizard's `getServices`. A renderer that won
  * that race got "No handler registered for 'channel:loadConfig'" and an empty
@@ -1139,8 +1268,15 @@ setRagAccess({
 // because its extensions flush state on shutdown (persistent memory writes what
 // it learned) and may still call into MCP, the services and the browser.
 // Before the agent, whose aborted turns the window would otherwise record as failed.
+// First, while the Channels' backend still runs: the window's queue dies with it.
+appShutdown.register({
+  name: 'channel queues',
+  run: () => tellQueuesDroppedOnQuit(queuedChannelMessages(inFlightWork.rendererWork())),
+})
 appShutdown.register({ name: 'task runs', run: (cause) => settleTaskRunsOnQuit(cause) })
 appShutdown.register({ name: 'agent mode', run: () => shutdownAgentMode() })
+// After the agent, so no Trial Run turn still writes into a folder being removed.
+appShutdown.register({ name: 'trial runs', run: () => wipeTrialRuns() })
 appShutdown.register({ name: 'MCP servers', run: () => stopAllMcpServers() })
 appShutdown.register({ name: 'backend services', run: () => serviceRegistry?.stopAllServices() })
 appShutdown.register({
@@ -1154,6 +1290,7 @@ appShutdown.register({ name: 'web browser', run: () => destroyWebBrowser() })
 // Demo conversations are session-scoped (§6.1): nothing demo-written may
 // survive the process that wrote it.
 appShutdown.register({ name: 'demo conversations', run: () => wipeDemoConversations() })
+appShutdown.register({ name: 'demo sessions', run: () => wipeDemoSessions() })
 appShutdown.register({ name: 'demo agent sessions', run: () => wipeDemoAgentSessions() })
 appShutdown.register({ name: 'demo agent workspace', run: () => wipeDemoAgentWorkspace() })
 appShutdown.register({ name: 'demo agent tasks', run: () => wipeDemoAgentTasks() })
@@ -1257,17 +1394,20 @@ async function initServiceRegistry(win: BrowserWindow, settings: LocalSettings) 
   if (homeAgent instanceof HomeAgentBackendService) {
     homeAgent.registerIpcHandlers()
     setNotificationChannel(
-      homeAgentNotificationChannel((kind, action, payload) =>
+      createNotificationChannel((kind, action, payload) =>
         homeAgent.channelSend(kind, action, payload),
       ),
     )
   }
   wireArtifactRunner(settings)
   wireConversations(settings)
+  wireSessions(settings)
   wireAgentSessions(settings)
   wireAgentWorkspace(settings)
   wireAgentTasks(settings)
+  // Wiping Trial Runs tombstones their channel messages, so the map is wired first.
   wireChannelMessageMap(settings)
+  await wireTrialRuns()
   wireMediaRecords(settings)
   wirePreferences(settings)
   wireRagDocuments(settings)
@@ -1284,6 +1424,20 @@ async function initServiceRegistry(win: BrowserWindow, settings: LocalSettings) 
 function wireConversations(settings: LocalSettings): void {
   setConversationFileDeps({ isDemoMode: () => settings.isDemoModeEnabled })
   if (settings.isDemoModeEnabled) void wipeDemoConversations()
+}
+
+/** Same demo discipline for Sessions (ADR-0003). */
+function wireSessions(settings: LocalSettings): void {
+  setSessionDeps({ isDemoMode: () => settings.isDemoModeEnabled })
+  setHomeAgentThreadMigrationDeps({ isDemoMode: () => settings.isDemoModeEnabled })
+  if (settings.isDemoModeEnabled) void wipeDemoSessions()
+  cleanUpHarnessSessionsOnDelete(async (harnessSessionId) => {
+    await deleteAgentSessionRecord(harnessSessionId)
+    await deleteAgentSession(harnessSessionId)
+  })
+  dropSchedulesWithSession()
+  forgetChannelMessagesOnDelete()
+  setAppMediaPathResolver(getLocalPathFromAipgMediaUrl)
 }
 
 /** Same demo discipline for agent-session records (step 8, §6.1). */
@@ -1330,7 +1484,10 @@ function wireAgentTasks(settings: LocalSettings): void {
 
 /** Same demo discipline for the map of channel messages agents sent. */
 function wireChannelMessageMap(settings: LocalSettings): void {
-  setChannelMessageMapDeps({ isDemoMode: () => settings.isDemoModeEnabled })
+  setChannelMessageMapDeps({
+    isDemoMode: () => settings.isDemoModeEnabled,
+    harnessSessionOwners,
+  })
   if (settings.isDemoModeEnabled) void wipeDemoChannelMessageMap()
 }
 
@@ -1338,7 +1495,7 @@ function wireChannelMessageMap(settings: LocalSettings): void {
  * Chat turns run in main (architecture-target §8 step 6): the renderer submits
  * a typed request over `chat:submitTurn` and consumes kernel `chat-chunk`
  * events. These deps are the only pieces of that engine that live outside the
- * chat modules — the service registry, last-load memory, the Home Agent
+ * chat modules — the service registry, last-load memory, the Channels
  * loopback token, and on-disk aipg-media bytes.
  */
 function wireChatEngine(): void {
@@ -1351,12 +1508,6 @@ function wireChatEngine(): void {
         await ovms.stopImageServer()
       }
     },
-    notifyHomeAgentUpstreamReady: (baseUrl) => {
-      const homeAgentSvc = serviceRegistry?.getService('home-agent-backend')
-      if (homeAgentSvc instanceof HomeAgentBackendService) {
-        homeAgentSvc.notifyUpstreamReady(baseUrl)
-      }
-    },
     resetIdleChatBackend: async (serviceName) => {
       const service = serviceRegistry?.getService(serviceName)
       if (!service) return
@@ -1367,14 +1518,9 @@ function wireChatEngine(): void {
   setChatModelDeps({
     llmApiBase: (backend) => llmServerBaseUrl(backend),
     ensureBackendReadiness: (args) => ensureChatBackendReady(args),
-    homeAgentAuthToken: () => {
-      const homeAgentSvc = serviceRegistry?.getService('home-agent-backend')
-      return homeAgentSvc instanceof HomeAgentBackendService
-        ? homeAgentSvc.getLoopbackAuthToken()
-        : ''
-    },
     readCloudProviderKey,
   })
+  setOverviewSummaryComplete(runOverviewSummaryCompletion)
   // Reuses the main-side aipg-media reader the agent attachments already use;
   // the engine contract throws on failure (the ported customFetch behavior).
   setChatEngineDeps({
@@ -1386,6 +1532,7 @@ function wireChatEngine(): void {
     // Tracing hooks: no-ops in laminar.ts unless a Laminar config is present.
     noteTimings: (timings) => noteLlamaCppChatTimings(timings),
     noteTraceContext: (context) => noteMainChatTurnContext(context),
+    localPathOf: getLocalPathFromAipgMediaUrl,
   })
   setRagRetrievalDeps({
     ensureEmbeddingServerReady: async (serviceName, embeddingModel) => {
@@ -1447,7 +1594,8 @@ function wireArtifactRunner(settings: LocalSettings): void {
         return true
       } catch (error) {
         appLogger.warn(`Model consent request failed: ${String(error)}`, 'electron-backend')
-        return false
+        if ((error as CancellableError).cancelled) return false
+        throw error
       }
     },
     ensureOvmsImageReady: (modelId, keepModelsLoaded, resolution) =>
@@ -1455,10 +1603,12 @@ function wireArtifactRunner(settings: LocalSettings): void {
     readMediaAsDataUri: readAipgMediaAsDataUri,
     getPlatform: () => process.platform,
     devPresetsEnabled: () => isDeveloperMode(),
+    localPathOf: getLocalPathFromAipgMediaUrl,
+    prepareChatForSettlement,
   })
 
   // The orchestrator owns GPU policy (step 7): every run — panel, chat tool,
-  // Home Agent or in-process agent tool — is bracketed through these, so the
+  // Channels or in-process agent tool — is bracketed through these, so the
   // renderer's stop/return wraps and the occupancy refcount are gone.
   setOrchestratorDeps({
     stopChatForMedia: stopChatServicesForMedia,
@@ -1472,6 +1622,7 @@ function wireArtifactRunner(settings: LocalSettings): void {
     },
     restartChatBackend: reloadLastChatBackend,
     chatRequestsOpen: () => chatInferenceStreamsActive() + piAgentCallsActive(),
+    onWorkHoldsChanged: publishComponentState,
   })
 }
 
@@ -1610,9 +1761,17 @@ function initEventHandle() {
   registerSendHandlers(
     buildLifecycleSendRegistry({
       setRendererWork: inFlightWork.setRendererWork,
+      setRendererComponentHolds: setWindowComponentHolds,
       requestClose: () => void closeCoordinator.requestClose(),
       answerClose: handleCloseAnswer,
       closeBridgeReady: handleCloseBridgeReady,
+    }),
+  )
+  registerInvokeHandlers(
+    buildLifecycleInvokeRegistry({
+      requestRestart: () => void closeCoordinator.requestRestart(),
+      settingsPath: getWritableSettingsPath,
+      openPath: (path) => shell.openPath(path),
     }),
   )
 
@@ -1686,6 +1845,7 @@ function initEventHandle() {
     HomeAgentBackendService,
     Qwen3TtsBackendService,
     WhisperBackendService,
+    componentChanges,
   }
 
   // The core registry (#301): every flat main-owned invoke channel — the
@@ -1731,6 +1891,8 @@ function initEventHandle() {
       cancelArtifactRun,
       cancelActiveArtifactRun,
       handleMediaResponse,
+      inSessionTurn,
+      assertSessionWorkspacePresent,
     }),
   )
 
@@ -1739,6 +1901,7 @@ function initEventHandle() {
   registerInvokeHandlers(
     buildNotificationsRegistry({
       channelMessageOwner,
+      recordStartPromptRequest,
       appLogger: appLoggerInstance,
     }),
   )
@@ -1767,7 +1930,61 @@ function initEventHandle() {
       resumeChatTurn,
       cancelChatTurn,
       handleChatAnswer,
-      summarizeConversationText,
+    }),
+  )
+
+  registerInvokeHandlers(
+    buildSessionsRegistry({
+      listSessions,
+      createSession,
+      openSession,
+      renameSession,
+      pinSession,
+      setSessionIncludedInOverviews,
+      addSessionFolder,
+      removeSessionFolder,
+      setSessionFolderAccess,
+      starSessionFolder,
+      missingSessionWorkspace,
+      locateSessionWorkspace,
+      startNewSessionWorkspace,
+      assertSessionWorkspacePresent,
+      openSessionFolder,
+      setSessionReachable,
+      setRealShellFolders,
+      migrateHomeAgentThreads,
+      pickSessionAgent,
+      listSessionGroups,
+      createSessionGroup,
+      moveSessionToGroup,
+      renameSessionGroup,
+      deleteSessionGroup,
+      setSessionGroupExpanded,
+      readShowMore,
+      setShowMore,
+      deleteSession,
+      sessionDeletePreview,
+      harnessSessionFor,
+      taskRunHarnessFor,
+      upsertTimelineMessages,
+      removeTimelineMessages,
+      addHiddenMessages,
+      clearHiddenMessages,
+      clearAllHiddenMessages,
+      saveChatTranscript,
+      recordAudioTurn,
+      listAllArtifacts,
+      listAllCreatedFiles,
+      openArtifact: openArtifactActions({ open: openFileWithSystem }),
+      missingArtifactUrls,
+      deleteArtifact,
+      readSessionSettings,
+      writePresetSettings,
+      lastTurnPreset,
+      historyOverviewUpdates,
+      claimSessionTurn,
+      releaseSessionTurn,
+      newestArtifact,
     }),
   )
 
@@ -1787,9 +2004,14 @@ function initEventHandle() {
       cancelAgentTurn,
       resetAgentSession,
       deleteAgentSession,
+      deleteAgentTurns,
       submitAgentToolResult,
       listAgentCapabilities,
       importAttachment,
+      attachmentsFolderFor,
+      sessionDocuments,
+      indexSessionDocument,
+      removeSessionDocument,
       mediaFileAction: workspaceMediaFileActions({
         sessionWorkspaceDir,
         mediaUrlPath: getLocalPathFromAipgMediaUrl,
@@ -1801,6 +2023,13 @@ function initEventHandle() {
         saveCopy: saveFileCopy,
       }),
       openWorkspaceFolder: openDirectory,
+      sessionFileAction: sessionFileActions({
+        mountsOf: sessionFileMounts,
+        open: openFileWithSystem,
+        reveal: revealFileInFolder,
+        delete: discardPath,
+      }),
+      readSessionFile: sessionFileReader({ mountsOf: sessionFileMounts }),
       bootstrapAgentSessions,
       migrateLegacyAgentSessions,
       saveAgentSession,
@@ -1812,7 +2041,15 @@ function initEventHandle() {
       readAgentTasks,
       saveAgentTask,
       deleteAgentTask,
-      forgetSessionMessages,
+      openAgentTaskFolder,
+      readAgentDrafts,
+      saveAgentDraft,
+      deleteAgentDraft,
+      trialRunHarnessFor,
+      discardTrialRun,
+      readTrialRuns,
+      saveTrialRun,
+      forgetHarnessSessionMessages,
       appLogger: appLoggerInstance,
     }),
   )
@@ -2091,8 +2328,36 @@ app.whenReady().then(async () => {
       if (!window.isDestroyed()) typedSend(window.webContents, 'computeMetricsUpdate', snapshot)
     })
     startComputeMetricsSampler({ xpuSmiPath: getXpuSmiExePath() })
+    if (!settings.isDemoModeEnabled) {
+      // Before anything reads a Session: their records now live in the app's internal storage.
+      await moveSessionBookkeeping().catch((error) =>
+        appLogger.error(`session bookkeeping move failed: ${String(error)}`, 'electron-backend'),
+      )
+    }
     appLogger.info('startup step: initializing service registry', 'electron-backend', true)
     await initServiceRegistry(window, settings)
+    if (!settings.isDemoModeEnabled) {
+      appLogger.info('startup step: migrating agent presets', 'electron-backend', true)
+      await migrateAgentLibrary({
+        presetsDir: getUserPresetsDir(),
+        onPresetsChanged: invalidatePresetCatalog,
+      }).catch((error) =>
+        appLogger.error(`agent library migration failed: ${String(error)}`, 'electron-backend'),
+      )
+      // After the Agent Library migration, whose Drafts take Agent Maker's settings as they were.
+      await migrateAgentMakerSessions().catch((error) =>
+        appLogger.error(`agent maker migration failed: ${String(error)}`, 'electron-backend'),
+      )
+      // After Agent Maker's, which leaves the folders it picked in the Assistant's settings.
+      await migrateSessionLayout()
+      await dropAgentMountedFolders().catch((error) =>
+        appLogger.error(`agent folder migration failed: ${String(error)}`, 'electron-backend'),
+      )
+      // After Agent Maker's, whose version mark this one builds on.
+      await adoptWebScreenshotInAgents().catch((error) =>
+        appLogger.error(`agent capability migration failed: ${String(error)}`, 'electron-backend'),
+      )
+    }
     // After the registry: the renderer's stores call into it as they are created.
     appLogger.info('startup step: loading app window', 'electron-backend', true)
     await loadAppWindow(window)

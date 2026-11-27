@@ -28,8 +28,6 @@ export type ChatModelDeps = {
   llmApiBase: (backend: 'llamaCPP' | 'openVINO') => string | undefined
   /** Relaunch a local backend (the relaunch-and-retry path). Throws on failure. */
   ensureBackendReadiness: (args: ChatReadinessArgs) => Promise<void>
-  /** Fresh loopback token for the Home Agent proxy (regenerated per spawn). */
-  homeAgentAuthToken: () => string
   /** Decrypt one provider's stored API key. The plaintext stays in main. */
   readCloudProviderKey: (providerId: string) => string | null
 }
@@ -138,25 +136,6 @@ export function createMainChatModel(config: ChatModelConfig): LanguageModel {
             init,
             getKey: deps.readCloudProviderKey,
           })
-        }
-        if (config.homeAgentUpstreamUrl) {
-          const build = (t: string): RequestInit => {
-            const headers = new Headers(init?.headers)
-            headers.set('X-Upstream-Url', config.homeAgentUpstreamUrl!)
-            if (t) headers.set('X-AIPG-Auth', t)
-            return { ...init, headers }
-          }
-          const token = deps.homeAgentAuthToken()
-          let response = await globalThis.fetch(requestUrl.toString(), build(token))
-          if (response.status === 401) {
-            // The proxy restarted with a fresh token; the read above is already
-            // uncached in main, so simply retry with a re-read.
-            response = await globalThis.fetch(
-              requestUrl.toString(),
-              build(deps.homeAgentAuthToken()),
-            )
-          }
-          return response
         }
         return await globalThis.fetch(requestUrl.toString(), init)
       }

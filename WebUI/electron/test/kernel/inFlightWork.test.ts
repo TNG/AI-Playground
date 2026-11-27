@@ -21,46 +21,75 @@ function sources(overrides: Partial<InFlightWorkSources>): InFlightWorkSources {
   }
 }
 
-const dailyReport = { id: 'task-1', name: 'Daily report', schedule: { enabled: true } }
-const marker = (stepIndex: number) => ({
-  ...dailyReport,
-  activeRun: { sessionId: 's-1', stepIndex, stepCount: 4 },
-})
-const reportedTaskRun = (index: number): InFlightWorkItem => ({
+const dailyReport = {
+  id: 'task-1',
+  name: 'Daily report',
+  schedules: [{ sessionRef: 'session-1', enabled: true }],
+}
+const run = (sessionId: string) => ({ sessionId, sessionRef: `ref-${sessionId}` })
+const marker = () => ({ ...dailyReport, activeRuns: [run('s-1')] })
+const runningTaskRun = (sessionId: string): InFlightWorkItem => ({
   kind: 'task-run',
   taskId: 'task-1',
-  sessionId: 's-1',
+  sessionId,
   name: 'Daily report',
-  state: { status: 'step', index, count: 4 },
+  state: { status: 'running' },
 })
 
 describe('collectInFlightWork', () => {
+  it('lists the Channel messages the window has queued', () => {
+    const queued: InFlightWorkItem = {
+      kind: 'channel-queue',
+      channel: 'telegram',
+      state: { status: 'queued', count: 3 },
+    }
+    expect(collectInFlightWork(sources({ rendererWork: [queued] }))).toEqual([queued])
+  })
+
   it('lists nothing for an enabled Schedule alone', () => {
     expect(collectInFlightWork(sources({ tasks: [dailyReport] }))).toEqual([])
   })
 
-  it('names a Task Run from its marker, with its step', () => {
-    expect(collectInFlightWork(sources({ tasks: [marker(2)] }))).toEqual([
-      {
-        kind: 'task-run',
-        taskId: 'task-1',
-        sessionId: 's-1',
-        name: 'Daily report',
-        state: { status: 'step', index: 2, count: 4 },
-      },
-    ])
+  it('names an Agent Run from its marker as running', () => {
+    expect(collectInFlightWork(sources({ tasks: [marker()] }))).toEqual([runningTaskRun('s-1')])
+  })
+
+  it('names a run from a marker written when runs counted Steps the same way', () => {
+    const old = { ...dailyReport, activeRuns: [{ ...run('s-1'), stepIndex: 2, stepCount: 4 }] }
+
+    expect(collectInFlightWork(sources({ tasks: [old] }))).toEqual([runningTaskRun('s-1')])
+  })
+
+  it("names each of an Agent's runs in different Sessions, deferring only the reported one", () => {
+    const twoRuns = { ...dailyReport, activeRuns: [run('s-1'), run('s-2')] }
+
+    expect(
+      collectInFlightWork(sources({ tasks: [twoRuns], rendererWork: [runningTaskRun('s-1')] })),
+    ).toEqual([runningTaskRun('s-2'), runningTaskRun('s-1')])
   })
 
   it('names a Task Run the window reports before its marker reaches disk', () => {
     expect(
-      collectInFlightWork(sources({ tasks: [dailyReport], rendererWork: [reportedTaskRun(1)] })),
-    ).toEqual([reportedTaskRun(1)])
+      collectInFlightWork(sources({ tasks: [dailyReport], rendererWork: [runningTaskRun('s-1')] })),
+    ).toEqual([runningTaskRun('s-1')])
   })
 
-  it("takes the window's step over a marker that lags it", () => {
+  it('names a run the window reports once, not again from its marker', () => {
     expect(
-      collectInFlightWork(sources({ tasks: [marker(2)], rendererWork: [reportedTaskRun(3)] })),
-    ).toEqual([reportedTaskRun(3)])
+      collectInFlightWork(sources({ tasks: [marker()], rendererWork: [runningTaskRun('s-1')] })),
+    ).toEqual([runningTaskRun('s-1')])
+  })
+
+  it('names a running Follow-up the window reports as its Agent Run, not as an agent turn', () => {
+    expect(
+      collectInFlightWork(
+        sources({
+          tasks: [dailyReport],
+          agentTurns: [{ sessionId: 's-1', name: 'Daily report' }],
+          rendererWork: [runningTaskRun('s-1')],
+        }),
+      ),
+    ).toEqual([runningTaskRun('s-1')])
   })
 
   it('names a Task Run still in its pre-flight checks, before it has a session', () => {
@@ -76,10 +105,10 @@ describe('collectInFlightWork', () => {
     ).toEqual([starting])
   })
 
-  it("leaves out the agent turn that is a Task Run's Step", () => {
+  it("leaves out the agent turn that is an Agent Run's turn", () => {
     const items = collectInFlightWork(
       sources({
-        tasks: [marker(2)],
+        tasks: [marker()],
         agentTurns: [{ sessionId: 's-1', name: 'Report session' }],
         textRequests: [{ conversationKey: 's-1', state: 'running' }],
       }),
@@ -88,54 +117,35 @@ describe('collectInFlightWork', () => {
     expect(items.map((item) => item.kind)).toEqual(['task-run'])
   })
 
-  it("leaves out the agent turn that is a Prompt Run's Step", () => {
+  it('names a Trial Run in place of the agent turn that runs it', () => {
+    const trialRun: InFlightWorkItem = {
+      kind: 'trial-run',
+      agentId: 'agent-1',
+      sessionId: 'trial-harness',
+      name: 'Morning news',
+      state: { status: 'running' },
+    }
+
     const items = collectInFlightWork(
       sources({
-        agentTurns: [{ sessionId: 's-2', name: 'Asteroids' }],
-        textRequests: [{ conversationKey: 's-2', state: 'running' }],
-        rendererWork: [
-          {
-            kind: 'prompt-run',
-            sessionId: 's-2',
-            name: 'Asteroids',
-            state: { status: 'step', index: 1, count: 3 },
-          },
-        ],
+        agentTurns: [{ sessionId: 'trial-harness', name: 'Morning news' }],
+        rendererWork: [trialRun],
       }),
     )
 
-    expect(items.map((item) => item.kind)).toEqual(['prompt-run'])
-  })
-
-  it('names a Prompt Run between two Steps, when no agent turn is open', () => {
-    const between: InFlightWorkItem = {
-      kind: 'prompt-run',
-      sessionId: 's-2',
-      name: 'Asteroids',
-      state: { status: 'step', index: 2, count: 3 },
-    }
-
-    expect(collectInFlightWork(sources({ rendererWork: [between] }))).toEqual([between])
+    expect(items).toEqual([trialRun])
   })
 
   it('keeps an agent turn in another session', () => {
     const items = collectInFlightWork(
       sources({
-        tasks: [marker(2)],
+        tasks: [marker()],
         agentTurns: [{ sessionId: 's-9', name: 'Other' }],
         textRequests: [{ conversationKey: 's-9', state: 'paused' }],
       }),
     )
 
     expect(items[1]).toEqual({ kind: 'agent-turn', name: 'Other', state: { status: 'paused' } })
-  })
-
-  it('names a Home Agent reply without its thread title', () => {
-    expect(
-      collectInFlightWork(
-        sources({ chatTurns: [{ conversationKey: 'c-1', homeAgent: true, title: 'Telegram' }] }),
-      ),
-    ).toEqual([{ kind: 'home-agent-turn', state: { status: 'running' } }])
   })
 
   it('counts queued media runs per mode and lists executing ones each', () => {
@@ -171,7 +181,7 @@ describe('createInFlightWork', () => {
 
   it("replaces the window's previous report with its latest one", async () => {
     const work = createInFlightWork(deps())
-    work.setRendererWork([reportedTaskRun(1)])
+    work.setRendererWork([runningTaskRun('s-1')])
     work.setRendererWork([])
 
     await expect(work.list()).resolves.toEqual([])

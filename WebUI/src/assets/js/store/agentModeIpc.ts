@@ -16,6 +16,11 @@ type AgentModeIpcHandlers = {
   onToolProgress: (data: AgentToolProgress) => void
   onToolImage: (data: AgentToolImage) => void
   onTurnState: (data: AgentTurnRef & { state: AgentTurnState; pauseReason?: PauseReason }) => void
+  /**
+   * A regenerate took the rewound turn's entries off the branch: its answers are
+   * gone from what the model sees, whatever the re-run does next.
+   */
+  onTurnRewound: (data: AgentTurnRef & { rewoundTurnId: string }) => void
   onTurnDone: (data: AgentTurnRef) => void
   /** A text run's Turn Queue position; `position` is absent once it holds the place. */
   onQueuePosition: (data: AgentTurnRef & { position?: number }) => void
@@ -67,6 +72,13 @@ export function registerAgentModeIpc(handlers: AgentModeIpcHandlers): void {
             turnId: event.turnId,
             state: event.state,
             pauseReason: event.pauseReason,
+          })
+          break
+        case 'agent-turn-rewound':
+          handlers.onTurnRewound({
+            sessionId: event.sessionId,
+            turnId: event.turnId,
+            rewoundTurnId: event.rewoundTurnId,
           })
           break
         case 'agent-turn-done':

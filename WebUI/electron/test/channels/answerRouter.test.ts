@@ -1,19 +1,28 @@
 import { describe, expect, it } from 'vitest'
 import {
   createAnswerRouter,
-  type AnswerSendResult,
-  type AnswerSessions,
-  type HeldAnswerJournal,
-  type HeldAnswerNote,
-  type SessionPause,
-  type SessionTurnEnd,
-  type VoiceAnswerPreparation,
+  type SessionSendResult,
+  type SessionPort,
+  type SessionActivity,
+  type SessionChange,
+  type TrialRunChange,
+  type VoicePreparation,
+  type AgentStartResult,
+  type ChannelSessionPointers,
+  type ChannelTranscriptMessage,
+  type DesktopView,
 } from '../../../src/assets/js/store/channels/answerRouter'
 import { createChannelQuestionRegistry } from '../../../src/assets/js/store/channels/channelQuestions'
-import type { ChannelAdapter } from '../../../src/assets/js/store/channels/adapter'
+import type { ChannelAdapter, ReplyRequest } from '../../../src/assets/js/store/channels/adapter'
+import {
+  CHANNEL_QUEUE_LIMIT,
+  type QueuedChannelMessage,
+} from '../../../src/assets/js/store/channels/channelQueue'
 import type {
   ChannelKind,
+  ChannelMessageRef,
   InboundMeta,
+  KeyboardButton,
   RemoteAudio,
 } from '../../../src/assets/js/store/channels/types'
 import type { AgentAnswerOrigin } from '../../../src/types/agentIpc'
@@ -23,12 +32,29 @@ function fakeChannel(kind: ChannelKind = 'telegram') {
   const replies: string[] = []
   const drafted: string[] = []
   const metas: (InboundMeta | undefined)[] = []
+  const keyboards: { text: string; buttons: KeyboardButton[][] }[] = []
+  const repaints: { role: string; text: string }[][] = []
+  /** Messages that ask for a reply (Start Prompt Requests), each sent as message 700 + n. */
+  const asks: { text: string; request: ReplyRequest; meta?: InboundMeta; ref: string }[] = []
+  const edits: { ref: ChannelMessageRef; text: string }[] = []
   const adapter = {
     kind,
+    askForReply: async (text: string, request: ReplyRequest, meta?: InboundMeta) => {
+      const messageId = 701 + asks.length
+      asks.push({ text, request, meta, ref: String(messageId) })
+      return { success: true, ref: { messageId } }
+    },
     formatMarkdown: (md: string) => md,
     formatRichSnippet: (html: string) => html,
-    keyboard: async () => ({ success: true, ref: { messageId: 900 } }),
-    editKeyboardMessage: async () => ({ success: true }),
+    formatFinal: (parts: { text?: string }[]) => parts.map((p) => p.text ?? '').join(''),
+    keyboard: async (text: string, buttons: KeyboardButton[][]) => {
+      keyboards.push({ text, buttons })
+      return { success: true, ref: { messageId: 900 } }
+    },
+    editKeyboardMessage: async (ref: ChannelMessageRef, text: string) => {
+      edits.push({ ref, text })
+      return { success: true }
+    },
     reply: async (text: string, meta?: InboundMeta) => {
       replies.push(text)
       drafted.push(text)
@@ -40,68 +66,344 @@ function fakeChannel(kind: ChannelKind = 'telegram') {
       metas.push(meta)
       return { success: true }
     },
+    // Only LAN chat keeps no history of its own, so only it is repainted.
+    ...(kind === 'local-web'
+      ? {
+          replayHistory: async (messages: { role: string; text: string }[]) => {
+            repaints.push(messages.map(({ role, text }) => ({ role, text })))
+            return { success: true }
+          },
+        }
+      : {}),
   } as unknown as ChannelAdapter
-  return { adapter, replies, drafted, metas }
+  return { adapter, replies, drafted, metas, keyboards, repaints, asks, edits }
 }
 
 type FakeSession = {
   label: string
   /** What each send does, in order; the last one repeats. */
-  results?: AnswerSendResult[]
-  result?: AnswerSendResult
-  pause?: SessionPause
+  results?: SessionSendResult[]
+  result?: SessionSendResult
   realShell?: boolean
+  /** Reachable from Channels unless false. */
+  reachable?: boolean
+  /** The Session was deleted, though the message map still names it. */
+  gone?: boolean
   /** Runs while a send is in flight, before it resolves. */
   duringSend?: () => void
+  /** Its model cannot see images. */
+  blind?: boolean
+  /** It is its Session's Assistant Harness Session, where plain messages run. */
+  assistant?: boolean
 }
 
-const BUSY: AnswerSendResult = { ok: false, reason: 'busy', message: 'turn in flight' }
-const TASK_LOCKED: AnswerSendResult = {
+const BUSY: SessionSendResult = { ok: false, reason: 'busy', message: 'turn in flight' }
+const TASK_LOCKED: SessionSendResult = {
   ok: false,
   reason: 'task-locked',
   message: 'Agent “Digest” is running.',
 }
 
-/** Agent sessions as the router sees them: which message each sent, and what a send does. */
-type SentMessage = { kind: ChannelKind; ref: string; sessionId: string }
+/**
+ * Which message each Harness Session sent; a Trial Run's message names its Agent, and is a
+ * tombstone once the message map was told the run was thrown away.
+ */
+type SentMessage =
+  | { kind: ChannelKind; ref: string; sessionId: string }
+  | { kind: ChannelKind; ref: string; trialRun: string; agentId: string; thrownAway?: boolean }
 
-function fakeSessions(sessions: Record<string, FakeSession>, sentMessages: SentMessage[]) {
+/** A live Trial Run as the window holds it, keyed by its Harness Session. */
+type FakeTrialRun = { label: string; result?: SessionSendResult; blind?: boolean }
+
+/** The Session each fake Harness Session belongs to. */
+const sessionRefOf = (harnessSessionId: string) => `session-of-${harnessSessionId}`
+
+/** A Session a Channel can pick as its Channel Session, keyed by its ref. */
+type FakeChannelSession = {
+  title: string
+  reachable?: boolean
+  gone?: boolean
+  result?: SessionSendResult
+  transcript?: ChannelTranscriptMessage[]
+  blind?: boolean
+}
+
+function fakeSessions(
+  sessions: Record<string, FakeSession>,
+  sentMessages: SentMessage[],
+  channelSessions: Record<string, FakeChannelSession>,
+) {
   const received: { sessionId: string; text: string }[] = []
+  /** Plain messages, sent to a Session's Assistant rather than a Harness Session. */
+  const plain: { sessionRef: string; text: string; origin: AgentAnswerOrigin }[] = []
+  const created: string[] = []
+  const creation = { fails: false }
+  /** When on, a send that goes through starts a turn, so the Session is busy until it settles. */
+  const turns = { start: false }
   const origins: { sessionId: string; origin: AgentAnswerOrigin }[] = []
-  const held: Record<string, { text: string; channel: ChannelKind } | null> = {}
-  const listeners = new Set<(sessionId: string, end: SessionTurnEnd) => void>()
-  const port: AnswerSessions = {
+  /** What each Session is busy with, by Session ref; idle when absent. */
+  const activities: Record<string, SessionActivity> = {}
+  const stopped: string[] = []
+  const listeners = new Set<(sessionRef: string, change: SessionChange) => void>()
+  const tellListeners = (sessionRef: string, change: SessionChange) => {
+    for (const listener of [...listeners]) listener(sessionRef, change)
+  }
+  /** Files attached, by the Harness Session or Session they went to. */
+  const attached: { to: string; kind: string; filename: string }[] = []
+  const attaching = { fails: false }
+  /** The Agents marked "Can be started from a Channel". */
+  const startable: { agentId: string; name: string }[] = []
+  /** Names of saved Agents beside the startable ones, by Agent id. */
+  const agentNames: Record<string, string> = {}
+  const agentStarts: {
+    sessionRef: string
+    agentId: string
+    origin: AgentAnswerOrigin
+    prompt?: string
+  }[] = []
+  /** Each Session the desktop started to bring into view, and how. */
+  const inView: { sessionRef: string; view: DesktopView }[] = []
+  /** `held` keeps each bring-into-view open until it resolves. */
+  const bringing: { fails: boolean; held?: Promise<void> } = { fails: false }
+  const unpicked: string[] = []
+  const unpicking = { fails: false }
+  /** What starting an Agent does; it goes through unless set. */
+  const agentStart: { result: AgentStartResult } = { result: { ok: true } }
+  /** Start Prompt Requests recorded in the message map, which outlives a restart. */
+  const recordedRequests: { kind: ChannelKind; ref: string }[] = []
+  /** The window's live Trial Runs, by Harness Session; a thrown-away one is gone. */
+  const trialRuns: Record<string, FakeTrialRun> = {}
+  const trialActivities: Record<string, SessionActivity> = {}
+  const trialListeners = new Set<(harnessSessionId: string, change: TrialRunChange) => void>()
+  const tellTrialListeners = (harnessSessionId: string, change: TrialRunChange) => {
+    for (const listener of [...trialListeners]) listener(harnessSessionId, change)
+  }
+  const harnessOf = (sessionRef: string) =>
+    Object.entries(sessions).find(([id]) => sessionRefOf(id) === sessionRef)?.[1]
+  const reachable = (session: { gone?: boolean; reachable?: boolean } | undefined) =>
+    !!session && !session.gone && session.reachable !== false
+  const port: SessionPort = {
+    exists: async (sessionRef) => {
+      const session = harnessOf(sessionRef) ?? channelSessions[sessionRef]
+      return !!session && !session.gone
+    },
+    isReachable: async (sessionRef) =>
+      reachable(harnessOf(sessionRef) ?? channelSessions[sessionRef]),
+    listReachable: async () =>
+      Object.entries(channelSessions)
+        .filter(([, session]) => reachable(session))
+        .map(([sessionRef, session]) => ({ sessionRef, title: session.title })),
+    create: async () => {
+      if (creation.fails) throw new Error('disk full')
+      const sessionRef = `session-new-${created.length + 1}`
+      created.push(sessionRef)
+      channelSessions[sessionRef] = { title: '' }
+      return sessionRef
+    },
+    transcript: async (sessionRef) => channelSessions[sessionRef]?.transcript ?? [],
     lookup: async (kind, ref) => {
+      if (recordedRequests.some((m) => m.kind === kind && m.ref === ref)) {
+        return { startPromptRequest: true }
+      }
       const sent = sentMessages.find((m) => m.kind === kind && m.ref === ref)
       if (!sent) return null
-      return sessions[sent.sessionId] ? { sessionId: sent.sessionId } : { deletedSession: true }
+      if ('trialRun' in sent) {
+        return sent.thrownAway
+          ? { thrownAwayTrialRun: true, agentId: sent.agentId }
+          : { trialRun: true, harnessSessionId: sent.trialRun, agentId: sent.agentId }
+      }
+      const harnessSessionId = sent.sessionId
+      return sessions[harnessSessionId]
+        ? { sessionRef: sessionRefOf(harnessSessionId), harnessSessionId }
+        : { deletedSession: true }
     },
-    label: (sessionId) => `"${sessions[sessionId]?.label ?? 'An agent run'}"`,
-    usesRealShell: (sessionId) => !!sessions[sessionId]?.realShell,
-    send: async (sessionId, text, origin) => {
+    label: (target) =>
+      'trialRunSessionId' in target
+        ? `Trial Run · ${trialRuns[target.trialRunSessionId]?.label ?? 'Untitled'}`
+        : 'harnessSessionId' in target
+          ? `"${sessions[target.harnessSessionId]?.label ?? 'Untitled Session'}"`
+          : `"${channelSessions[target.sessionRef]?.title || 'Untitled Session'}"`,
+    usesRealShell: ({ harnessSessionId }) => !!sessions[harnessSessionId]?.realShell,
+    turnTarget: (target) =>
+      'trialRunSessionId' in target
+        ? target.trialRunSessionId
+        : 'harnessSessionId' in target && !sessions[target.harnessSessionId]?.assistant
+          ? target.harnessSessionId
+          : target.sessionRef,
+    send: async (target, text, origin) => {
+      if ('trialRunSessionId' in target) {
+        const sessionId = target.trialRunSessionId
+        const trial = trialRuns[sessionId]
+        if (!trial) return { ok: false, reason: 'thrown-away', message: '' }
+        received.push({ sessionId, text })
+        origins.push({ sessionId, origin })
+        const result = trial.result ?? { ok: true, queuePosition: null }
+        if (result.ok && turns.start) trialActivities[sessionId] = { kind: 'turn' }
+        return result
+      }
+      if (!('harnessSessionId' in target)) {
+        plain.push({ sessionRef: target.sessionRef, text, origin })
+        const result = channelSessions[target.sessionRef]?.result ?? {
+          ok: true,
+          queuePosition: null,
+        }
+        if (result.ok && turns.start) activities[target.sessionRef] = { kind: 'turn' }
+        return result
+      }
+      const { sessionRef, harnessSessionId: sessionId } = target
+      if (sessionRef !== sessionRefOf(sessionId)) {
+        return { ok: false, reason: 'wrong-session', message: `${sessionRef} ≠ ${sessionId}` }
+      }
       received.push({ sessionId, text })
       origins.push({ sessionId, origin })
       const session = sessions[sessionId]
       session?.duringSend?.()
       const queued = session?.results
-      if (queued && queued.length > 0) return queued.length > 1 ? queued.shift()! : queued[0]
-      return session?.result ?? { ok: true, queuePosition: null }
+      const result =
+        queued && queued.length > 0
+          ? queued.length > 1
+            ? queued.shift()!
+            : queued[0]
+          : (session?.result ?? { ok: true, queuePosition: null })
+      if (result.ok && turns.start) activities[sessionRef] = { kind: 'turn' }
+      return result
     },
-    pause: (sessionId) => sessions[sessionId]?.pause ?? null,
-    held: (sessionId, answer) => {
-      held[sessionId] = answer
+    attach: async (target, file) => {
+      const trial = 'trialRunSessionId' in target
+      const answer = 'harnessSessionId' in target
+      const to = trial
+        ? target.trialRunSessionId
+        : answer
+          ? target.harnessSessionId
+          : target.sessionRef
+      const blind = trial
+        ? trialRuns[to]?.blind
+        : answer
+          ? sessions[to]?.blind
+          : channelSessions[to]?.blind
+      if (file.kind === 'image' && blind) return { ok: false, reason: 'images-unseen', message: '' }
+      if (attaching.fails) return { ok: false, reason: 'error', message: 'disk full' }
+      attached.push({ to, kind: file.kind, filename: file.filename })
+      return { ok: true, path: `attachments/${file.filename}` }
     },
-    onTurnEnd: (listener) => {
+    recordStartPromptRequest: async (kind, ref) => {
+      recordedRequests.push({ kind, ref })
+    },
+    listStartableAgents: async () => [...startable],
+    agentName: (agentId) =>
+      startable.find((agent) => agent.agentId === agentId)?.name ?? agentNames[agentId] ?? null,
+    startAgent: async (sessionRef, agentId, origin, prompt) => {
+      agentStarts.push({ sessionRef, agentId, origin, ...(prompt !== undefined ? { prompt } : {}) })
+      const { result } = agentStart
+      if (result.ok && turns.start) {
+        const name = startable.find((agent) => agent.agentId === agentId)?.name ?? ''
+        activities[sessionRef] = { kind: 'agent-run', name }
+      }
+      return result
+    },
+    bringIntoView: async (sessionRef, view) => {
+      if (bringing.fails) throw new Error('window gone')
+      inView.push({ sessionRef, view })
+      await bringing.held
+    },
+    unpickAgent: async (sessionRef) => {
+      if (unpicking.fails) throw new Error('window gone')
+      unpicked.push(sessionRef)
+    },
+    activity: (sessionRef) => activities[sessionRef] ?? { kind: 'idle' },
+    stop: async (sessionRef) => {
+      const was = activities[sessionRef] ?? { kind: 'idle' }
+      stopped.push(sessionRef)
+      delete activities[sessionRef]
+      if (was.kind !== 'idle') tellListeners(sessionRef, 'settled')
+      return was
+    },
+    onSessionChange: (listener) => {
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
+    trialRunLive: (harnessSessionId) => !!trialRuns[harnessSessionId],
+    trialRunActivity: (harnessSessionId) => trialActivities[harnessSessionId] ?? { kind: 'idle' },
+    onTrialRunChange: (listener) => {
+      trialListeners.add(listener)
+      return () => trialListeners.delete(listener)
+    },
   }
-  /** The session's turn ended (or the desktop acted on it). */
-  const end = async (sessionId: string, how: SessionTurnEnd) => {
-    for (const listener of [...listeners]) listener(sessionId, how)
+  /** The Trial Run's Step or Follow-up runs; from then on each send that goes through does too. */
+  const busyTrial = (harnessSessionId: string, activity: SessionActivity = { kind: 'turn' }) => {
+    turns.start = true
+    trialActivities[harnessSessionId] = activity
+  }
+  const settleTrial = async (harnessSessionId: string) => {
+    delete trialActivities[harnessSessionId]
+    tellTrialListeners(harnessSessionId, 'settled')
     await flush()
   }
-  return { port, received, origins, held, end }
+  /** The next Trial Run of its Agent, a discard, or the wipe at start and quit. */
+  const throwAwayTrial = async (harnessSessionId: string) => {
+    delete trialRuns[harnessSessionId]
+    delete trialActivities[harnessSessionId]
+    tellTrialListeners(harnessSessionId, 'thrown-away')
+    await flush()
+  }
+  /**
+   * The Session runs a turn, or an Agent Run, that later messages wait for; from then on each
+   * send that goes through starts a turn too.
+   */
+  const busy = (sessionRef: string, activity: SessionActivity = { kind: 'turn' }) => {
+    turns.start = true
+    activities[sessionRef] = activity
+  }
+  /** The Session's turn or Agent Run settled. */
+  const settle = async (sessionRef: string) => {
+    delete activities[sessionRef]
+    tellListeners(sessionRef, 'settled')
+    await flush()
+  }
+  /** The Session stopped being reachable, or was deleted. */
+  const change = async (sessionRef: string, how: Exclude<SessionChange, 'settled'>) => {
+    tellListeners(sessionRef, how)
+    await flush()
+  }
+  return {
+    port,
+    received,
+    origins,
+    plain,
+    created,
+    creation,
+    busy,
+    settle,
+    change,
+    stopped,
+    attached,
+    attaching,
+    startable,
+    agentNames,
+    agentStarts,
+    agentStart,
+    inView,
+    bringing,
+    unpicked,
+    unpicking,
+    trialRuns,
+    busyTrial,
+    settleTrial,
+    throwAwayTrial,
+  }
+}
+
+/** Each Channel's Channel Session, as the Channels store keeps it. */
+function memoryPointers(initial: Partial<Record<ChannelKind, string>> = {}) {
+  const current: Partial<Record<ChannelKind, string>> = { ...initial }
+  const pointers: ChannelSessionPointers = {
+    get: (kind) => current[kind] ?? null,
+    set: (kind, sessionRef) => {
+      if (sessionRef) current[kind] = sessionRef
+      else delete current[kind]
+    },
+  }
+  return { pointers, current }
 }
 
 const flush = () => new Promise((r) => setTimeout(r, 0))
@@ -118,21 +420,18 @@ function fakeTranscription() {
   return { said, transcribed, transcribe }
 }
 
-/** Readying speech-to-text for a voice Answer: a download waits until the test lets it through. */
+/** Readying speech-to-text for a voice message: a download waits until the test lets it through. */
 function fakeVoicePreparation() {
-  const waiting: { sessionId: string; finish: (ready: boolean) => void }[] = []
+  const waiting: { finish: (ready: boolean) => void }[] = []
   let gated = false
-  const prepare = async (
-    _adapter: ChannelAdapter,
-    sessionId: string,
-  ): Promise<VoiceAnswerPreparation> =>
+  const prepare = async (): Promise<VoicePreparation> =>
     gated
-      ? { downloading: new Promise<boolean>((finish) => waiting.push({ sessionId, finish })) }
+      ? { downloading: new Promise<boolean>((finish) => waiting.push({ finish })) }
       : { ready: true }
   return {
     waiting,
     prepare,
-    /** Every following voice Answer waits, as for a speech model download. */
+    /** Every following voice message waits, as for a speech model download. */
     needDownload: () => {
       gated = true
     },
@@ -141,51 +440,62 @@ function fakeVoicePreparation() {
 
 const voice = (data: string) => ({ audio: [{ mime: 'audio/ogg', data_base64: data }] })
 
-/** What survives an app close; the router itself does not. */
-function memoryJournal() {
-  let notes: HeldAnswerNote[] = []
-  const journal: HeldAnswerJournal = {
-    load: () => notes,
-    save: (next) => {
-      notes = JSON.parse(JSON.stringify(next))
-    },
-  }
-  return journal
-}
-
 function setup(
   sessions: Record<string, FakeSession> = { asteroids: { label: 'Asteroids clone' } },
   sentMessages: SentMessage[] = [
     { kind: 'telegram', ref: '1234', sessionId: 'asteroids' },
     { kind: 'slack', ref: '1234', sessionId: 'asteroids' },
   ],
-  journal: HeldAnswerJournal = memoryJournal(),
+  channelSessions: Record<string, FakeChannelSession> = {},
+  initialPointers: Partial<Record<ChannelKind, string>> = {},
 ) {
   const questions = createChannelQuestionRegistry({ newId: () => 'q1', log: () => {} })
-  const fake = fakeSessions(sessions, sentMessages)
+  const fake = fakeSessions(sessions, sentMessages, channelSessions)
+  const channelPointers = memoryPointers(initialPointers)
   const speech = fakeTranscription()
   const voicePreparation = fakeVoicePreparation()
-  // Where an agent's download question is asked: the Notification Channel, if any.
-  const downloads = { askedOn: 'telegram' as ChannelKind | null }
-  const router = createAnswerRouter({
-    sessions: () => fake.port,
+  // Where an agent's download question is asked: every enabled Channel.
+  const downloads = { askedOn: ['telegram'] as ChannelKind[] }
+  const published: Record<string, QueuedChannelMessage[]> = {}
+  /** Each Session's "a taken batch is being sent" flag, as the router reported it. */
+  const sending: Record<string, boolean> = {}
+  const makeRouter = () =>
+    createAnswerRouter({
+      sessions: () => fake.port,
+      questions,
+      speech: { prepare: voicePreparation.prepare, transcribe: speech.transcribe },
+      downloadQuestionChannels: () => downloads.askedOn,
+      pointers: channelPointers.pointers,
+      publishQueue: (sessionRef, queued) => {
+        published[sessionRef] = queued
+      },
+      publishSending: (sessionRef, isSending) => {
+        sending[sessionRef] = isSending
+      },
+      log: () => {},
+    })
+  const router = makeRouter()
+  return {
+    router,
+    /** The router after an app restart: the same Sessions and message map, nothing in memory. */
+    restarted: makeRouter,
     questions,
-    transcribe: speech.transcribe,
-    prepareVoiceAnswer: voicePreparation.prepare,
-    downloadQuestionChannel: () => downloads.askedOn,
-    journal,
-    log: () => {},
-  })
-  return { router, questions, ...fake, journal, sessions, speech, voicePreparation, downloads }
+    ...fake,
+    sessions,
+    speech,
+    voicePreparation,
+    downloads,
+    published,
+    sending,
+    pointers: channelPointers.current,
+  }
 }
 
 describe('answer router', () => {
   it('sends a reply to an agent’s Notification into its session', async () => {
     const { router, received } = setup()
     const ch = fakeChannel()
-    expect(await router.route(ch.adapter, { text: 'try a smaller level', replyTo: '1234' })).toBe(
-      true,
-    )
+    await router.route(ch.adapter, { text: 'try a smaller level', replyTo: '1234' })
     expect(received).toEqual([{ sessionId: 'asteroids', text: 'try a smaller level' }])
   })
 
@@ -251,23 +561,31 @@ describe('answer router', () => {
       replyTo: '1700000000.0001',
       replyTarget: '1700000000.0001',
     }
-    expect(await router.route(ch.adapter, threadReply)).toBe(true)
+    await router.route(ch.adapter, threadReply)
     expect(received).toEqual([{ sessionId: 'asteroids', text: 'try a smaller level' }])
     expect(origins).toEqual([
       { sessionId: 'asteroids', origin: { channel: 'slack', replyTo: '1700000000.0001' } },
     ])
   })
 
-  it('leaves a Slack thread reply under a message no agent sent to Home Agent', async () => {
-    const { router, received } = setup(undefined, [])
+  it('sends a Slack thread reply under a message no agent sent to the Channel Session', async () => {
+    const { router, received, plain } = setup(
+      undefined,
+      [],
+      {
+        'session-home': { title: 'Home' },
+      },
+      { slack: 'session-home' },
+    )
     const ch = fakeChannel('slack')
     const threadReply = {
       text: 'thanks',
       replyTo: '1700000000.0009',
       replyTarget: '1700000000.0009',
     }
-    expect(await router.route(ch.adapter, threadReply)).toBe(false)
+    await router.route(ch.adapter, threadReply)
     expect(received).toEqual([])
+    expect(plain.map((p) => p.sessionRef)).toEqual(['session-home'])
   })
 
   it.each(['telegram', 'slack', 'local-web'] as const)(
@@ -283,19 +601,17 @@ describe('answer router', () => {
     },
   )
 
-  it('leaves a plain message to Home Agent', async () => {
-    const { router, received } = setup()
+  it('sends a reply to a message no agent sent to the Channel Session, as a plain message', async () => {
+    const { router, received, plain } = setup(
+      undefined,
+      undefined,
+      { 'session-home': { title: 'Home' } },
+      { telegram: 'session-home' },
+    )
     const ch = fakeChannel()
-    expect(await router.route(ch.adapter, { text: 'what is the weather?' })).toBe(false)
+    await router.route(ch.adapter, { text: 'and tomorrow?', replyTo: '77' })
     expect(received).toEqual([])
-    expect(ch.replies).toEqual([])
-  })
-
-  it('leaves a reply to a message no agent sent to Home Agent', async () => {
-    const { router, received } = setup()
-    const ch = fakeChannel()
-    expect(await router.route(ch.adapter, { text: 'and tomorrow?', replyTo: '77' })).toBe(false)
-    expect(received).toEqual([])
+    expect(plain.map((p) => p.text)).toEqual(['and tomorrow?'])
   })
 
   it('finds the session by the channel the reply came on', async () => {
@@ -312,20 +628,19 @@ describe('answer router', () => {
     expect(slack.replies).toEqual(['➡️ Sent to "Daily digest" — starting…'])
   })
 
-  it('leaves a tap on an Answer button to Home Agent, without answering any agent', async () => {
-    const { router, received } = setup()
+  it('ignores a tap on an Answer button, which only opens the reply on the platform', async () => {
+    const { router, received, plain } = setup()
     const ch = fakeChannel()
-    expect(await router.route(ch.adapter, { callback: 'answer', replyTo: '1234' })).toBe(false)
+    await router.route(ch.adapter, { callback: 'answer', replyTo: '1234' })
     expect(received).toEqual([])
+    expect(plain).toEqual([])
     expect(ch.replies).toEqual([])
   })
 
   it('hands a button tap to its Channel Question, even on a reply', async () => {
     const { router, received } = setup()
     const ch = fakeChannel()
-    expect(await router.route(ch.adapter, { callback: 'confirm:gone:yes', replyTo: '1234' })).toBe(
-      true,
-    )
+    await router.route(ch.adapter, { callback: 'confirm:gone:yes', replyTo: '1234' })
     expect(received).toEqual([])
     expect(ch.replies).toEqual([
       'This question is no longer open. Use AI Playground on your computer.',
@@ -341,7 +656,7 @@ describe('answer router', () => {
       typedReply: true,
     })
     await flush()
-    expect(await router.route(ch.adapter, { text: 'yes', replyTo: '1234' })).toBe(true)
+    await router.route(ch.adapter, { text: 'yes', replyTo: '1234' })
     expect(received).toEqual([{ sessionId: 'asteroids', text: 'yes' }])
     expect(questions.isOpen(confirmation.id)).toBe(true)
   })
@@ -355,7 +670,7 @@ describe('answer router', () => {
       typedReply: true,
     })
     await flush()
-    expect(await router.route(ch.adapter, { text: 'yes' })).toBe(true)
+    await router.route(ch.adapter, { text: 'yes' })
     await expect(confirmation.answer).resolves.toBe(true)
     expect(received).toEqual([])
   })
@@ -365,22 +680,43 @@ describe('answer router', () => {
     const ch = fakeChannel()
     const download = questions.ask({ adapter: ch.adapter, summaryMarkdown: 'Download Flux?' })
     await flush()
-    expect(await router.route(ch.adapter, { text: 'yes' })).toBe(false)
+    await router.route(ch.adapter, { text: 'yes' })
     expect(questions.isOpen(download.id)).toBe(true)
   })
 
   describe('an Answer that cannot be delivered', () => {
-    it('says a deleted session no longer exists', async () => {
+    it('says a deleted Session was deleted', async () => {
       const { router, received } = setup({}, [
         { kind: 'telegram', ref: '1234', sessionId: 'deleted' },
       ])
       const ch = fakeChannel()
-      expect(await router.route(ch.adapter, { text: 'again', replyTo: '1234' })).toBe(true)
+      await router.route(ch.adapter, { text: 'again', replyTo: '1234' })
       expect(received).toEqual([])
-      expect(ch.replies).toEqual(['⚠️ That session no longer exists'])
+      expect(ch.replies).toEqual(['⚠️ That Session was deleted'])
     })
 
-    it('says the session no longer exists when it went away before the send', async () => {
+    it('says the Session was deleted when the message still names it but it is gone', async () => {
+      const { router, received } = setup({ asteroids: { label: 'Asteroids clone', gone: true } })
+      const ch = fakeChannel()
+      await router.route(ch.adapter, { text: 'again', replyTo: '1234' })
+      expect(received).toEqual([])
+      expect(ch.replies).toEqual(['⚠️ That Session was deleted'])
+    })
+
+    it('refuses an Answer to a Session that is no longer reachable, and sends nothing', async () => {
+      const { router, received } = setup({
+        asteroids: { label: 'Asteroids clone', reachable: false },
+      })
+      const ch = fakeChannel()
+      await router.route(ch.adapter, { text: 'again', replyTo: '1234' })
+      expect(received).toEqual([])
+      expect(ch.replies).toEqual([
+        '🔒 "Asteroids clone" is not reachable from Channels. ' +
+          'Turn on "Reachable from Channels" in its menu on your computer to answer it.',
+      ])
+    })
+
+    it('says the Session was deleted when it went away before the send', async () => {
       const { router } = setup({
         asteroids: {
           label: 'Asteroids clone',
@@ -389,7 +725,7 @@ describe('answer router', () => {
       })
       const ch = fakeChannel()
       await router.route(ch.adapter, { text: 'again', replyTo: '1234' })
-      expect(ch.replies).toEqual(['⚠️ That session no longer exists'])
+      expect(ch.replies).toEqual(['⚠️ That Session was deleted'])
     })
 
     it('asks for an Answer to a real-shell session on the computer, and sends nothing', async () => {
@@ -397,7 +733,7 @@ describe('answer router', () => {
         asteroids: { label: 'Asteroids clone', realShell: true },
       })
       const ch = fakeChannel()
-      expect(await router.route(ch.adapter, { text: 'rm -rf build', replyTo: '1234' })).toBe(true)
+      await router.route(ch.adapter, { text: 'rm -rf build', replyTo: '1234' })
       expect(received).toEqual([])
       expect(ch.replies).toEqual([
         '🖥️ "Asteroids clone" uses the real system shell. Answer on your computer.',
@@ -412,472 +748,2322 @@ describe('answer router', () => {
         asteroids: { label: 'Asteroids clone', result: { ok: false, reason, message } },
       })
       const ch = fakeChannel()
-      expect(await router.route(ch.adapter, { text: 'again', replyTo: '1234' })).toBe(true)
+      await router.route(ch.adapter, { text: 'again', replyTo: '1234' })
       expect(ch.replies).toEqual([
         `⚠️ Not sent to "Asteroids clone": ${message}\n` +
           'Fix it in AI Playground on your computer, then answer again.',
       ])
     })
-
-    it.each([
-      ['photo', { text: '[image]', images: [{ mime: 'image/jpeg', data_base64: 'AAAA' }] }],
-      [
-        'document',
-        {
-          text: 'the level data',
-          documents: [{ filename: 'level.txt', mime: 'text/plain', data_base64: 'AAAA' }],
-        },
-      ],
-      [
-        'file the channel refused to read',
-        { text: 'the level data', refused: 'Unsupported document type.' },
-      ],
-    ])('refuses a %s sent as an Answer and sends nothing', async (_kind, attachment) => {
-      const { router, received } = setup()
-      const ch = fakeChannel()
-      expect(await router.route(ch.adapter, { ...attachment, replyTo: '1234' })).toBe(true)
-      expect(received).toEqual([])
-      expect(ch.replies).toEqual(['⚠️ Answers to agents can only be text for now'])
-    })
-
-    it('leaves a photo that answers no agent to Home Agent', async () => {
-      const { router } = setup()
-      const ch = fakeChannel()
-      const photo = { text: '[image]', images: [{ mime: 'image/jpeg', data_base64: 'AAAA' }] }
-      expect(await router.route(ch.adapter, { ...photo, replyTo: '77' })).toBe(false)
-      expect(ch.replies).toEqual([])
-    })
-  })
-
-  describe('a voice Answer', () => {
-    it('is transcribed and sent to the session as text', async () => {
-      const { router, received, speech } = setup()
-      speech.said['ogg-1'] = 'try a smaller level'
-      const ch = fakeChannel()
-      expect(await router.route(ch.adapter, { ...voice('ogg-1'), replyTo: '1234' })).toBe(true)
-      expect(received).toEqual([{ sessionId: 'asteroids', text: 'try a smaller level' }])
-      expect(ch.replies).toEqual([])
-    })
-
-    it('does not hold up the next channel message while its speech model downloads', async () => {
-      const { router, received, speech, voicePreparation } = setup(
-        { asteroids: { label: 'Asteroids clone' }, digest: { label: 'Digest' } },
-        [
-          { kind: 'telegram', ref: '1234', sessionId: 'asteroids' },
-          { kind: 'telegram', ref: '5678', sessionId: 'digest' },
-        ],
-      )
-      speech.said['ogg-1'] = 'try a smaller level'
-      voicePreparation.needDownload()
-      const ch = fakeChannel()
-      expect(await router.route(ch.adapter, { ...voice('ogg-1'), replyTo: '1234' })).toBe(true)
-      expect(await router.route(ch.adapter, { text: 'skip sports', replyTo: '5678' })).toBe(true)
-      expect(received).toEqual([{ sessionId: 'digest', text: 'skip sports' }])
-      expect(voicePreparation.waiting.map((w) => w.sessionId)).toEqual(['asteroids'])
-    })
-
-    it('is delivered to its session once the download finished', async () => {
-      const { router, received, speech, voicePreparation } = setup()
-      speech.said['ogg-1'] = 'try a smaller level'
-      voicePreparation.needDownload()
-      const ch = fakeChannel()
-      await router.route(ch.adapter, { ...voice('ogg-1'), replyTo: '1234' })
-      expect(speech.transcribed).toEqual([])
-      voicePreparation.waiting[0].finish(true)
-      await flush()
-      expect(received).toEqual([{ sessionId: 'asteroids', text: 'try a smaller level' }])
-    })
-
-    it('is held after the download when the session is busy by then', async () => {
-      const { router, received, held, speech, voicePreparation } = setup({
-        asteroids: { label: 'Asteroids clone', results: [BUSY] },
-      })
-      speech.said['ogg-1'] = 'try a smaller level'
-      voicePreparation.needDownload()
-      const ch = fakeChannel()
-      await router.route(ch.adapter, { ...voice('ogg-1'), replyTo: '1234' })
-      voicePreparation.waiting[0].finish(true)
-      await flush()
-      expect(received).toHaveLength(1)
-      expect(held.asteroids).toEqual({ text: 'try a smaller level', channel: 'telegram' })
-    })
-
-    it('is dropped unheard when its speech model was not readied', async () => {
-      const { router, received, speech, voicePreparation } = setup()
-      speech.said['ogg-1'] = 'try a smaller level'
-      voicePreparation.needDownload()
-      const ch = fakeChannel()
-      await router.route(ch.adapter, { ...voice('ogg-1'), replyTo: '1234' })
-      voicePreparation.waiting[0].finish(false)
-      await flush()
-      expect(speech.transcribed).toEqual([])
-      expect(received).toEqual([])
-    })
-
-    it('is sent before the next channel message is read when no download is needed', async () => {
-      const { router, received, speech } = setup()
-      speech.said['ogg-1'] = 'try a smaller level'
-      const ch = fakeChannel()
-      await router.route(ch.adapter, { ...voice('ogg-1'), replyTo: '1234' })
-      await router.route(ch.adapter, { text: 'and add a boss', replyTo: '1234' })
-      expect(received).toEqual([
-        { sessionId: 'asteroids', text: 'try a smaller level' },
-        { sessionId: 'asteroids', text: 'and add a boss' },
-      ])
-    })
-
-    it('keeps later Answers to its session behind it while its speech model downloads', async () => {
-      const { router, received, speech, voicePreparation } = setup()
-      speech.said['ogg-1'] = 'try a smaller level'
-      speech.said['ogg-2'] = 'with more lives'
-      voicePreparation.needDownload()
-      const ch = fakeChannel()
-      await router.route(ch.adapter, { ...voice('ogg-1'), replyTo: '1234' })
-      await router.route(ch.adapter, { text: 'and add a boss', replyTo: '1234' })
-      await router.route(ch.adapter, { ...voice('ogg-2'), replyTo: '1234' })
-      await flush()
-      expect(received).toEqual([])
-      voicePreparation.waiting[0].finish(true)
-      await flush()
-      voicePreparation.waiting[1].finish(true)
-      await flush()
-      expect(received.map((r) => r.text)).toEqual([
-        'try a smaller level',
-        'and add a boss',
-        'with more lives',
-      ])
-    })
-
-    it('sends nothing when transcription failed, leaving the explanation to it', async () => {
-      const { router, received, speech } = setup()
-      speech.said['ogg-1'] = null
-      const ch = fakeChannel()
-      expect(await router.route(ch.adapter, { ...voice('ogg-1'), replyTo: '1234' })).toBe(true)
-      expect(received).toEqual([])
-      expect(ch.replies).toEqual([])
-    })
-
-    it('says so when no speech was heard, and sends nothing', async () => {
-      const { router, received, speech } = setup()
-      speech.said['ogg-1'] = ''
-      const ch = fakeChannel()
-      expect(await router.route(ch.adapter, { ...voice('ogg-1'), replyTo: '1234' })).toBe(true)
-      expect(received).toEqual([])
-      expect(ch.replies).toEqual([
-        "🎙️ Couldn't make out any speech in that voice message, so nothing was sent.",
-      ])
-    })
-
-    it('is not transcribed here when it answers no agent', async () => {
-      const { router, speech } = setup()
-      const ch = fakeChannel()
-      expect(await router.route(ch.adapter, voice('ogg-1'))).toBe(false)
-      expect(speech.transcribed).toEqual([])
-    })
-
-    it('is not transcribed for a session that no longer exists', async () => {
-      const { router, speech } = setup({}, [{ kind: 'telegram', ref: '1234', sessionId: 'gone' }])
-      const ch = fakeChannel()
-      await router.route(ch.adapter, { ...voice('ogg-1'), replyTo: '1234' })
-      expect(speech.transcribed).toEqual([])
-      expect(ch.replies).toEqual(['⚠️ That session no longer exists'])
-    })
   })
 })
 
-describe('a Held Answer', () => {
-  function busy(extra: Partial<FakeSession> = {}) {
-    return setup({
-      asteroids: {
-        label: 'Asteroids clone',
-        results: [BUSY, { ok: true, queuePosition: null }],
-        ...extra,
-      },
-    })
+describe('a message to a busy Session', () => {
+  const TRIP = 'session-trip'
+  function busyTrip(kind: ChannelKind = 'telegram') {
+    const fixture = channelSetup({ [TRIP]: { title: 'Trip planning' } }, { [kind]: TRIP })
+    fixture.busy(TRIP)
+    return fixture
   }
 
-  it('is held while the session is busy and confirmed as queued for the session', async () => {
-    const { router, held } = busy()
-    const ch = fakeChannel()
-    expect(await router.route(ch.adapter, { text: 'make it faster', replyTo: '1234' })).toBe(true)
+  it('is queued, not sent, and acknowledged with its place and what it waits for', async () => {
+    const { router, plain } = busyTrip()
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: 'add a day in Kyoto' })
+    expect(plain).toEqual([])
     expect(ch.replies).toEqual([
-      '⏳ Queued for "Asteroids clone" — it is sent when the current turn ends.',
-    ])
-    expect(held.asteroids).toEqual({ text: 'make it faster', channel: 'telegram' })
-  })
-
-  it('says it waits for the download buttons above while the turn is paused on a download', async () => {
-    const { router, held } = busy({ pause: 'download' })
-    const ch = fakeChannel()
-    await router.route(ch.adapter, { text: 'use the small one', replyTo: '1234' })
-    expect(ch.replies).toEqual([
-      '⏳ Queued for "Asteroids clone" — the session is waiting for the download buttons above.',
-    ])
-    expect(held.asteroids?.text).toBe('use the small one')
-  })
-
-  it('says the download is asked on the other channel when the Answer came elsewhere', async () => {
-    const { router, downloads } = busy({ pause: 'download' })
-    downloads.askedOn = 'slack'
-    const ch = fakeChannel()
-    await router.route(ch.adapter, { text: 'use the small one', replyTo: '1234' })
-    expect(ch.replies).toEqual([
-      '⏳ Queued for "Asteroids clone" — the session is waiting for the download buttons in ' +
-        'your notifications chat, or on your computer.',
+      '⏳ Queued (1st) for "Trip planning", runs after the current turn.',
     ])
   })
 
-  it('says the download waits on the computer when no channel asks it', async () => {
-    const { router, downloads } = busy({ pause: 'download' })
-    downloads.askedOn = null
-    const ch = fakeChannel()
-    await router.route(ch.adapter, { text: 'use the small one', replyTo: '1234' })
-    expect(ch.replies).toEqual([
-      '⏳ Queued for "Asteroids clone" — the session is waiting on your computer.',
-    ])
-  })
-
-  it('is sent at once when the turn ended while its first send was being refused', async () => {
-    let fired = false
-    const fixture = setup({
-      asteroids: {
-        label: 'Asteroids clone',
-        results: [BUSY, { ok: true, queuePosition: null }],
-        duringSend: () => {
-          if (fired) return
-          fired = true
-          void fixture.end('asteroids', 'completed')
-        },
+  it('runs once the turn ends, replying on its Channel', async () => {
+    const { router, plain, settle } = busyTrip()
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: 'add a day in Kyoto', replyTarget: '42' })
+    await settle(TRIP)
+    expect(plain).toEqual([
+      {
+        sessionRef: TRIP,
+        text: 'add a day in Kyoto',
+        origin: { channel: 'telegram', replyTo: '42' },
       },
-    })
-    const ch = fakeChannel()
-    await fixture.router.route(ch.adapter, { text: 'make it faster', replyTo: '1234' })
-    await flush()
-    expect(fixture.received).toHaveLength(2)
-    expect(ch.replies).toEqual([])
-    expect(fixture.held.asteroids ?? null).toBeNull()
-  })
-
-  it('says it waits on the computer while the turn is paused on a confirmation', async () => {
-    const { router, held } = busy({ pause: 'desktop' })
-    const ch = fakeChannel()
-    await router.route(ch.adapter, { text: 'go ahead', replyTo: '1234' })
-    expect(ch.replies).toEqual([
-      '⏳ Queued for "Asteroids clone" — the session is waiting on your computer.',
     ])
-    expect(held.asteroids?.text).toBe('go ahead')
   })
-
-  it('is held while a Task run holds the session', async () => {
-    const { router, held } = setup({
-      asteroids: { label: 'Asteroids clone', results: [TASK_LOCKED] },
-    })
-    const ch = fakeChannel()
-    await router.route(ch.adapter, { text: 'add a summary', replyTo: '1234' })
+  it('keeps every message, never replacing one, and names each place', async () => {
+    const { router, plain, settle } = busyTrip()
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: 'add a day in Kyoto' })
+    await router.route(ch.adapter, { text: 'and one in Nara' })
+    await router.route(ch.adapter, { text: 'keep it cheap' })
     expect(ch.replies).toEqual([
-      '⏳ Queued for "Asteroids clone" — it is sent when the current turn ends.',
+      '⏳ Queued (1st) for "Trip planning", runs after the current turn.',
+      '⏳ Queued (2nd) for "Trip planning", runs after the current turn.',
+      '⏳ Queued (3rd) for "Trip planning", runs after the current turn.',
     ])
-    expect(held.asteroids?.text).toBe('add a summary')
+    await settle(TRIP)
+    expect(plain.map((p) => p.text)).toEqual([
+      'add a day in Kyoto\n\nand one in Nara\n\nkeep it cheap',
+    ])
   })
 
-  it('is replaced by a newer Answer, and the channel is told', async () => {
-    const { router, received, held, end } = busy()
-    const ch = fakeChannel()
-    await router.route(ch.adapter, { text: 'make it faster', replyTo: '1234' })
-    await router.route(ch.adapter, { text: 'no, make it slower', replyTo: '1234' })
-    expect(ch.replies[1]).toBe(
-      '⏳ Queued for "Asteroids clone" — it is sent when the current turn ends.\n' +
-        'It replaces your earlier Answer, which will not be sent.',
+  it('keeps a voice message’s transcript and voice origin while it waits', async () => {
+    const { router, plain, settle, speech } = busyTrip()
+    speech.said['ogg-1'] = 'add a day in Kyoto'
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, voice('ogg-1'))
+    expect(ch.replies).toEqual([
+      '⏳ Queued (1st) for "Trip planning", runs after the current turn.',
+    ])
+    await settle(TRIP)
+    expect(plain).toEqual([
+      {
+        sessionRef: TRIP,
+        text: 'add a day in Kyoto',
+        origin: { channel: 'telegram', voice: true },
+      },
+    ])
+  })
+
+  it('speaks the combined turn’s reply when any of its messages was spoken', async () => {
+    const { router, plain, settle, speech } = busyTrip()
+    speech.said['ogg-1'] = 'add a day in Kyoto'
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, voice('ogg-1'))
+    await router.route(ch.adapter, { text: 'and one in Nara' })
+    await settle(TRIP)
+    expect(plain.map((p) => p.origin)).toEqual([{ channel: 'telegram', voice: true }])
+  })
+
+  it('replies to the combined turn under the last message', async () => {
+    const { router, plain, settle } = busyTrip()
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: 'add a day in Kyoto', replyTarget: '41' })
+    await router.route(ch.adapter, { text: 'and one in Nara', replyTarget: '42' })
+    await settle(TRIP)
+    expect(plain.map((p) => p.origin)).toEqual([{ channel: 'telegram', replyTo: '42' }])
+  })
+
+  it('runs one combined turn per Channel, oldest Channel first, each when the last ends', async () => {
+    const { router, plain, settle, busy } = channelSetup(
+      { [TRIP]: { title: 'Trip planning' } },
+      { telegram: TRIP, slack: TRIP },
     )
-    expect(held.asteroids?.text).toBe('no, make it slower')
-    await end('asteroids', 'completed')
-    expect(received.slice(-1)).toEqual([{ sessionId: 'asteroids', text: 'no, make it slower' }])
-    expect(received.filter((r) => r.text === 'make it faster')).toHaveLength(1)
+    busy(TRIP)
+    const slack = fakeChannel('slack')
+    const telegram = fakeChannel('telegram')
+    await router.route(slack.adapter, { text: 'book the ryokan' })
+    await router.route(telegram.adapter, { text: 'add a day in Kyoto' })
+    await router.route(slack.adapter, { text: 'with breakfast' })
+    expect(slack.replies[1]).toBe(
+      '⏳ Queued (3rd) for "Trip planning", runs after the current turn.',
+    )
+    busy(TRIP)
+    await settle(TRIP)
+    expect(plain.map((p) => [p.origin.channel, p.text])).toEqual([
+      ['slack', 'book the ryokan\n\nwith breakfast'],
+    ])
+    busy(TRIP)
+    await settle(TRIP)
+    expect(plain.map((p) => [p.origin.channel, p.text])).toEqual([
+      ['slack', 'book the ryokan\n\nwith breakfast'],
+      ['telegram', 'add a day in Kyoto'],
+    ])
   })
 
-  it('tells the earlier Answer’s own channel when a newer one came on another', async () => {
-    const { router } = busy()
+  it('waits for an Agent Run, naming it without a Step', async () => {
+    const { router, plain, busy, settle } = channelSetup(
+      { [TRIP]: { title: 'Trip planning' } },
+      { telegram: TRIP },
+    )
+    busy(TRIP, { kind: 'agent-run', name: 'Digest' })
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: 'add sources' })
+    expect(ch.replies).toEqual([
+      '⏳ Queued (1st) for "Trip planning", runs after Agent Run “Digest”.',
+    ])
+    expect(plain).toEqual([])
+    await settle(TRIP)
+    expect(plain.map((p) => p.text)).toEqual(['add sources'])
+  })
+
+  it('says a queued message waits on the computer while the turn is paused there', async () => {
+    const { router, busy } = busyTrip()
+    busy(TRIP, { kind: 'turn', paused: 'desktop' })
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: 'go ahead' })
+    expect(ch.replies).toEqual([
+      '⏳ Queued (1st) for "Trip planning", runs after the current turn.\n' +
+        'The turn is waiting on your computer.',
+    ])
+  })
+
+  it.each([
+    [['telegram'], 'The turn is waiting for the download buttons above.'],
+    [
+      ['slack'],
+      'The turn is waiting for the download buttons in another Channel, or on your computer.',
+    ],
+    [[], 'The turn is waiting on your computer.'],
+  ] as [ChannelKind[], string][])(
+    'says where a paused download is asked (asked on %j)',
+    async (askedOn, line) => {
+      const { router, busy, downloads } = busyTrip()
+      downloads.askedOn = askedOn
+      busy(TRIP, { kind: 'turn', paused: 'download' })
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { text: 'use the small one' })
+      expect(ch.replies[0].split('\n')[1]).toBe(line)
+    },
+  )
+
+  it('refuses the 11th queued message with a reply naming /stop', async () => {
+    const { router, plain, settle } = busyTrip()
+    const ch = fakeChannel('telegram')
+    for (let n = 1; n <= 11; n++) await router.route(ch.adapter, { text: `idea ${n}` })
+    expect(ch.replies[10]).toBe(
+      '⚠️ Not queued: "Trip planning" already has 10 messages waiting. ' +
+        'Send /stop to stop it and drop them.',
+    )
+    await settle(TRIP)
+    expect(plain[0].text.split('\n\n')).toEqual(
+      Array.from({ length: 10 }, (_, i) => `idea ${i + 1}`),
+    )
+  })
+
+  it('counts every Channel against the cap of 10', async () => {
+    const { router, busy } = channelSetup(
+      { [TRIP]: { title: 'Trip planning' } },
+      { telegram: TRIP, slack: TRIP },
+    )
+    busy(TRIP)
     const telegram = fakeChannel('telegram')
     const slack = fakeChannel('slack')
-    await router.route(telegram.adapter, { text: 'make it faster', replyTo: '1234' })
-    await router.route(slack.adapter, { text: 'make it slower', replyTo: '1234' })
-    expect(telegram.replies[1]).toBe(
-      '⚠️ Not sent to "Asteroids clone": a newer Answer replaced it.',
+    for (let n = 1; n <= 10; n++) await router.route(telegram.adapter, { text: `idea ${n}` })
+    await router.route(slack.adapter, { text: 'one more' })
+    expect(slack.replies[0]).toContain('Not queued')
+  })
+
+  it('queues a message the Session refused as busy, and runs it when the turn ends', async () => {
+    const { router, plain, busy, settle } = channelSetup(
+      { [TRIP]: { title: 'Trip planning', result: BUSY } },
+      { telegram: TRIP },
+    )
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: 'add a day in Kyoto' })
+    expect(ch.replies).toEqual([
+      '⏳ Queued (1st) for "Trip planning", runs after the current turn.',
+    ])
+    busy(TRIP)
+    await settle(TRIP)
+    expect(plain.at(-1)?.text).toBe('add a day in Kyoto')
+    expect(ch.replies).toHaveLength(1)
+  })
+
+  it('queues an Answer an Agent Run refused, and sends it once the run settles', async () => {
+    const { router, received, busy, settle } = setup({
+      asteroids: {
+        label: 'Asteroids clone',
+        results: [TASK_LOCKED, { ok: true, queuePosition: null }],
+      },
+    })
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: 'add a summary', replyTo: '1234' })
+    expect(ch.replies).toEqual([
+      '⏳ Queued (1st) for "Asteroids clone", runs after the current turn.',
+    ])
+    busy(sessionRefOf('asteroids'))
+    await settle(sessionRefOf('asteroids'))
+    expect(received.at(-1)).toEqual({ sessionId: 'asteroids', text: 'add a summary' })
+  })
+
+  it('tells the Channel when its combined turn could not be sent', async () => {
+    const { router, busy, settle } = channelSetup(
+      {
+        [TRIP]: {
+          title: 'Trip planning',
+          result: { ok: false, reason: 'settings-problems', message: 'No model.' },
+        },
+      },
+      { telegram: TRIP },
+    )
+    busy(TRIP)
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: 'add a day in Kyoto' })
+    await settle(TRIP)
+    expect(ch.replies[1]).toBe(
+      '⚠️ Not sent to "Trip planning": No model.\n' +
+        'Fix it in AI Playground on your computer, then answer again.',
     )
   })
 
-  it('is sent when the turn completes', async () => {
-    const { router, received, held, end } = busy()
-    const ch = fakeChannel()
-    await router.route(ch.adapter, { text: 'make it faster', replyTo: '1234' })
-    await end('asteroids', 'completed')
-    expect(received).toEqual([
-      { sessionId: 'asteroids', text: 'make it faster' },
-      { sessionId: 'asteroids', text: 'make it faster' },
+  it('publishes the queue for the desktop, and empties it when the turn starts', async () => {
+    const { router, settle, published } = busyTrip()
+    const telegram = fakeChannel('telegram')
+    await router.route(telegram.adapter, { text: 'add a day in Kyoto' })
+    expect(published[TRIP]).toEqual([
+      { id: expect.any(String), channel: 'telegram', text: 'add a day in Kyoto' },
     ])
-    expect(ch.replies.slice(1)).toEqual([])
-    expect(held.asteroids).toBeNull()
+    await settle(TRIP)
+    expect(published[TRIP]).toEqual([])
   })
 
-  it('is said to be starting on Slack when the turn completes and it is sent', async () => {
-    const { router, end } = busy()
+  it('drops the queue when the Session is made unreachable, telling each Channel', async () => {
+    const { router, plain, settle, change, published } = busyTrip()
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: 'add a day in Kyoto' })
+    await router.route(ch.adapter, { text: 'and Nara' })
+    await change(TRIP, 'unreachable')
+    expect(ch.replies[2]).toBe(
+      '⚠️ Your queued messages for "Trip planning" were dropped (2): ' +
+        'it is no longer reachable from Channels.',
+    )
+    expect(published[TRIP]).toEqual([])
+    await settle(TRIP)
+    expect(plain).toEqual([])
+  })
+
+  it('drops the queue when the Session is deleted, telling each Channel', async () => {
+    const { router, change } = busyTrip()
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: 'add a day in Kyoto' })
+    await change(TRIP, 'deleted')
+    expect(ch.replies[1]).toBe(
+      '⚠️ Your queued messages for "Trip planning" were dropped (1): the Session was deleted.',
+    )
+  })
+})
+
+describe('an Answer to a busy Session', () => {
+  const ASTEROIDS = sessionRefOf('asteroids')
+
+  it('is queued, and runs in its Harness Session once the turn ends', async () => {
+    const { router, received, busy, settle } = setup()
+    busy(ASTEROIDS)
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: 'make it faster', replyTo: '1234' })
+    expect(received).toEqual([])
+    expect(ch.replies).toEqual([
+      '⏳ Queued (1st) for "Asteroids clone", runs after the current turn.',
+    ])
+    await settle(ASTEROIDS)
+    expect(received).toEqual([{ sessionId: 'asteroids', text: 'make it faster' }])
+  })
+
+  it('is never combined with a plain message to the same Session', async () => {
+    const { router, received, plain, busy, settle } = setup(
+      undefined,
+      undefined,
+      { [ASTEROIDS]: { title: 'Asteroids' } },
+      { telegram: ASTEROIDS },
+    )
+    busy(ASTEROIDS)
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: 'make it faster', replyTo: '1234' })
+    await router.route(ch.adapter, { text: 'and what about sound?' })
+    busy(ASTEROIDS)
+    await settle(ASTEROIDS)
+    expect(received.map((r) => r.text)).toEqual(['make it faster'])
+    expect(plain).toEqual([])
+    await settle(ASTEROIDS)
+    expect(plain.map((p) => p.text)).toEqual(['and what about sound?'])
+  })
+
+  it('is combined with plain messages when it answers the Session’s Assistant', async () => {
+    const { router, received, plain, busy, settle } = setup(
+      { asteroids: { label: 'Asteroids clone', assistant: true } },
+      undefined,
+      { [ASTEROIDS]: { title: 'Asteroids' } },
+      { telegram: ASTEROIDS },
+    )
+    busy(ASTEROIDS)
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: 'and what about sound?' })
+    await router.route(ch.adapter, { text: 'make it faster', replyTo: '1234' })
+    await settle(ASTEROIDS)
+    expect([...plain.map((p) => p.text), ...received.map((r) => r.text)]).toEqual([
+      'and what about sound?\n\nmake it faster',
+    ])
+  })
+
+  it('says it is being sent until its queued turn has gone, so a desktop prompt waits', async () => {
+    const seen: boolean[] = []
+    const fixture = setup({ asteroids: { label: 'Asteroids clone', duringSend: () => {} } })
+    fixture.sessions.asteroids.duringSend = () => seen.push(fixture.sending[ASTEROIDS])
+    fixture.busy(ASTEROIDS)
+    const ch = fakeChannel('telegram')
+    await fixture.router.route(ch.adapter, { text: 'make it faster', replyTo: '1234' })
+    await fixture.settle(ASTEROIDS)
+    expect(seen).toEqual([true])
+    expect(fixture.sending[ASTEROIDS]).toBe(false)
+  })
+
+  it('says it is starting on Slack once its queued turn is sent', async () => {
+    const { router, busy, settle } = setup()
+    busy(ASTEROIDS)
     const ch = fakeChannel('slack')
     await router.route(ch.adapter, { text: 'make it faster', replyTo: '1234' })
-    await end('asteroids', 'completed')
+    await settle(ASTEROIDS)
     expect(ch.replies).toEqual([
-      '⏳ Queued for "Asteroids clone" — it is sent when the current turn ends.',
+      '⏳ Queued (1st) for "Asteroids clone", runs after the current turn.',
       '➡️ Sent to "Asteroids clone" — starting…',
     ])
   })
-
-  it('is sent with where it came from, so its turn replies under it', async () => {
-    const { router, origins, end } = busy()
-    const ch = fakeChannel()
-    await router.route(ch.adapter, { text: 'make it faster', replyTo: '1234', replyTarget: '1300' })
-    await end('asteroids', 'completed')
-    expect(origins.slice(-1)).toEqual([
-      { sessionId: 'asteroids', origin: { channel: 'telegram', replyTo: '1300' } },
-    ])
-  })
-
-  it('is sent anyway when the turn fails', async () => {
-    const { router, received, end } = busy()
-    const ch = fakeChannel()
-    await router.route(ch.adapter, { text: 'what went wrong?', replyTo: '1234' })
-    await end('asteroids', 'failed')
-    expect(received.slice(-1)).toEqual([{ sessionId: 'asteroids', text: 'what went wrong?' }])
-    expect(ch.replies.slice(1)).toEqual([])
-  })
-
-  it('is dropped when the turn is stopped on the desktop, and the channel is told', async () => {
-    const { router, received, held, end } = busy()
-    const ch = fakeChannel()
-    await router.route(ch.adapter, { text: 'make it faster', replyTo: '1234' })
-    await end('asteroids', 'stopped')
-    expect(received).toHaveLength(1)
-    expect(ch.replies.slice(1)).toEqual([
-      '⚠️ Not sent to "Asteroids clone": the desktop took over.',
-    ])
-    expect(held.asteroids).toBeNull()
-    await end('asteroids', 'completed')
-    expect(received).toHaveLength(1)
-  })
-
-  it('is dropped when it is discarded on the desktop, and the channel is told', async () => {
-    const { router, received, end } = busy()
-    const ch = fakeChannel()
-    await router.route(ch.adapter, { text: 'make it faster', replyTo: '1234' })
-    await end('asteroids', 'discarded')
-    expect(received).toHaveLength(1)
-    expect(ch.replies.slice(1)).toEqual([
-      '⚠️ Not sent to "Asteroids clone": the desktop took over.',
-    ])
-  })
-
-  it('is dropped when its session is deleted, and the channel is told it no longer exists', async () => {
-    const { router, received, held, end } = busy()
-    const ch = fakeChannel()
-    await router.route(ch.adapter, { text: 'make it faster', replyTo: '1234' })
-    await end('asteroids', 'deleted')
-    expect(received).toHaveLength(1)
-    expect(ch.replies.slice(1)).toEqual([
-      '⚠️ Not sent to "Asteroids clone": that session no longer exists.',
-    ])
-    expect(held.asteroids).toBeNull()
-  })
-
-  it('is only reported back on the channel it came from', async () => {
-    const { router, end } = busy()
-    const telegram = fakeChannel('telegram')
-    const slack = fakeChannel('slack')
-    await router.route(slack.adapter, { text: 'make it faster', replyTo: '1234' })
-    await end('asteroids', 'completed')
-    expect(telegram.replies).toEqual([])
-    expect(slack.replies).toHaveLength(2)
-  })
 })
 
-describe('a Held Answer for a Task run', () => {
-  it('waits out every Step and is sent once the run’s last turn settles', async () => {
-    const { router, received, end } = setup(
-      {
-        digest: {
-          label: 'Digest — step 1 of 3',
-          results: [TASK_LOCKED, TASK_LOCKED, TASK_LOCKED, { ok: true, queuePosition: null }],
-        },
-      },
-      [{ kind: 'telegram', ref: '9', sessionId: 'digest' }],
-    )
-    const ch = fakeChannel()
-    await router.route(ch.adapter, { text: 'add sources', replyTo: '9' })
-    await end('digest', 'completed')
-    await end('digest', 'completed')
-    expect(ch.replies).toHaveLength(1)
-    await end('digest', 'completed')
-    expect(received).toHaveLength(4)
-    expect(ch.replies.slice(1)).toEqual([])
+describe('/stop', () => {
+  const TRIP = 'session-trip'
+  const trip = { [TRIP]: { title: 'Trip planning' } }
+
+  it('stops the Channel Session’s turn and drops its queue, saying how many', async () => {
+    const { router, plain, busy, stopped, settle } = channelSetup(trip, { telegram: TRIP })
+    busy(TRIP)
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: 'add a day in Kyoto' })
+    await router.route(ch.adapter, { text: 'and Nara' })
+    await router.route(ch.adapter, { text: '/stop' })
+    expect(stopped).toEqual([TRIP])
+    expect(ch.replies.slice(2)).toEqual([
+      '⏹️ Stopped the turn in "Trip planning".\nQueued messages dropped: 2.',
+    ])
+    await settle(TRIP)
+    expect(plain).toEqual([])
   })
 
-  it('continues a failed run’s session as an ordinary message', async () => {
-    const { router, received, end } = setup(
-      {
-        digest: { label: 'Digest', results: [TASK_LOCKED, { ok: true, queuePosition: null }] },
-      },
-      [{ kind: 'telegram', ref: '9', sessionId: 'digest' }],
-    )
-    const ch = fakeChannel()
-    await router.route(ch.adapter, { text: 'try again with fewer sources', replyTo: '9' })
-    await end('digest', 'failed')
-    expect(received.slice(-1)).toEqual([
-      { sessionId: 'digest', text: 'try again with fewer sources' },
+  it('stops an Agent Run, naming it without a Step', async () => {
+    const { router, busy, stopped } = channelSetup(trip, { telegram: TRIP })
+    busy(TRIP, { kind: 'agent-run', name: 'Digest' })
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: '/stop' })
+    expect(stopped).toEqual([TRIP])
+    expect(ch.replies).toEqual([
+      '⏹️ Stopped Agent Run “Digest” in "Trip planning".\n' + 'Queued messages dropped: 0.',
     ])
   })
-})
 
-describe('a Held Answer lost to an app close', () => {
-  it('is reported on its channel at the next start, once, and never sent', async () => {
-    const journal = memoryJournal()
-    const first = setup(
-      { asteroids: { label: 'Asteroids clone', results: [BUSY] } },
-      undefined,
-      journal,
-    )
-    await first.router.route(fakeChannel().adapter, { text: 'make it faster', replyTo: '1234' })
-
-    const next = setup({ asteroids: { label: 'Asteroids clone' } }, undefined, journal)
+  it('tells another Channel whose queued messages it dropped', async () => {
+    const { router, busy } = channelSetup(trip, { telegram: TRIP, slack: TRIP })
+    busy(TRIP)
     const slack = fakeChannel('slack')
-    await next.router.channelReady(slack.adapter)
-    expect(slack.replies).toEqual([])
     const telegram = fakeChannel('telegram')
-    await next.router.channelReady(telegram.adapter)
-    await next.router.channelReady(telegram.adapter)
+    await router.route(slack.adapter, { text: 'book the ryokan' })
+    await router.route(telegram.adapter, { text: '/stop' })
     expect(telegram.replies).toEqual([
-      '⚠️ Not sent to "Asteroids clone": AI Playground closed before it could be sent.',
+      '⏹️ Stopped the turn in "Trip planning".\nQueued messages dropped: 1.',
     ])
-    await next.end('asteroids', 'completed')
-    expect(next.received).toEqual([])
-
-    const third = setup(undefined, undefined, journal)
-    const again = fakeChannel('telegram')
-    await third.router.channelReady(again.adapter)
-    expect(again.replies).toEqual([])
+    expect(slack.replies[1]).toBe(
+      '⚠️ Your queued messages for "Trip planning" were dropped (1): ' +
+        'it was stopped from another Channel.',
+    )
   })
 
-  it('is not reported once it was sent', async () => {
-    const journal = memoryJournal()
-    const first = setup(
-      {
-        asteroids: { label: 'Asteroids clone', results: [BUSY, { ok: true, queuePosition: null }] },
-      },
+  it('stops the Session of the Notification it replies to', async () => {
+    const { router, busy, stopped } = setup(
       undefined,
-      journal,
+      undefined,
+      { [TRIP]: { title: 'Trip planning' } },
+      { telegram: TRIP },
     )
-    await first.router.route(fakeChannel().adapter, { text: 'make it faster', replyTo: '1234' })
-    await first.end('asteroids', 'completed')
+    busy(sessionRefOf('asteroids'))
+    busy(TRIP)
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: '/stop', replyTo: '1234' })
+    expect(stopped).toEqual([sessionRefOf('asteroids')])
+    expect(ch.replies).toEqual([
+      '⏹️ Stopped the turn in "Untitled Session".\nQueued messages dropped: 0.',
+    ])
+  })
 
-    const next = setup(undefined, undefined, journal)
-    const telegram = fakeChannel('telegram')
-    await next.router.channelReady(telegram.adapter)
-    expect(telegram.replies).toEqual([])
+  it('says a Notification’s Session was deleted, and stops nothing', async () => {
+    const { router, stopped } = setup({}, [{ kind: 'telegram', ref: '1234', sessionId: 'gone' }])
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: '/stop', replyTo: '1234' })
+    expect(stopped).toEqual([])
+    expect(ch.replies).toEqual(['⚠️ That Session was deleted'])
+  })
+
+  it('says nothing is running, and touches nothing, when the Session is idle', async () => {
+    const { router, stopped } = channelSetup(trip, { telegram: TRIP })
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: '/stop' })
+    expect(stopped).toEqual([])
+    expect(ch.replies).toEqual(['Nothing is running in "Trip planning".'])
+  })
+
+  it('says how to get a Channel Session when the Channel has none', async () => {
+    const { router, stopped, created } = channelSetup()
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: '/stop' })
+    expect(stopped).toEqual([])
+    expect(created).toEqual([])
+    expect(ch.replies).toEqual([
+      'You have no Channel Session to stop. Send a message to start one, or pick one with /sessions.',
+    ])
+  })
+
+  it('is listed in /help', async () => {
+    const { router } = channelSetup()
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: '/help' })
+    expect(ch.replies[0]).toContain(
+      '`/stop` — Stop the running turn or Agent Run and drop queued messages',
+    )
+  })
+})
+
+/** A router whose Channels reach these Sessions, newest first, with these Channel Sessions. */
+function channelSetup(
+  channelSessions: Record<string, FakeChannelSession> = {},
+  pointers: Partial<Record<ChannelKind, string>> = {},
+) {
+  return setup(undefined, undefined, channelSessions, pointers)
+}
+
+describe('a plain message', () => {
+  it('runs in the Channel Session, its reply threaded under it', async () => {
+    const { router, plain } = channelSetup(
+      { 'session-trip': { title: 'Trip planning' } },
+      { telegram: 'session-trip' },
+    )
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: 'add a day in Kyoto', replyTarget: '42' })
+    expect(plain).toEqual([
+      {
+        sessionRef: 'session-trip',
+        text: 'add a day in Kyoto',
+        origin: { channel: 'telegram', replyTo: '42' },
+      },
+    ])
+    expect(ch.replies).toEqual([])
+  })
+
+  it('says it is starting on Slack, which shows no typing for it', async () => {
+    const { router } = channelSetup(
+      { 'session-trip': { title: 'Trip planning' } },
+      { slack: 'session-trip' },
+    )
+    const ch = fakeChannel('slack')
+    await router.route(ch.adapter, { text: 'add a day in Kyoto' })
+    expect(ch.replies).toEqual(['➡️ Sent to "Trip planning" — starting…'])
+  })
+
+  it('starts a new Reachable Session when the Channel has none, and keeps using it', async () => {
+    const { router, plain, created, pointers } = channelSetup()
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: 'hello' })
+    await router.route(ch.adapter, { text: 'and again' })
+    expect(created).toEqual(['session-new-1'])
+    expect(plain.map((p) => [p.sessionRef, p.text])).toEqual([
+      ['session-new-1', 'hello'],
+      ['session-new-1', 'and again'],
+    ])
+    expect(pointers.telegram).toBe('session-new-1')
+    expect(ch.replies).toEqual([])
+  })
+
+  it('goes to each Channel’s own Channel Session', async () => {
+    const { router, plain, pointers } = channelSetup(
+      { 'session-trip': { title: 'Trip planning' }, 'session-code': { title: 'Refactor' } },
+      { telegram: 'session-trip', slack: 'session-code' },
+    )
+    await router.route(fakeChannel('slack').adapter, { text: 'rename the module' })
+    expect(plain.map((p) => p.sessionRef)).toEqual(['session-code'])
+    expect(pointers).toEqual({ telegram: 'session-trip', slack: 'session-code' })
+  })
+
+  it.each([
+    ['deleted', { title: 'Trip planning', gone: true }],
+    ['no longer reachable', { title: 'Trip planning', reachable: false }],
+  ])(
+    'tells the Channel once when its Channel Session was %s, then starts a new one',
+    async (_how, old) => {
+      const { router, plain, created, pointers } = channelSetup(
+        { 'session-trip': old },
+        { telegram: 'session-trip' },
+      )
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { text: 'hello' })
+      await router.route(ch.adapter, { text: 'and again' })
+      expect(ch.replies).toEqual([
+        '⚠️ Your Channel Session was deleted or is no longer reachable, so this message starts a new one.',
+      ])
+      expect(created).toEqual(['session-new-1'])
+      expect(plain.map((p) => p.sessionRef)).toEqual(['session-new-1', 'session-new-1'])
+      expect(pointers.telegram).toBe('session-new-1')
+    },
+  )
+
+  it('says so when no Session could be started, and sends nothing', async () => {
+    const { router, plain, creation, pointers } = channelSetup()
+    creation.fails = true
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: 'hello' })
+    expect(plain).toEqual([])
+    expect(pointers.telegram).toBeUndefined()
+    expect(ch.replies).toEqual(['⚠️ Could not start a new Session: disk full'])
+  })
+
+  it.each([
+    ['settings-problems', 'The selected model is not installed.', true],
+    ['missing-folder', 'The workspace folder is missing: /files', true],
+  ])('replies with a %s refusal', async (reason, message, onDesktop) => {
+    const { router } = channelSetup(
+      { 'session-trip': { title: 'Trip planning', result: { ok: false, reason, message } } },
+      { telegram: 'session-trip' },
+    )
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: 'hello' })
+    const notSent = `⚠️ Not sent to "Trip planning": ${message}`
+    expect(ch.replies).toEqual([
+      onDesktop
+        ? `${notSent}\nFix it in AI Playground on your computer, then answer again.`
+        : notSent,
+    ])
+  })
+
+  it('passes on the channel’s notice for a file it refused to read', async () => {
+    const { router, plain } = channelSetup()
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: 'the plan', refused: 'Files over 25 MB are not taken.' })
+    expect(plain).toEqual([])
+    expect(ch.replies).toEqual(['Files over 25 MB are not taken.'])
+  })
+
+  describe('unpicks the Session’s Agent, as the Assistant answers it', () => {
+    const TRIP = 'session-trip'
+    const trip = { [TRIP]: { title: 'Trip planning' } }
+
+    it('once the message is sent', async () => {
+      const { router, unpicked } = channelSetup(trip, { telegram: TRIP })
+      await router.route(fakeChannel('telegram').adapter, { text: 'add a day in Kyoto' })
+      expect(unpicked).toEqual([TRIP])
+    })
+
+    it('when the message arrives, though it is queued behind a busy Session', async () => {
+      const { router, unpicked, plain, busy, settle } = channelSetup(trip, { telegram: TRIP })
+      busy(TRIP, { kind: 'agent-run', name: 'Daily digest' })
+      await router.route(fakeChannel('telegram').adapter, { text: 'add a day in Kyoto' })
+      expect(plain).toEqual([])
+      expect(unpicked).toEqual([TRIP])
+      await settle(TRIP)
+      expect(plain).toHaveLength(1)
+      expect(unpicked).toEqual([TRIP])
+    })
+
+    it('in a Session the Channel just started', async () => {
+      const { router, unpicked } = channelSetup()
+      await router.route(fakeChannel('telegram').adapter, { text: 'hello' })
+      expect(unpicked).toEqual(['session-new-1'])
+    })
+
+    it('for a reply to the Session’s Assistant', async () => {
+      const ASTEROIDS = sessionRefOf('asteroids')
+      const { router, unpicked } = setup(
+        { asteroids: { label: 'Asteroids clone', assistant: true } },
+        undefined,
+        { [ASTEROIDS]: { title: 'Asteroids' } },
+      )
+      await router.route(fakeChannel('telegram').adapter, { text: 'faster', replyTo: '1234' })
+      expect(unpicked).toEqual([ASTEROIDS])
+    })
+
+    it('not for an Answer to an Agent Run, which continues the run', async () => {
+      const { router, received, unpicked } = setup()
+      await router.route(fakeChannel('telegram').adapter, { text: 'yes', replyTo: '1234' })
+      expect(received).toHaveLength(1)
+      expect(unpicked).toEqual([])
+    })
+
+    it('not for a message the Session refused', async () => {
+      const refused = { ok: false, reason: 'error', message: 'disk full' } as const
+      const { router, unpicked } = channelSetup(
+        { [TRIP]: { title: 'Trip planning', result: refused } },
+        { telegram: TRIP },
+      )
+      await router.route(fakeChannel('telegram').adapter, { text: 'hello' })
+      expect(unpicked).toEqual([])
+    })
+
+    it('not for a command', async () => {
+      const { router, unpicked } = channelSetup(trip, { telegram: TRIP })
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { text: '/help' })
+      await router.route(ch.adapter, { text: '/sessions' })
+      expect(unpicked).toEqual([])
+    })
+
+    it('sends the message even when the desktop cannot unpick', async () => {
+      const { router, unpicking, plain } = channelSetup(trip, { telegram: TRIP })
+      unpicking.fails = true
+      await router.route(fakeChannel('telegram').adapter, { text: 'hello' })
+      expect(plain).toHaveLength(1)
+    })
+  })
+})
+
+describe('Channel commands', () => {
+  const trip = { title: 'Trip planning', transcript: [] as ChannelTranscriptMessage[] }
+  const code = {
+    title: 'Refactor',
+    transcript: [
+      { role: 'user' as const, parts: [{ type: 'text', text: 'split the module' }] },
+      { role: 'assistant' as const, parts: [{ type: 'text', text: 'Done, two files now.' }] },
+    ],
+  }
+
+  it('lists the Reachable Sessions newest first as buttons', async () => {
+    const { router } = channelSetup({ 'session-trip': trip, 'session-code': code })
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: '/sessions' })
+    expect(ch.keyboards).toEqual([
+      {
+        text: 'Reachable Sessions, newest first. Tap one to continue it, or send /load <n>.',
+        buttons: [
+          [{ text: '1. Trip planning', callbackData: 'loadConv:session-trip' }],
+          [{ text: '2. Refactor', callbackData: 'loadConv:session-code' }],
+        ],
+      },
+    ])
+  })
+
+  it('marks the Channel Session in the list', async () => {
+    const { router } = channelSetup(
+      { 'session-trip': trip, 'session-code': code },
+      { telegram: 'session-code' },
+    )
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: '/sessions' })
+    expect(ch.keyboards[0].buttons.map((row) => row[0].text)).toEqual([
+      '1. Trip planning',
+      '✅ 2. Refactor',
+    ])
+  })
+
+  it('names an untitled Session in the list', async () => {
+    const { router } = channelSetup({ 'session-new': { title: '' } })
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: '/sessions' })
+    expect(ch.keyboards[0].buttons[0][0].text).toBe('1. Untitled Session')
+  })
+
+  it('says when no Session is reachable', async () => {
+    const { router } = channelSetup({ 'session-private': { title: 'Taxes', reachable: false } })
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: '/sessions' })
+    expect(ch.keyboards).toEqual([])
+    expect(ch.replies).toEqual([
+      'No Session is reachable yet. Send a message to start one, or turn on "Reachable from Channels" in a Session’s menu on your computer.',
+    ])
+  })
+
+  it('lists the Sessions for a bare /load', async () => {
+    const { router } = channelSetup({ 'session-trip': trip })
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: '/load' })
+    expect(ch.keyboards).toHaveLength(1)
+  })
+
+  it('makes a listed Session the Channel Session with /load <n>', async () => {
+    const { router, plain, pointers } = channelSetup(
+      { 'session-trip': trip, 'session-code': code },
+      { telegram: 'session-trip' },
+    )
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: '/load 2' })
+    expect(pointers.telegram).toBe('session-code')
+    expect(ch.replies).toEqual(['📂 Now in "Refactor". Your messages go there.'])
+    await router.route(ch.adapter, { text: 'and tests?' })
+    expect(plain.map((p) => p.sessionRef)).toEqual(['session-code'])
+  })
+
+  it('makes a tapped Session the Channel Session', async () => {
+    const { router, pointers } = channelSetup({ 'session-trip': trip, 'session-code': code })
+    const ch = fakeChannel('local-web')
+    await router.route(ch.adapter, { callback: 'loadConv:session-code' })
+    expect(pointers['local-web']).toBe('session-code')
+  })
+
+  it('takes the Session a platform turned a tap into /load for', async () => {
+    const { router, pointers } = channelSetup({ 'session-trip': trip, 'session-code': code })
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: '/load session-code' })
+    expect(pointers.telegram).toBe('session-code')
+  })
+
+  it.each([
+    ['a number past the list', '/load 3'],
+    ['a Session that is not reachable', '/load session-private'],
+  ])('refuses %s and keeps the Channel Session', async (_what, text) => {
+    const { router, pointers } = channelSetup(
+      {
+        'session-trip': trip,
+        'session-code': code,
+        'session-private': { title: 'Taxes', reachable: false },
+      },
+      { telegram: 'session-trip' },
+    )
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text })
+    expect(pointers.telegram).toBe('session-trip')
+    expect(ch.replies).toEqual([
+      `⚠️ There is no Session ${text.slice('/load '.length)}. Send /sessions to see the list.`,
+    ])
+  })
+
+  it('repaints LAN chat with the loaded Session’s transcript before confirming', async () => {
+    const { router } = channelSetup({ 'session-trip': trip, 'session-code': code })
+    const ch = fakeChannel('local-web')
+    await router.route(ch.adapter, { text: '/load 2' })
+    expect(ch.repaints).toEqual([
+      [
+        { role: 'user', text: 'split the module' },
+        { role: 'assistant', text: 'Done, two files now.' },
+      ],
+    ])
+    expect(ch.replies).toEqual(['📂 Now in "Refactor". Your messages go there.'])
+  })
+
+  it('starts a new Reachable Session with /new and points the Channel at it', async () => {
+    const { router, created, pointers, plain } = channelSetup(
+      { 'session-trip': trip },
+      { telegram: 'session-trip' },
+    )
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: '/new' })
+    expect(created).toEqual(['session-new-1'])
+    expect(pointers.telegram).toBe('session-new-1')
+    expect(plain).toEqual([])
+    expect(ch.replies).toEqual(['🆕 Started a new Session. Your next message goes to it.'])
+  })
+
+  describe('on the desktop', () => {
+    it('brings a Session loaded with /load <n> into view, picking no Agent', async () => {
+      const { router, inView } = channelSetup(
+        { 'session-trip': trip, 'session-code': code },
+        { telegram: 'session-trip' },
+      )
+      await router.route(fakeChannel('telegram').adapter, { text: '/load 2' })
+      expect(inView).toEqual([{ sessionRef: 'session-code', view: 'as-is' }])
+    })
+
+    it('brings a tapped Session into view', async () => {
+      const { router, inView } = channelSetup({ 'session-trip': trip, 'session-code': code })
+      await router.route(fakeChannel('local-web').adapter, { callback: 'loadConv:session-code' })
+      expect(inView).toEqual([{ sessionRef: 'session-code', view: 'as-is' }])
+    })
+
+    it('brings the Session /new made into view on the Assistant', async () => {
+      const { router, inView } = channelSetup(
+        { 'session-trip': trip },
+        { telegram: 'session-trip' },
+      )
+      await router.route(fakeChannel('telegram').adapter, { text: '/new' })
+      expect(inView).toEqual([{ sessionRef: 'session-new-1', view: 'assistant' }])
+    })
+
+    it('does not move for a listing or a Session it could not load', async () => {
+      const { router, inView } = channelSetup(
+        { 'session-trip': trip, 'session-private': { title: 'Taxes', reachable: false } },
+        { telegram: 'session-trip' },
+      )
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { text: '/sessions' })
+      await router.route(ch.adapter, { text: '/load' })
+      await router.route(ch.adapter, { text: '/load 3' })
+      await router.route(ch.adapter, { text: '/load session-private' })
+      expect(inView).toEqual([])
+    })
+
+    it('does not move when /new could not make a Session', async () => {
+      const { router, inView, creation } = channelSetup({ 'session-trip': trip })
+      creation.fails = true
+      await router.route(fakeChannel('telegram').adapter, { text: '/new' })
+      expect(inView).toEqual([])
+    })
+
+    it('still loads the Session when the desktop cannot show it', async () => {
+      const { router, inView, bringing, pointers } = channelSetup({
+        'session-trip': trip,
+        'session-code': code,
+      })
+      bringing.fails = true
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { text: '/load 2' })
+      expect(inView).toEqual([])
+      expect(pointers.telegram).toBe('session-code')
+      expect(ch.replies).toEqual(['📂 Now in "Refactor". Your messages go there.'])
+    })
+  })
+
+  it('clears LAN chat on /new', async () => {
+    const { router } = channelSetup({ 'session-trip': trip }, { 'local-web': 'session-trip' })
+    const ch = fakeChannel('local-web')
+    await router.route(ch.adapter, { text: '/new' })
+    expect(ch.repaints).toEqual([[]])
+  })
+
+  it('lists the commands that exist on /help', async () => {
+    const { router } = channelSetup()
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: '/help' })
+    expect(ch.replies).toHaveLength(1)
+    const [help] = ch.replies
+    for (const command of ['/sessions', '/load', '/new', '/help']) expect(help).toContain(command)
+    for (const gone of ['/imgGen', '/chat', '/history', '/reset', '/cancel']) {
+      expect(help).not.toContain(gone)
+    }
+    expect(help).toContain("To answer a Session's message, reply to it.")
+  })
+
+  it('names unknown commands and sends them nowhere', async () => {
+    const { router, plain } = channelSetup()
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: '/imgGen a cat' })
+    expect(plain).toEqual([])
+    expect(ch.replies).toEqual(['Unknown command /imgGen. Send /help to see the commands.'])
+  })
+
+  it('runs a command replied to a Notification as a command, not an Answer', async () => {
+    const { router, received } = channelSetup({ 'session-trip': trip })
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: '/help', replyTo: '1234' })
+    expect(received).toEqual([])
+    expect(ch.replies).toHaveLength(1)
+  })
+
+  it('runs a command while the Channel Session is busy', async () => {
+    const { router, pointers } = channelSetup(
+      { 'session-trip': { ...trip, result: BUSY }, 'session-code': code },
+      { telegram: 'session-trip' },
+    )
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: 'hello' })
+    await router.route(ch.adapter, { text: '/load 2' })
+    expect(pointers.telegram).toBe('session-code')
+  })
+})
+
+describe('/agents', () => {
+  const TRIP = 'session-trip'
+  const NEW = 'session-new-1'
+  const trip = { [TRIP]: { title: 'Trip planning' } }
+  const DIGEST = { agentId: 'agent-digest', name: 'Daily digest' }
+  const TIDY = { agentId: 'agent-tidy', name: 'Tidy downloads' }
+  function agents(pointers: Partial<Record<ChannelKind, string>> = { telegram: TRIP }) {
+    const fixture = channelSetup(trip, pointers)
+    fixture.startable.push(DIGEST, TIDY)
+    return fixture
+  }
+  const PICK =
+    'Agents you can start from here. Tap one to run it in a new Session, or send /agents <name>.\n' +
+    '✎ starts it with a Start Prompt: tell it what to focus on this time.'
+  const BUTTONS = [
+    [
+      { text: '▶ Daily digest', callbackData: 'runAgent:agent-digest' },
+      { text: '✎', callbackData: 'promptAgent:agent-digest' },
+    ],
+    [
+      { text: '▶ Tidy downloads', callbackData: 'runAgent:agent-tidy' },
+      { text: '✎', callbackData: 'promptAgent:agent-tidy' },
+    ],
+  ]
+
+  it('lists each Agent that can be started from a Channel as a start and a ✎ button', async () => {
+    const { router, agentStarts, created } = agents()
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: '/agents' })
+    expect(ch.keyboards).toEqual([{ text: PICK, buttons: BUTTONS }])
+    expect(agentStarts).toEqual([])
+    expect(created).toEqual([])
+  })
+
+  it('says how to make one startable when none is', async () => {
+    const { router } = channelSetup(trip, { telegram: TRIP })
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: '/agents' })
+    expect(ch.keyboards).toEqual([])
+    expect(ch.replies).toEqual([
+      'No agent can be started from a Channel yet. Turn on "Can be started from a Channel" for an agent in the Agent Library on your computer.',
+    ])
+  })
+
+  it('starts the named Agent in a new Session, its result replied under the command', async () => {
+    const { router, agentStarts, created } = agents()
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: '/agents daily DIGEST', replyTarget: '42' })
+    expect(created).toEqual([NEW])
+    expect(agentStarts).toEqual([
+      { sessionRef: NEW, agentId: 'agent-digest', origin: { channel: 'telegram', replyTo: '42' } },
+    ])
+    // The Notifier says it started, once the run's first Step is under way.
+    expect(ch.replies).toEqual([])
+  })
+
+  it('makes the new Session the Channel Session, so a plain message goes to the run', async () => {
+    const { router, pointers, plain } = agents()
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: '/agents Daily digest' })
+    expect(pointers.telegram).toBe(NEW)
+    await router.route(ch.adapter, { text: 'only news from Germany' })
+    expect(plain.map((message) => message.sessionRef)).toEqual([NEW])
+  })
+
+  it('starts a tapped Agent in a new Session, and clears LAN chat for it', async () => {
+    const { router, agentStarts, pointers } = agents({ 'local-web': TRIP })
+    const ch = fakeChannel('local-web')
+    await router.route(ch.adapter, { callback: 'runAgent:agent-tidy' })
+    expect(agentStarts.map((start) => [start.sessionRef, start.agentId])).toEqual([
+      [NEW, 'agent-tidy'],
+    ])
+    expect(pointers['local-web']).toBe(NEW)
+    expect(ch.repaints).toEqual([[]])
+  })
+
+  it('starts each run in a Session of its own', async () => {
+    const { router, agentStarts } = agents()
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: '/agents Daily digest' })
+    await router.route(ch.adapter, { text: '/agents Tidy downloads' })
+    expect(agentStarts.map((start) => start.sessionRef)).toEqual(['session-new-1', 'session-new-2'])
+  })
+
+  it('takes the Agent a platform turned a tap into /agents for', async () => {
+    const { router, agentStarts } = agents()
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: '/agents agent-tidy' })
+    expect(agentStarts.map((start) => start.agentId)).toEqual(['agent-tidy'])
+  })
+
+  it('names a tapped Agent that can no longer be started, rather than its id', async () => {
+    const { router, startable, agentNames, agentStarts, created } = agents({ 'local-web': TRIP })
+    startable.splice(1, 1)
+    agentNames['agent-tidy'] = 'Tidy downloads'
+    const ch = fakeChannel('local-web')
+    await router.route(ch.adapter, { callback: 'runAgent:agent-tidy' })
+    expect(agentStarts).toEqual([])
+    expect(created).toEqual([])
+    expect(ch.repaints).toEqual([])
+    expect(ch.keyboards).toEqual([
+      {
+        text: `⚠️ No agent "Tidy downloads" can be started from here.
+${PICK}`,
+        buttons: [BUTTONS[0]],
+      },
+    ])
+  })
+
+  it('names an Agent a platform turned a stale tap into /agents for', async () => {
+    const { router, startable, agentNames } = agents()
+    startable.splice(1, 1)
+    agentNames['agent-tidy'] = 'Tidy downloads'
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: '/agents agent-tidy' })
+    expect(ch.keyboards[0].text).toContain('⚠️ No agent "Tidy downloads" can be started from here.')
+  })
+
+  it('answers an unknown name with the Agents that exist, making no Session', async () => {
+    const { router, agentStarts, created, pointers } = agents()
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: '/agents Weekly report' })
+    expect(agentStarts).toEqual([])
+    expect(created).toEqual([])
+    expect(pointers.telegram).toBe(TRIP)
+    expect(ch.keyboards).toEqual([
+      { text: `⚠️ No agent "Weekly report" can be started from here.\n${PICK}`, buttons: BUTTONS },
+    ])
+  })
+
+  it('says why no Session could be made, starting nothing and keeping the Channel Session', async () => {
+    const { router, agentStarts, creation, pointers } = agents()
+    creation.fails = true
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: '/agents Daily digest' })
+    expect(agentStarts).toEqual([])
+    expect(pointers.telegram).toBe(TRIP)
+    expect(ch.replies).toEqual(['⚠️ Could not start a new Session: disk full'])
+  })
+
+  it('says why an Agent could not start', async () => {
+    const { router, agentStart } = agents()
+    agentStart.result = {
+      ok: false,
+      reason: 'settings-problems',
+      message: 'The MCP server "files" is not configured.',
+    }
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: '/agents Daily digest' })
+    expect(ch.replies).toEqual([
+      '⚠️ “Daily digest” did not start in "Untitled Session": The MCP server "files" is not configured.\n' +
+        'Fix this in AI Playground on your computer.',
+    ])
+  })
+
+  // The new Session is busy only when something else reached it first,
+  // as a Session /agentsin picks can be.
+  describe('in a busy Session', () => {
+    it('queues the start like a message, and starts the Agent once the turn ends', async () => {
+      const { router, agentStarts, busy, settle, published } = agents()
+      busy(NEW)
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { text: '/agents Daily digest', replyTarget: '42' })
+      expect(agentStarts).toEqual([])
+      expect(ch.replies).toEqual([
+        '⏳ Queued (1st) for "Untitled Session", runs after the current turn.',
+      ])
+      expect(published[NEW].map((queued) => queued.text)).toEqual(['/agents Daily digest'])
+      await settle(NEW)
+      expect(agentStarts).toEqual([
+        {
+          sessionRef: NEW,
+          agentId: 'agent-digest',
+          origin: { channel: 'telegram', replyTo: '42' },
+        },
+      ])
+    })
+
+    it('runs a queued start alone, then the messages queued behind the run', async () => {
+      const { router, agentStarts, plain, busy, settle } = agents()
+      busy(NEW)
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { text: '/agents Daily digest' })
+      await router.route(ch.adapter, { text: 'and summarise it' })
+      expect(ch.replies[1]).toBe(
+        '⏳ Queued (2nd) for "Untitled Session", runs after the current turn.',
+      )
+      await settle(NEW)
+      expect(agentStarts).toHaveLength(1)
+      expect(plain).toEqual([])
+      await settle(NEW)
+      expect(plain.map((message) => message.text)).toEqual(['and summarise it'])
+    })
+
+    it('waits for an Agent Run, and is dropped by /stop', async () => {
+      const { router, agentStarts, busy, settle } = agents()
+      busy(NEW, { kind: 'agent-run', name: 'Tidy downloads' })
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { text: '/agents Daily digest' })
+      expect(ch.replies).toEqual([
+        '⏳ Queued (1st) for "Untitled Session", runs after Agent Run “Tidy downloads”.',
+      ])
+      await router.route(ch.adapter, { text: '/stop' })
+      await settle(NEW)
+      expect(agentStarts).toEqual([])
+    })
+  })
+
+  describe('on the desktop', () => {
+    const SHOWN = [{ sessionRef: NEW, view: { agentId: 'agent-digest' } }]
+
+    it('brings the run’s Session into view with the Agent picked', async () => {
+      const { router, inView } = agents()
+      await router.route(fakeChannel('telegram').adapter, { text: '/agents Daily digest' })
+      expect(inView).toEqual(SHOWN)
+    })
+
+    it('brings it into view for a tapped Agent too', async () => {
+      const { router, inView } = agents({ 'local-web': TRIP })
+      await router.route(fakeChannel('local-web').adapter, { callback: 'runAgent:agent-digest' })
+      expect(inView).toEqual(SHOWN)
+    })
+
+    it('brings it into view when the command arrives, though the start is queued', async () => {
+      const { router, inView, agentStarts, busy, settle } = agents()
+      busy(NEW)
+      await router.route(fakeChannel('telegram').adapter, { text: '/agents Daily digest' })
+      expect(agentStarts).toEqual([])
+      expect(inView).toEqual(SHOWN)
+      await settle(NEW)
+      expect(agentStarts).toHaveLength(1)
+      expect(inView).toEqual(SHOWN)
+    })
+
+    it('does not move for a start its full queue refused', async () => {
+      const { router, inView, busy } = agents()
+      busy(TRIP)
+      const ch = fakeChannel('telegram')
+      for (let i = 0; i <= CHANNEL_QUEUE_LIMIT; i++) {
+        await router.route(ch.adapter, { callback: 'runAgentIn:agent-digest' })
+      }
+      expect(ch.replies.at(-1)).toContain('⚠️ Not queued')
+      expect(inView).toHaveLength(CHANNEL_QUEUE_LIMIT)
+    })
+
+    it('starts the Agent even when the desktop cannot show it', async () => {
+      const { router, inView, bringing, agentStarts } = agents()
+      bringing.fails = true
+      await router.route(fakeChannel('telegram').adapter, { text: '/agents Daily digest' })
+      expect(inView).toEqual([])
+      expect(agentStarts).toHaveLength(1)
+    })
+
+    it('does not move for a listing or an Agent that cannot be started', async () => {
+      const { router, inView } = agents()
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { text: '/agents' })
+      await router.route(ch.adapter, { text: '/agents Weekly report' })
+      expect(inView).toEqual([])
+    })
+
+    it('waits for the Start Prompt reply before bringing the Session into view', async () => {
+      const { router, inView } = agents()
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      expect(inView).toEqual([])
+      await router.route(ch.adapter, { text: 'Germany', replyTo: ch.asks[0].ref })
+      expect(inView).toEqual(SHOWN)
+    })
+
+    it('never moves for a plain message, even to a Session it had to make', async () => {
+      const { router, inView, plain } = channelSetup(trip)
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { text: 'hello' })
+      await router.route(ch.adapter, { text: 'and again' })
+      expect(plain).toHaveLength(2)
+      expect(inView).toEqual([])
+    })
+
+    it('never moves for an Answer', async () => {
+      const { router, received, inView } = setup()
+      await router.route(fakeChannel('telegram').adapter, { text: 'yes', replyTo: '1234' })
+      expect(received).toHaveLength(1)
+      expect(inView).toEqual([])
+    })
+  })
+
+  it('is listed by /help, with what ✎ does', async () => {
+    const { router } = channelSetup()
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: '/help' })
+    expect(ch.replies[0]).toContain(
+      '`/agents [name]` — List the agents you can start (✎ starts one with a Start Prompt), or start one by name',
+    )
+  })
+
+  describe('with a Start Prompt', () => {
+    const WORK = 'session-work'
+    const REQUEST =
+      "✎ What should “Daily digest” do in a new Session? Reply to this message, and I'll start it there with your reply."
+
+    function prompted(pointers: Partial<Record<ChannelKind, string>> = { telegram: TRIP }) {
+      const fixture = channelSetup({ ...trip, [WORK]: { title: 'Work' } }, pointers)
+      fixture.startable.push(DIGEST, TIDY)
+      return fixture
+    }
+
+    /** A reply holding only a document makes the Session and attaches there, starting nothing. */
+    const documentOnly = (replyTo: string) => ({
+      replyTo,
+      documents: [{ filename: 'notes.pdf', mime: 'application/pdf', data_base64: 'cGRm' }],
+    })
+
+    it('asks for a Start Prompt for a new Session on that Channel only, making no Session yet', async () => {
+      const { router, agentStarts, created, pointers } = prompted()
+      const ch = fakeChannel('telegram')
+      const other = fakeChannel('slack')
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      expect(ch.asks.map(({ text, request }) => ({ text, request }))).toEqual([
+        {
+          text: REQUEST,
+          request: {
+            placeholder: 'Start Prompt for Daily digest',
+            answerLabel: '💬 Answer',
+            answerTitle: 'Daily digest',
+          },
+        },
+      ])
+      expect(other.asks).toEqual([])
+      expect(agentStarts).toEqual([])
+      expect(created).toEqual([])
+      expect(pointers.telegram).toBe(TRIP)
+    })
+
+    it('asks for the reply in the request’s thread on Slack', async () => {
+      const { router } = prompted({ slack: TRIP })
+      const ch = fakeChannel('slack')
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      expect(ch.asks.map(({ text }) => text)).toEqual([
+        "✎ What should “Daily digest” do in a new Session? Reply in this thread, and I'll start it there with your reply.",
+      ])
+    })
+
+    it('makes the new Session on the first reply and starts the Agent there with it, replied under that reply', async () => {
+      const { router, agentStarts, created, pointers } = prompted()
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      await router.route(ch.adapter, {
+        text: '  only news from Germany ',
+        replyTo: ch.asks[0].ref,
+        replyTarget: '43',
+      })
+      expect(created).toEqual([NEW])
+      expect(pointers.telegram).toBe(NEW)
+      expect(agentStarts).toEqual([
+        {
+          sessionRef: NEW,
+          agentId: 'agent-digest',
+          origin: { channel: 'telegram', replyTo: '43' },
+          prompt: 'only news from Germany',
+        },
+      ])
+    })
+
+    it('clears LAN chat when the reply moves it to the new Session', async () => {
+      const { router, pointers } = prompted({ 'local-web': TRIP })
+      const ch = fakeChannel('local-web')
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      expect(ch.repaints).toEqual([])
+      await router.route(ch.adapter, { text: 'Germany', replyTo: ch.asks[0].ref })
+      expect(pointers['local-web']).toBe(NEW)
+      expect(ch.repaints).toEqual([[]])
+    })
+
+    it('marks the request used, and answers a second reply without starting again', async () => {
+      const { router, agentStarts, created } = prompted()
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      await router.route(ch.adapter, { text: 'Germany', replyTo: ch.asks[0].ref })
+      expect(ch.edits).toEqual([{ ref: { messageId: 701 }, text: '✅ Started with your prompt.' }])
+      await router.route(ch.adapter, { text: 'and France', replyTo: ch.asks[0].ref })
+      expect(agentStarts).toHaveLength(1)
+      expect(created).toEqual([NEW])
+      expect(ch.replies).toEqual(['Already started. Reply to the result to follow up.'])
+    })
+
+    it('moves the Channel to the new Session from wherever /load took it meanwhile', async () => {
+      const { router, agentStarts, pointers } = prompted()
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      await router.route(ch.adapter, { callback: `loadConv:${WORK}` })
+      expect(pointers.telegram).toBe(WORK)
+      await router.route(ch.adapter, { text: 'Germany', replyTo: ch.asks[0].ref })
+      expect(pointers.telegram).toBe(NEW)
+      expect(agentStarts.map((start) => start.sessionRef)).toEqual([NEW])
+    })
+
+    it('asks even when the Channel has no Channel Session, making none', async () => {
+      const { router, created } = prompted({})
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      expect(ch.asks.map(({ text }) => text)).toEqual([REQUEST])
+      expect(created).toEqual([])
+    })
+
+    it('says why no Session could be made, leaving the request open', async () => {
+      const { router, agentStarts, creation, pointers } = prompted()
+      creation.fails = true
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      await router.route(ch.adapter, { text: 'Germany', replyTo: ch.asks[0].ref })
+      expect(agentStarts).toEqual([])
+      expect(pointers.telegram).toBe(TRIP)
+      expect(ch.replies).toEqual(['⚠️ Could not start a new Session: disk full'])
+      creation.fails = false
+      await router.route(ch.adapter, { text: 'Germany', replyTo: ch.asks[0].ref })
+      expect(agentStarts.map((start) => start.sessionRef)).toEqual([NEW])
+    })
+
+    it('does not ask for an Agent that can no longer be started from a Channel, naming it', async () => {
+      const { router, startable, agentNames } = prompted()
+      startable.splice(0, 1)
+      agentNames['agent-digest'] = 'Daily digest'
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      expect(ch.asks).toEqual([])
+      expect(ch.keyboards).toEqual([
+        {
+          text: `⚠️ No agent "Daily digest" can be started from here.
+${PICK}`,
+          buttons: [BUTTONS[1]],
+        },
+      ])
+    })
+
+    it('says a deleted Agent can no longer be started, never showing its id', async () => {
+      const { router, startable } = prompted()
+      startable.splice(0, 1)
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      expect(ch.keyboards).toEqual([
+        {
+          text: `⚠️ This agent can no longer be started from a Channel.
+${PICK}`,
+          buttons: [BUTTONS[1]],
+        },
+      ])
+    })
+
+    it('keeps several requests open, each answered by its own reply in a Session of its own', async () => {
+      const { router, agentStarts } = prompted()
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-tidy' })
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      await router.route(ch.adapter, { text: 'only PDFs', replyTo: ch.asks[1].ref })
+      await router.route(ch.adapter, { text: 'France', replyTo: ch.asks[2].ref })
+      await router.route(ch.adapter, { text: 'Germany', replyTo: ch.asks[0].ref })
+      expect(
+        agentStarts.map(({ sessionRef, agentId, prompt }) => [sessionRef, agentId, prompt]),
+      ).toEqual([
+        ['session-new-1', 'agent-tidy', 'only PDFs'],
+        ['session-new-2', 'agent-digest', 'France'],
+        ['session-new-3', 'agent-digest', 'Germany'],
+      ])
+    })
+
+    it('takes a spoken reply, transcribed, as the Start Prompt', async () => {
+      const { router, agentStarts, speech } = prompted()
+      speech.said['clip-1'] = 'only news from Germany'
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      await router.route(ch.adapter, { ...voice('clip-1'), replyTo: ch.asks[0].ref })
+      expect(agentStarts).toEqual([
+        expect.objectContaining({
+          prompt: 'only news from Germany',
+          origin: { channel: 'telegram', voice: true },
+        }),
+      ])
+    })
+
+    it('attaches images and documents of the reply to the new Session', async () => {
+      const { router, agentStarts, attached } = prompted()
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      await router.route(ch.adapter, {
+        text: 'use these',
+        replyTo: ch.asks[0].ref,
+        images: [{ mime: 'image/png', data_base64: 'aW1n' }],
+        documents: [{ filename: 'notes.pdf', mime: 'application/pdf', data_base64: 'cGRm' }],
+      })
+      expect(attached).toEqual([
+        { to: NEW, kind: 'image', filename: 'telegram-image.png' },
+        { to: NEW, kind: 'document', filename: 'notes.pdf' },
+      ])
+      expect(agentStarts).toHaveLength(1)
+      expect(agentStarts[0].sessionRef).toBe(NEW)
+      expect(agentStarts[0].prompt).toContain('use these')
+      expect(agentStarts[0].prompt).toContain('attachments/telegram-image.png')
+    })
+
+    it('leaves the request open for a reply holding only a document, then starts in the Session it made', async () => {
+      const { router, agentStarts, created, attached } = prompted()
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      await router.route(ch.adapter, documentOnly(ch.asks[0].ref))
+      expect(agentStarts).toEqual([])
+      expect(attached.map(({ to }) => to)).toEqual([NEW])
+      expect(ch.replies).toEqual([
+        '📄 Attached to "Untitled Session": notes.pdf. Ask about them in your next message.',
+      ])
+      await router.route(ch.adapter, { text: 'summarise it', replyTo: ch.asks[0].ref })
+      expect(created).toEqual([NEW])
+      expect(agentStarts.map(({ sessionRef, prompt }) => [sessionRef, prompt])).toEqual([
+        [NEW, 'summarise it'],
+      ])
+    })
+
+    it('leaves the request open for an empty reply, making no Session', async () => {
+      const { router, agentStarts, plain, created } = prompted()
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      await router.route(ch.adapter, { text: '   ', replyTo: ch.asks[0].ref })
+      expect(agentStarts).toEqual([])
+      expect(plain).toEqual([])
+      expect(created).toEqual([])
+      await router.route(ch.adapter, { text: 'Germany', replyTo: ch.asks[0].ref })
+      expect(agentStarts).toHaveLength(1)
+    })
+
+    it('runs a command sent as a reply as that command, leaving the request open', async () => {
+      const { router, agentStarts } = prompted()
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      await router.route(ch.adapter, { text: '/stop', replyTo: ch.asks[0].ref })
+      expect(ch.replies).toEqual(['Nothing is running in "Trip planning".'])
+      await router.route(ch.adapter, { text: 'Germany', replyTo: ch.asks[0].ref })
+      expect(agentStarts).toHaveLength(1)
+    })
+
+    it('sends a message that replies to nothing to the Channel Session as usual', async () => {
+      const { router, agentStarts, plain } = prompted()
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      await router.route(ch.adapter, { text: 'Germany' })
+      expect(agentStarts).toEqual([])
+      expect(plain.map((message) => [message.sessionRef, message.text])).toEqual([
+        [TRIP, 'Germany'],
+      ])
+    })
+
+    // A reply holding only a document makes the Session; the desktop can be busy in it by the next.
+    describe('once the Session it made is busy', () => {
+      async function busyRequest() {
+        const fixture = prompted()
+        const ch = fakeChannel('telegram')
+        await fixture.router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+        await fixture.router.route(ch.adapter, documentOnly(ch.asks[0].ref))
+        fixture.busy(NEW)
+        ch.replies.length = 0
+        return { ...fixture, ch }
+      }
+
+      it('queues the start with its Start Prompt', async () => {
+        const { router, ch, agentStarts, settle, published } = await busyRequest()
+        await router.route(ch.adapter, { text: 'Germany', replyTo: ch.asks[0].ref })
+        expect(agentStarts).toEqual([])
+        expect(ch.replies).toEqual([
+          '⏳ Queued (1st) for "Untitled Session", runs after the current turn.',
+        ])
+        expect(published[NEW].map((queued) => queued.text)).toEqual([
+          '/agents Daily digest\nGermany',
+        ])
+        await settle(NEW)
+        expect(agentStarts.map((start) => start.prompt)).toEqual(['Germany'])
+      })
+
+      it('marks a queued request used only once its start runs', async () => {
+        const { router, ch, agentStarts, settle, published } = await busyRequest()
+        await router.route(ch.adapter, { text: 'Germany', replyTo: ch.asks[0].ref })
+        expect(ch.edits).toEqual([])
+        ch.replies.length = 0
+        await router.route(ch.adapter, { text: 'and France', replyTo: ch.asks[0].ref })
+        expect(ch.replies).toEqual(['Already queued. It starts once the Session is free.'])
+        expect(published[NEW]).toHaveLength(1)
+        await settle(NEW)
+        expect(agentStarts.map((start) => start.prompt)).toEqual(['Germany'])
+        expect(ch.edits).toEqual([
+          { ref: { messageId: 701 }, text: '✅ Started with your prompt.' },
+        ])
+      })
+
+      it('reopens a request whose queued start was dropped, for a new reply to start it', async () => {
+        const { router, ch, agentStarts, settle, created } = await busyRequest()
+        await router.route(ch.adapter, { text: 'Germany', replyTo: ch.asks[0].ref })
+        await router.route(ch.adapter, { text: '/stop' })
+        await settle(NEW)
+        expect(agentStarts).toEqual([])
+        expect(ch.edits).toEqual([])
+        await router.route(ch.adapter, { text: 'France', replyTo: ch.asks[0].ref })
+        expect(agentStarts.map(({ sessionRef, prompt }) => [sessionRef, prompt])).toEqual([
+          [NEW, 'France'],
+        ])
+        expect(created).toEqual([NEW])
+        expect(ch.edits.map((edit) => edit.text)).toEqual(['✅ Started with your prompt.'])
+      })
+
+      it('reopens a request whose queued start was dropped with its Session', async () => {
+        const { router, ch, agentStarts, change, settle } = await busyRequest()
+        await router.route(ch.adapter, { text: 'Germany', replyTo: ch.asks[0].ref })
+        await change(NEW, 'unreachable')
+        await settle(NEW)
+        ch.replies.length = 0
+        await router.route(ch.adapter, { text: 'France', replyTo: ch.asks[0].ref })
+        expect(agentStarts.map((start) => start.prompt)).toEqual(['France'])
+        expect(ch.replies).not.toContain('Already queued. It starts once the Session is free.')
+      })
+    })
+
+    it('answers a reply to a request from before a restart that it has expired', async () => {
+      const { router, restarted, agentStarts, plain, created } = prompted()
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      await restarted().route(ch.adapter, { text: 'Germany', replyTo: ch.asks[0].ref })
+      expect(agentStarts).toEqual([])
+      expect(plain).toEqual([])
+      expect(created).toEqual([])
+      expect(ch.replies).toEqual(['That request has expired. Tap ✎ again.'])
+    })
+
+    it('still starts the run from a request asked after the restart', async () => {
+      const { router, restarted, agentStarts } = prompted()
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      const after = restarted()
+      await after.route(ch.adapter, { callback: 'promptAgent:agent-tidy' })
+      await after.route(ch.adapter, { text: 'only PDFs', replyTo: ch.asks[1].ref })
+      expect(agentStarts.map(({ agentId, prompt }) => [agentId, prompt])).toEqual([
+        ['agent-tidy', 'only PDFs'],
+      ])
+    })
+
+    it('runs /stop sent as a reply to an expired request for the Channel Session', async () => {
+      const { router, restarted, busy, stopped } = prompted()
+      busy(TRIP)
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      await restarted().route(ch.adapter, { text: '/stop', replyTo: ch.asks[0].ref })
+      expect(stopped).toEqual([TRIP])
+    })
+
+    it('refuses a reply when the Session it made was deleted since', async () => {
+      const sessions: Record<string, { title: string; gone?: boolean }> = {}
+      const fixture = channelSetup(sessions)
+      fixture.startable.push(DIGEST)
+      const ch = fakeChannel('telegram')
+      await fixture.router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      await fixture.router.route(ch.adapter, documentOnly(ch.asks[0].ref))
+      sessions[NEW].gone = true
+      ch.replies.length = 0
+      await fixture.router.route(ch.adapter, { text: 'Germany', replyTo: ch.asks[0].ref })
+      expect(fixture.agentStarts).toEqual([])
+      expect(ch.replies).toEqual(['⚠️ That Session was deleted'])
+      expect(ch.edits).toEqual([])
+    })
+
+    it('refuses a reply when the Session it made was made unreachable since', async () => {
+      const sessions: Record<string, { title: string; reachable?: boolean }> = {}
+      const fixture = channelSetup(sessions)
+      fixture.startable.push(DIGEST)
+      const ch = fakeChannel('telegram')
+      await fixture.router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      await fixture.router.route(ch.adapter, documentOnly(ch.asks[0].ref))
+      sessions[NEW].reachable = false
+      ch.replies.length = 0
+      await fixture.router.route(ch.adapter, { text: 'Germany', replyTo: ch.asks[0].ref })
+      expect(fixture.agentStarts).toEqual([])
+      expect(ch.replies).toEqual([
+        '🔒 "Untitled Session" is not reachable from Channels. Turn on "Reachable from Channels" in its menu on your computer to answer it.',
+      ])
+    })
+
+    it('refuses a reply once its Agent is no longer startable, making no Session and staying put', async () => {
+      const { router, startable, agentStarts, created, pointers } = prompted({ 'local-web': TRIP })
+      const ch = fakeChannel('local-web')
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      startable.splice(0, 1)
+      await router.route(ch.adapter, { text: 'Germany', replyTo: ch.asks[0].ref })
+      expect(ch.replies).toEqual(['⚠️ No agent "Daily digest" can be started from here.'])
+      expect(agentStarts).toEqual([])
+      expect(created).toEqual([])
+      expect(pointers['local-web']).toBe(TRIP)
+      expect(ch.repaints).toEqual([])
+    })
+
+    it('answers an empty reply as it would one to a request in the Channel Session', async () => {
+      async function emptyReply(tap: string) {
+        const { router, startable } = prompted()
+        const ch = fakeChannel('telegram')
+        await router.route(ch.adapter, { callback: tap })
+        startable.splice(0, 1)
+        await router.route(ch.adapter, { text: '   ', replyTo: ch.asks[0].ref })
+        return ch.replies
+      }
+      const inNew = await emptyReply('promptAgent:agent-digest')
+      expect(inNew).toEqual(await emptyReply('promptAgentIn:agent-digest'))
+      expect(inNew).toEqual(['⚠️ No agent "Daily digest" can be started from here.'])
+    })
+
+    it('refuses a reply when the Agent can no longer be started from a Channel', async () => {
+      const { router, agentStart, agentStarts } = prompted()
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      agentStart.result = {
+        ok: false,
+        reason: 'no-task',
+        message: 'This agent can no longer be started from a Channel.',
+      }
+      await router.route(ch.adapter, { text: 'Germany', replyTo: ch.asks[0].ref })
+      expect(agentStarts).toHaveLength(1)
+      expect(ch.replies).toEqual([
+        '⚠️ “Daily digest” did not start in "Untitled Session": This agent can no longer be started from a Channel.',
+      ])
+      expect(ch.edits).toEqual([])
+    })
+  })
+})
+
+describe('/agentsin', () => {
+  const TRIP = 'session-trip'
+  const CODE = 'session-code'
+  const code = {
+    title: 'Refactor',
+    transcript: [
+      { role: 'user' as const, parts: [{ type: 'text', text: 'split the module' }] },
+      { role: 'assistant' as const, parts: [{ type: 'text', text: 'Done, two files now.' }] },
+    ],
+  }
+  const DIGEST = { agentId: 'agent-digest', name: 'Daily digest' }
+  const TIDY = { agentId: 'agent-tidy', name: 'Tidy downloads' }
+  function picking(pointers: Partial<Record<ChannelKind, string>> = { telegram: TRIP }) {
+    const listed: Record<string, FakeChannelSession> = {
+      [TRIP]: { title: 'Trip planning' },
+      [CODE]: { ...code },
+    }
+    const fixture = channelSetup(listed, pointers)
+    fixture.startable.push(DIGEST, TIDY)
+    return { ...fixture, listed }
+  }
+
+  it('shows a new Session first, then the Reachable Sessions with the Channel Session marked', async () => {
+    const { router, created, agentStarts, pointers } = picking()
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: '/agentsin' })
+    expect(ch.keyboards).toEqual([
+      {
+        text: 'Where should the agent run? Tap a Session, or start it in a new one.',
+        buttons: [
+          [{ text: '＋ New Session', callbackData: 'runAgent:' }],
+          [{ text: '✅ 1. Trip planning', callbackData: 'pickSession:session-trip' }],
+          [{ text: '2. Refactor', callbackData: 'pickSession:session-code' }],
+        ],
+      },
+    ])
+    expect(created).toEqual([])
+    expect(agentStarts).toEqual([])
+    expect(pointers.telegram).toBe(TRIP)
+  })
+
+  it('offers a new Session even when no Session is reachable', async () => {
+    const { router, startable } = channelSetup()
+    startable.push(DIGEST)
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: '/agentsin' })
+    expect(ch.keyboards[0].buttons).toEqual([
+      [{ text: '＋ New Session', callbackData: 'runAgent:' }],
+    ])
+  })
+
+  it('says how to make an Agent startable when none is, showing no picker', async () => {
+    const { router } = channelSetup({ [TRIP]: { title: 'Trip planning' } })
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: '/agentsin' })
+    expect(ch.keyboards).toEqual([])
+    expect(ch.replies).toEqual([
+      'No agent can be started from a Channel yet. Turn on "Can be started from a Channel" for an agent in the Agent Library on your computer.',
+    ])
+  })
+
+  const IN_CODE =
+    '📂 Now in "Refactor". Tap an agent to run it there.\n' +
+    '✎ starts it with a Start Prompt: tell it what to focus on this time.'
+  const HERE_BUTTONS = [
+    [
+      { text: '▶ Daily digest', callbackData: 'runAgentIn:agent-digest' },
+      { text: '✎', callbackData: 'promptAgentIn:agent-digest' },
+    ],
+    [
+      { text: '▶ Tidy downloads', callbackData: 'runAgentIn:agent-tidy' },
+      { text: '✎', callbackData: 'promptAgentIn:agent-tidy' },
+    ],
+  ]
+
+  it('makes a tapped Session the Channel Session, then lists the Agents to run there', async () => {
+    const { router, pointers, created, agentStarts, plain } = picking()
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { callback: `pickSession:${CODE}` })
+    expect(pointers.telegram).toBe(CODE)
+    expect(ch.keyboards).toEqual([{ text: IN_CODE, buttons: HERE_BUTTONS }])
+    expect(created).toEqual([])
+    expect(agentStarts).toEqual([])
+    await router.route(ch.adapter, { text: 'and tests?' })
+    expect(plain.map((message) => message.sessionRef)).toEqual([CODE])
+  })
+
+  it('brings a tapped Session into view before any Agent is tapped', async () => {
+    const { router, inView } = picking()
+    await router.route(fakeChannel('telegram').adapter, { callback: `pickSession:${CODE}` })
+    expect(inView).toEqual([{ sessionRef: CODE, view: 'as-is' }])
+  })
+
+  it('starts bringing the tapped Agent into view once the Session tap has been shown', async () => {
+    const { router, inView, bringing } = picking()
+    let show = () => {}
+    bringing.held = new Promise((resolve) => (show = resolve))
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { callback: `pickSession:${CODE}` })
+    await router.route(ch.adapter, { callback: 'runAgentIn:agent-tidy' })
+    expect(inView).toEqual([{ sessionRef: CODE, view: 'as-is' }])
+    show()
+    await flush()
+    expect(inView).toHaveLength(2)
+  })
+
+  it('does not move for the picker itself', async () => {
+    const { router, inView } = picking()
+    await router.route(fakeChannel('telegram').adapter, { text: '/agentsin' })
+    expect(inView).toEqual([])
+  })
+
+  it('repaints LAN chat with the picked Session’s transcript', async () => {
+    const { router } = picking({ 'local-web': TRIP })
+    const ch = fakeChannel('local-web')
+    await router.route(ch.adapter, { callback: `pickSession:${CODE}` })
+    expect(ch.repaints).toEqual([
+      [
+        { role: 'user', text: 'split the module' },
+        { role: 'assistant', text: 'Done, two files now.' },
+      ],
+    ])
+  })
+
+  it('refuses a tapped Session that is no longer reachable, keeping the Channel Session', async () => {
+    const { router, pointers, listed } = picking()
+    listed[CODE].reachable = false
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { callback: `pickSession:${CODE}` })
+    expect(pointers.telegram).toBe(TRIP)
+    expect(ch.keyboards).toEqual([])
+    expect(ch.replies).toEqual([`⚠️ There is no Session ${CODE}. Send /sessions to see the list.`])
+  })
+
+  it('starts an Agent tapped after the pick in the picked Session, making none', async () => {
+    const { router, agentStarts, created, inView } = picking()
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { callback: `pickSession:${CODE}` })
+    await router.route(ch.adapter, { callback: 'runAgentIn:agent-tidy', replyTarget: '42' })
+    expect(created).toEqual([])
+    expect(agentStarts).toEqual([
+      { sessionRef: CODE, agentId: 'agent-tidy', origin: { channel: 'telegram', replyTo: '42' } },
+    ])
+    expect(inView).toEqual([
+      { sessionRef: CODE, view: 'as-is' },
+      { sessionRef: CODE, view: { agentId: 'agent-tidy' } },
+    ])
+  })
+
+  it('asks for a Start Prompt in the picked Session, and starts there with the reply', async () => {
+    const { router, agentStarts, created } = picking()
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { callback: `pickSession:${CODE}` })
+    await router.route(ch.adapter, { callback: 'promptAgentIn:agent-digest' })
+    expect(ch.asks.map(({ text }) => text)).toEqual([
+      '✎ What should “Daily digest” do in "Refactor"? Reply to this message, and I\'ll start it with your reply.',
+    ])
+    await router.route(ch.adapter, { text: 'Germany', replyTo: ch.asks[0].ref })
+    expect(created).toEqual([])
+    expect(agentStarts.map(({ sessionRef, prompt }) => [sessionRef, prompt])).toEqual([
+      [CODE, 'Germany'],
+    ])
+  })
+
+  it('leads a new Session to the /agents list, whose start makes the Session', async () => {
+    const { router, agentStarts, created, pointers } = picking()
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { callback: 'runAgent:' })
+    expect(ch.keyboards.map((keyboard) => keyboard.buttons)).toEqual([
+      [
+        [
+          { text: '▶ Daily digest', callbackData: 'runAgent:agent-digest' },
+          { text: '✎', callbackData: 'promptAgent:agent-digest' },
+        ],
+        [
+          { text: '▶ Tidy downloads', callbackData: 'runAgent:agent-tidy' },
+          { text: '✎', callbackData: 'promptAgent:agent-tidy' },
+        ],
+      ],
+    ])
+    expect(created).toEqual([])
+    expect(pointers.telegram).toBe(TRIP)
+    await router.route(ch.adapter, { callback: 'runAgent:agent-digest' })
+    expect(agentStarts.map((start) => start.sessionRef)).toEqual(['session-new-1'])
+  })
+
+  it('queues an Agent started in a busy picked Session, and starts it once the turn ends', async () => {
+    const { router, agentStarts, busy, settle, inView } = picking()
+    busy(CODE)
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { callback: `pickSession:${CODE}` })
+    await router.route(ch.adapter, { callback: 'runAgentIn:agent-digest' })
+    expect(agentStarts).toEqual([])
+    expect(ch.replies).toEqual(['⏳ Queued (1st) for "Refactor", runs after the current turn.'])
+    expect(inView).toEqual([
+      { sessionRef: CODE, view: 'as-is' },
+      { sessionRef: CODE, view: { agentId: 'agent-digest' } },
+    ])
+    await settle(CODE)
+    expect(agentStarts.map((start) => [start.sessionRef, start.agentId])).toEqual([
+      [CODE, 'agent-digest'],
+    ])
+  })
+
+  it('names a tapped Agent that can no longer be started, listing the rest for the Session', async () => {
+    const { router, startable, agentNames, agentStarts } = picking()
+    startable.splice(1, 1)
+    agentNames['agent-tidy'] = 'Tidy downloads'
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { callback: `pickSession:${CODE}` })
+    await router.route(ch.adapter, { callback: 'runAgentIn:agent-tidy' })
+    expect(agentStarts).toEqual([])
+    expect(ch.keyboards[1]).toEqual({
+      text: `⚠️ No agent "Tidy downloads" can be started from here.\n${IN_CODE}`,
+      buttons: [HERE_BUTTONS[0]],
+    })
+  })
+
+  it('starts in a new Session when the picked one was made unreachable since, saying so', async () => {
+    const { router, agentStarts, listed, pointers } = picking()
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { callback: `pickSession:${CODE}` })
+    listed[CODE].reachable = false
+    await router.route(ch.adapter, { callback: 'runAgentIn:agent-digest' })
+    expect(ch.replies).toEqual([
+      '⚠️ Your Channel Session was deleted or is no longer reachable, so this message starts a new one.',
+    ])
+    expect(agentStarts.map((start) => start.sessionRef)).toEqual(['session-new-1'])
+    expect(pointers.telegram).toBe('session-new-1')
+  })
+
+  it('keeps every button within Telegram’s 64-byte callback limit', async () => {
+    const sessionRef = crypto.randomUUID()
+    const agentId = crypto.randomUUID()
+    const { router, startable } = channelSetup({ [sessionRef]: { title: 'Trip' } })
+    startable.push({ agentId, name: 'Daily digest' })
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: '/agentsin' })
+    await router.route(ch.adapter, { callback: `pickSession:${sessionRef}` })
+    const data = ch.keyboards.flatMap((keyboard) =>
+      keyboard.buttons.flat().map((button) => button.callbackData),
+    )
+    expect(data).toHaveLength(4)
+    for (const callback of data) expect(new TextEncoder().encode(callback).length).toBeLessThan(65)
+  })
+
+  it('is listed by /help', async () => {
+    const { router } = channelSetup()
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: '/help' })
+    expect(ch.replies[0]).toContain(
+      '`/agentsin` — Pick a Session first, then the agent to start in it',
+    )
+  })
+})
+
+describe('a voice message', () => {
+  const trip = () =>
+    channelSetup(
+      { 'session-trip': { title: 'Trip planning' } },
+      {
+        telegram: 'session-trip',
+      },
+    )
+
+  it('is transcribed and sent to the Channel Session like typed text, marked as spoken', async () => {
+    const { router, plain, speech } = trip()
+    speech.said['ogg-1'] = 'add a day in Kyoto'
+    const ch = fakeChannel()
+    await router.route(ch.adapter, { ...voice('ogg-1'), replyTarget: '42' })
+    expect(plain).toEqual([
+      {
+        sessionRef: 'session-trip',
+        text: 'add a day in Kyoto',
+        origin: { channel: 'telegram', replyTo: '42', voice: true },
+      },
+    ])
+    expect(ch.replies).toEqual([])
+  })
+
+  it('runs a spoken command', async () => {
+    const { router, plain, speech } = trip()
+    speech.said['ogg-1'] = '/sessions'
+    const ch = fakeChannel()
+    await router.route(ch.adapter, voice('ogg-1'))
+    expect(plain).toEqual([])
+    expect(ch.keyboards.map((k) => k.buttons.flat().map((b) => b.text))).toEqual([
+      ['✅ 1. Trip planning'],
+    ])
+  })
+
+  it('answers an agent when it replies to its Notification', async () => {
+    const { router, received, origins, speech } = setup()
+    speech.said['ogg-1'] = 'try a smaller level'
+    const ch = fakeChannel()
+    await router.route(ch.adapter, { ...voice('ogg-1'), replyTo: '1234' })
+    expect(received).toEqual([{ sessionId: 'asteroids', text: 'try a smaller level' }])
+    expect(origins.map((o) => o.origin)).toEqual([{ channel: 'telegram', voice: true }])
+  })
+
+  it('keeps the caption it came with in front of what was said', async () => {
+    const { router, plain, speech } = trip()
+    speech.said['ogg-1'] = 'two nights'
+    await router.route(fakeChannel().adapter, { text: 'Kyoto:', ...voice('ogg-1') })
+    expect(plain.map((p) => p.text)).toEqual(['Kyoto: two nights'])
+  })
+
+  it('keeps the Channel’s later messages behind it while its speech model downloads', async () => {
+    const { router, plain, speech, voicePreparation } = trip()
+    speech.said['ogg-1'] = 'add a day in Kyoto'
+    voicePreparation.needDownload()
+    const ch = fakeChannel()
+    await router.route(ch.adapter, voice('ogg-1'))
+    await router.route(ch.adapter, { text: 'and one in Nara' })
+    await flush()
+    expect(plain).toEqual([])
+    voicePreparation.waiting[0].finish(true)
+    await flush()
+    await flush()
+    expect(plain.map((p) => p.text)).toEqual(['add a day in Kyoto', 'and one in Nara'])
+  })
+
+  it('lets the download question be answered while it waits', async () => {
+    const { router, questions, speech, voicePreparation } = trip()
+    speech.said['ogg-1'] = 'add a day in Kyoto'
+    voicePreparation.needDownload()
+    const ch = fakeChannel()
+    await router.route(ch.adapter, voice('ogg-1'))
+    const tapped = questions.ask({ adapter: ch.adapter, summaryMarkdown: 'Download Whisper?' })
+    await flush()
+    await router.route(ch.adapter, { callback: 'confirm:q1:yes' })
+    await expect(tapped.answer).resolves.toBe(true)
+  })
+
+  it('lets a typed yes answer a question while it waits', async () => {
+    const { router, questions, speech, voicePreparation, plain } = trip()
+    speech.said['ogg-1'] = 'add a day in Kyoto'
+    voicePreparation.needDownload()
+    const ch = fakeChannel()
+    await router.route(ch.adapter, voice('ogg-1'))
+    const typed = questions.ask({
+      adapter: ch.adapter,
+      summaryMarkdown: 'Download Whisper?',
+      typedReply: true,
+    })
+    await flush()
+    await router.route(ch.adapter, { text: 'yes' })
+    await expect(typed.answer).resolves.toBe(true)
+    expect(plain).toEqual([])
+  })
+
+  it('holds up no other Channel while its speech model downloads', async () => {
+    const { router, plain, speech, voicePreparation } = channelSetup(
+      { 'session-trip': { title: 'Trip planning' }, 'session-code': { title: 'Refactor' } },
+      { telegram: 'session-trip', slack: 'session-code' },
+    )
+    speech.said['ogg-1'] = 'add a day in Kyoto'
+    voicePreparation.needDownload()
+    await router.route(fakeChannel('telegram').adapter, voice('ogg-1'))
+    await router.route(fakeChannel('slack').adapter, { text: 'rename the module' })
+    expect(plain.map((p) => p.text)).toEqual(['rename the module'])
+  })
+
+  it('is dropped unheard when its speech model was not readied', async () => {
+    const { router, plain, speech, voicePreparation } = trip()
+    speech.said['ogg-1'] = 'add a day in Kyoto'
+    voicePreparation.needDownload()
+    const ch = fakeChannel()
+    await router.route(ch.adapter, voice('ogg-1'))
+    voicePreparation.waiting[0].finish(false)
+    await flush()
+    expect(speech.transcribed).toEqual([])
+    expect(plain).toEqual([])
+  })
+
+  it('sends nothing when transcription failed, leaving the explanation to it', async () => {
+    const { router, plain, speech } = trip()
+    speech.said['ogg-1'] = null
+    const ch = fakeChannel()
+    await router.route(ch.adapter, voice('ogg-1'))
+    expect(plain).toEqual([])
+    expect(ch.replies).toEqual([])
+  })
+
+  it('says so when no speech was heard, and sends nothing', async () => {
+    const { router, plain, speech } = trip()
+    speech.said['ogg-1'] = ''
+    const ch = fakeChannel()
+    await router.route(ch.adapter, voice('ogg-1'))
+    expect(plain).toEqual([])
+    expect(ch.replies).toEqual([
+      "🎙️ Couldn't make out any speech in that voice message, so nothing was sent.",
+    ])
+  })
+})
+
+describe('a file', () => {
+  const photo = { images: [{ mime: 'image/jpeg', data_base64: 'AAAA' }] }
+  const plan = {
+    documents: [{ filename: 'plan.pdf', mime: 'application/pdf', data_base64: 'AAAA' }],
+  }
+  const trip = (session: FakeChannelSession = { title: 'Trip planning' }) =>
+    channelSetup({ 'session-trip': session }, { telegram: 'session-trip' })
+
+  it('stores an image in the Session’s attachments and names it in the prompt', async () => {
+    const { router, plain, attached } = trip()
+    const ch = fakeChannel()
+    await router.route(ch.adapter, { text: 'where is this?', ...photo })
+    expect(attached).toEqual([
+      { to: 'session-trip', kind: 'image', filename: 'telegram-image.jpg' },
+    ])
+    expect(plain.map((p) => p.text)).toEqual([
+      'where is this?\n\nAttached files: @attachments/telegram-image.jpg',
+    ])
+    expect(ch.replies).toEqual([])
+  })
+
+  it('sends an image without a caption on its own', async () => {
+    const { router, plain } = trip()
+    await router.route(fakeChannel().adapter, photo)
+    expect(plain.map((p) => p.text)).toEqual(['Attached files: @attachments/telegram-image.jpg'])
+  })
+
+  it('says so when the Session’s model cannot see images, and sends nothing', async () => {
+    const { router, plain, attached } = trip({ title: 'Trip planning', blind: true })
+    const ch = fakeChannel()
+    await router.route(ch.adapter, { text: 'where is this?', ...photo })
+    expect(plain).toEqual([])
+    expect(attached).toEqual([])
+    expect(ch.replies).toEqual([
+      '⚠️ Not sent: "Trip planning" runs on a model that cannot see images. ' +
+        'Pick a vision model for it on your computer, then send the image again.',
+    ])
+  })
+
+  it('makes a document an Attached Document and confirms it without running a turn', async () => {
+    const { router, plain, attached } = trip()
+    const ch = fakeChannel()
+    await router.route(ch.adapter, plan)
+    expect(attached).toEqual([{ to: 'session-trip', kind: 'document', filename: 'plan.pdf' }])
+    expect(plain).toEqual([])
+    expect(ch.replies).toEqual([
+      '📄 Attached to "Trip planning": plan.pdf. Ask about them in your next message.',
+    ])
+  })
+
+  it('runs the turn for a document sent with a question', async () => {
+    const { router, plain, attached } = trip()
+    const ch = fakeChannel()
+    await router.route(ch.adapter, { text: 'what does day 2 say?', ...plan })
+    expect(attached.map((a) => a.filename)).toEqual(['plan.pdf'])
+    expect(plain.map((p) => p.text)).toEqual(['what does day 2 say?'])
+    expect(ch.replies).toEqual([])
+  })
+
+  it('starts a Channel Session for a document when the Channel has none', async () => {
+    const { router, attached, created } = channelSetup()
+    await router.route(fakeChannel().adapter, plan)
+    expect(created).toEqual(['session-new-1'])
+    expect(attached.map((a) => a.to)).toEqual(['session-new-1'])
+  })
+
+  it('goes with an Answer into the answered agent’s Harness Session', async () => {
+    const { router, received, attached } = setup()
+    const ch = fakeChannel()
+    await router.route(ch.adapter, { text: 'use this sprite', ...photo, replyTo: '1234' })
+    expect(attached).toEqual([{ to: 'asteroids', kind: 'image', filename: 'telegram-image.jpg' }])
+    expect(received).toEqual([
+      {
+        sessionId: 'asteroids',
+        text: 'use this sprite\n\nAttached files: @attachments/telegram-image.jpg',
+      },
+    ])
+  })
+
+  it('confirms a document sent alone as an Answer without running a turn', async () => {
+    const { router, received, attached } = setup()
+    const ch = fakeChannel()
+    await router.route(ch.adapter, { ...plan, replyTo: '1234' })
+    expect(attached.map((a) => [a.to, a.filename])).toEqual([['asteroids', 'plan.pdf']])
+    expect(received).toEqual([])
+    expect(ch.replies).toEqual([
+      '📄 Attached to "Asteroids clone": plan.pdf. Ask about them in your next message.',
+    ])
+  })
+
+  it('refuses an image for an agent whose model cannot see images', async () => {
+    const { router, received } = setup({ asteroids: { label: 'Asteroids clone', blind: true } })
+    const ch = fakeChannel()
+    await router.route(ch.adapter, { ...photo, replyTo: '1234' })
+    expect(received).toEqual([])
+    expect(ch.replies).toEqual([
+      '⚠️ Not sent: "Asteroids clone" runs on a model that cannot see images. ' +
+        'Pick a vision model for it on your computer, then send the image again.',
+    ])
+  })
+
+  it('attaches nothing to a real-shell Session', async () => {
+    const { router, attached } = setup({ asteroids: { label: 'Asteroids clone', realShell: true } })
+    await router.route(fakeChannel().adapter, { ...plan, replyTo: '1234' })
+    expect(attached).toEqual([])
+  })
+
+  it('refuses a file over 25 MB, and attaches and sends nothing', async () => {
+    const { router, plain, attached } = trip()
+    const big = 'A'.repeat(Math.ceil((25 * 1024 * 1024) / 3) * 4 + 4)
+    const ch = fakeChannel()
+    await router.route(ch.adapter, {
+      text: 'the plan',
+      documents: [{ filename: 'atlas.pdf', mime: 'application/pdf', data_base64: big }],
+    })
+    expect(plain).toEqual([])
+    expect(attached).toEqual([])
+    expect(ch.replies).toEqual(['⚠️ Not sent: atlas.pdf is over 25 MB.'])
+  })
+
+  it.each([
+    [
+      'document',
+      { documents: [{ filename: 'budget.xlsx', mime: 'application/zip', data_base64: 'AAAA' }] },
+      'budget.xlsx',
+    ],
+    ['image', { images: [{ mime: 'image/heic', data_base64: 'AAAA' }] }, 'telegram-image.heic'],
+  ])('refuses a %s of a type a Session does not take', async (_kind, file, name) => {
+    const { router, plain, attached } = trip()
+    const ch = fakeChannel()
+    await router.route(ch.adapter, { text: 'have a look', ...file })
+    expect(plain).toEqual([])
+    expect(attached).toEqual([])
+    expect(ch.replies).toEqual([
+      `⚠️ Not sent: ${name} is not a file a Session takes. ` +
+        'Send an image, or a txt, md, doc, docx or pdf document.',
+    ])
+  })
+
+  it('refuses a file before transcribing the voice it came with', async () => {
+    const { router, speech } = trip()
+    await router.route(fakeChannel().adapter, {
+      ...voice('ogg-1'),
+      documents: [{ filename: 'budget.xlsx', mime: 'application/zip', data_base64: 'AAAA' }],
+    })
+    expect(speech.transcribed).toEqual([])
+  })
+
+  it('says so when a file could not be attached, and sends nothing', async () => {
+    const { router, plain, attaching } = trip()
+    attaching.fails = true
+    const ch = fakeChannel()
+    await router.route(ch.adapter, { text: 'what does day 2 say?', ...plan })
+    expect(plain).toEqual([])
+    expect(ch.replies).toEqual(['⚠️ Not sent: plan.pdf could not be attached: disk full'])
+  })
+})
+
+describe('an Answer to a Trial Run', () => {
+  const TRIAL = 'trial-digest-1'
+  const NEWER = 'trial-digest-2'
+  const TRIP = 'session-trip'
+
+  /** A Trial Run of "Inbox digest" sent 5678; "asteroids" sent 1234; the Channel Session is a trip. */
+  function trialSetup(sent: { thrownAway?: boolean } = {}) {
+    const fixture = setup(
+      { asteroids: { label: 'Asteroids clone' } },
+      [
+        { kind: 'telegram', ref: '1234', sessionId: 'asteroids' },
+        { kind: 'telegram', ref: '5678', trialRun: TRIAL, agentId: 'digest', ...sent },
+      ],
+      { [TRIP]: { title: 'Trip planning' } },
+      { telegram: TRIP },
+    )
+    if (!sent.thrownAway) fixture.trialRuns[TRIAL] = { label: 'Inbox digest' }
+    return fixture
+  }
+
+  it('runs as a Follow-up in its Harness Session, replied on the Channel it came from', async () => {
+    const { router, received, origins, plain } = trialSetup()
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: 'only unread', replyTo: '5678', replyTarget: '99' })
+    expect(received).toEqual([{ sessionId: TRIAL, text: 'only unread' }])
+    expect(origins).toEqual([{ sessionId: TRIAL, origin: { channel: 'telegram', replyTo: '99' } }])
+    expect(plain).toEqual([])
+  })
+
+  it('stores a file it carries in the Trial Run’s workspace', async () => {
+    const { router, received, attached } = trialSetup()
+    const ch = fakeChannel('telegram')
+    const photo = { images: [{ mime: 'image/png', data_base64: 'AAAA' }] }
+    await router.route(ch.adapter, { text: 'this one', ...photo, replyTo: '5678' })
+    expect(attached).toEqual([{ to: TRIAL, kind: 'image', filename: 'telegram-image.png' }])
+    expect(received).toEqual([
+      {
+        sessionId: TRIAL,
+        text: 'this one\n\nAttached files: @attachments/telegram-image.png',
+      },
+    ])
+  })
+
+  it('waits while the Trial Run is busy, and runs once it settles', async () => {
+    const { router, received, busyTrial, settleTrial } = trialSetup()
+    busyTrial(TRIAL)
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: 'only unread', replyTo: '5678' })
+    expect(received).toEqual([])
+    expect(ch.replies).toEqual([
+      '⏳ Queued (1st) for Trial Run · Inbox digest, runs after the current turn.',
+    ])
+    await settleTrial(TRIAL)
+    expect(received).toEqual([{ sessionId: TRIAL, text: 'only unread' }])
+  })
+
+  it('is dropped with a reply when the Trial Run is thrown away while it waits', async () => {
+    const { router, received, busyTrial, throwAwayTrial } = trialSetup()
+    busyTrial(TRIAL)
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: 'only unread', replyTo: '5678' })
+    await throwAwayTrial(TRIAL)
+    expect(received).toEqual([])
+    expect(ch.replies.slice(1)).toEqual([
+      '⚠️ Your queued messages were dropped (1): that Trial Run was thrown away.',
+    ])
+  })
+
+  it('is told a thrown-away Trial Run was thrown away, never reaching the Agent’s newer one', async () => {
+    const { router, received, plain, trialRuns } = trialSetup({ thrownAway: true })
+    trialRuns[NEWER] = { label: 'Inbox digest' }
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: 'only unread', replyTo: '5678' })
+    expect(received).toEqual([])
+    expect(plain).toEqual([])
+    expect(ch.replies).toEqual([
+      '⚠️ That Trial Run was thrown away. Start a new one in the Agent Library on your computer.',
+    ])
+  })
+
+  it('is told so when the window threw the Trial Run away before the message map heard', async () => {
+    const { router, received, trialRuns } = trialSetup()
+    delete trialRuns[TRIAL]
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: 'only unread', replyTo: '5678' })
+    expect(received).toEqual([])
+    expect(ch.replies).toEqual([
+      '⚠️ That Trial Run was thrown away. Start a new one in the Agent Library on your computer.',
+    ])
+  })
+
+  it('refuses /stop replying to a Trial Run’s message, and stops nothing', async () => {
+    const { router, busy, busyTrial, stopped, received } = trialSetup()
+    busy(TRIP)
+    busyTrial(TRIAL)
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: '/stop', replyTo: '5678' })
+    expect(stopped).toEqual([])
+    expect(received).toEqual([])
+    expect(ch.replies).toEqual([
+      '⏹️ A Trial Run cannot be stopped from a Channel. Stop it in the Agent Library on your computer.',
+    ])
+  })
+
+  it('tells /stop replying to a thrown-away Trial Run’s message that it was thrown away', async () => {
+    const { router, stopped } = trialSetup({ thrownAway: true })
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: '/stop', replyTo: '5678' })
+    expect(stopped).toEqual([])
+    expect(ch.replies).toEqual([
+      '⚠️ That Trial Run was thrown away. Start a new one in the Agent Library on your computer.',
+    ])
+  })
+
+  it('tells /stop the Trial Run was thrown away when the window threw it away first', async () => {
+    const { router, trialRuns } = trialSetup()
+    delete trialRuns[TRIAL]
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: '/stop', replyTo: '5678' })
+    expect(ch.replies).toEqual([
+      '⚠️ That Trial Run was thrown away. Start a new one in the Agent Library on your computer.',
+    ])
+  })
+
+  it('lists no Trial Run in /sessions', async () => {
+    const { router } = trialSetup()
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: '/sessions' })
+    expect(ch.keyboards.map((k) => k.buttons)).toEqual([
+      [[{ text: '✅ 1. Trip planning', callbackData: `loadConv:${TRIP}` }]],
+    ])
+  })
+
+  it('leaves a plain message going to the Channel Session while a Trial Run runs', async () => {
+    const { router, plain, received, busyTrial } = trialSetup()
+    busyTrial(TRIAL)
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: 'add a day in Kyoto' })
+    expect(received).toEqual([])
+    expect(plain).toEqual([
+      { sessionRef: TRIP, text: 'add a day in Kyoto', origin: { channel: 'telegram' } },
+    ])
   })
 })

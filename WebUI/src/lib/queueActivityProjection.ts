@@ -1,6 +1,6 @@
 import { useActivities } from '@/assets/js/store/activities'
 import { useI18N } from '@/assets/js/store/i18n'
-import { queueOrdinal } from '@/assets/js/store/historyEntries'
+import { queueOrdinal } from '@/assets/js/store/recordRows'
 import type { KernelQueueEvent, TurnWork } from '@/types/kernelEvents'
 
 // ── Queue-event projection (architecture-target §4.4, step 7) ──────────────────
@@ -12,7 +12,7 @@ import type { KernelQueueEvent, TurnWork } from '@/types/kernelEvents'
 // and restored when the run starts or is cancelled while queued. Panel runs
 // carry no activityId — a panel run waiting in the Turn Queue is labelled on the
 // generation overlay by the imageGenerationPresets store, with `turnQueuedLabel`.
-// A Chat / Home Agent turn waiting in the Turn Queue gets its own chat-scoped
+// A Chat turn waiting in the Turn Queue gets its own chat-scoped
 // activity ("Queued (2nd), waiting for …") until it takes the place; agent
 // turns show their wait on the session instead.
 
@@ -86,6 +86,11 @@ export function turnQueuedLabel(
 ): string {
   const pattern = i18nState[holder ? WAITING_FOR_KEYS[holder] : 'COM_ACTIVITY_TURN_QUEUED']
   return (pattern ?? '').replace('{position}', queueOrdinal(position, locale, i18nState))
+}
+
+/** "Queued, waiting for Agent Run <name>" for a prompt held until its Session's run ends. */
+export function agentRunQueuedLabel(i18nState: I18nState, name: string): string {
+  return (i18nState.COM_ACTIVITY_TURN_QUEUED_FOR_AGENT_RUN ?? '').replace('{name}', name)
 }
 
 function applyQueueEvent(

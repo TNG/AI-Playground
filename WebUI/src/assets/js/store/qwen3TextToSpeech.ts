@@ -6,7 +6,7 @@ import { useBackendServices } from './backendServices'
 import { useModels } from './models'
 import { requestDownload } from '@/assets/js/permissions/permissions'
 import * as toast from '@/assets/js/toast'
-import { createAppError } from '../errors/appError'
+import { createAppError, rethrowCancellationAs } from '../errors/appError'
 import { qwen3TtsFetch } from '@/lib/loopbackAuth'
 import { resolveTtsSpeakerLabel } from '@/lib/ttsSpeakerLabel'
 import { voicePreviewSentence } from '@/lib/ttsVoicePreview'
@@ -84,13 +84,9 @@ export const useQwen3TextToSpeech = defineStore('qwen3TextToSpeech', () => {
     const models = useModels()
     const missing = await models.getMissingQwenTtsModels([modelRepoForMode(mode)])
     if (missing.length === 0) return
-    try {
-      await requestDownload(missing)
-    } catch (reason) {
-      throw reason instanceof Error
-        ? reason
-        : new Error('Text To Speech model download was cancelled')
-    }
+    await requestDownload(missing).catch(
+      rethrowCancellationAs('Text To Speech model download was cancelled'),
+    )
     await restartForDownloadedModel()
   }
 

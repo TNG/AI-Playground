@@ -31,7 +31,14 @@ vi.mock('../../persist/userDataPaths.ts', async (importOriginal) => ({
 }))
 
 const askRendererMock = vi.fn()
-vi.mock('../../chat/chatAsk.ts', () => ({ askRenderer: askRendererMock }))
+vi.mock('../../chat/chatAsk.ts', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  askRenderer: askRendererMock,
+}))
+
+function declinedDownload(message: string): Error {
+  return Object.assign(new Error(message), { declinedDownload: true })
+}
 
 const { buildSpeechTools } = await import('../../agent/capabilities/mediaSpeech.ts')
 
@@ -54,13 +61,17 @@ type BuiltTool = {
 
 let workspaceDir: string
 
-async function buildTool(spec: AgentToolSpec): Promise<BuiltTool> {
+async function buildTool(
+  spec: AgentToolSpec,
+  overrides: Record<string, unknown> = {},
+): Promise<BuiltTool> {
   const host = {
     sessionId: 'session-1',
     workspaceDir,
     toolSpecs: [spec],
     agentDir: workspaceDir,
     keepModelsLoaded: false,
+    ...overrides,
   }
   const [tool] = (await buildSpeechTools(host, [spec])) as unknown as BuiltTool[]
   return tool
@@ -152,6 +163,53 @@ describe('mediaSpeech (agent speech tools)', () => {
     expect(fs.readFileSync(audio!.savedFilePath, 'utf8')).toBe('riff')
   })
 
+  it("names the clip's Session-Folder copy, so its card opens the Session Folder", async () => {
+    askRendererMock.mockResolvedValue({
+      audioBase64: Buffer.from('riff').toString('base64'),
+      mediaType: 'audio/wav',
+      voice: 'Ryan',
+      engine: 'kokoro',
+    })
+    const filesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'media-speech-files-'))
+    const game = await buildTool(SYNTHESIZE_SPEC, {
+      sessionMedia: {
+        sessionRef: 's1',
+        workspace: 'game',
+        filesDir: async () => filesDir,
+        folderId: 'folder-ws',
+      },
+    })
+    const folder = await buildTool(SYNTHESIZE_SPEC, {
+      sessionMedia: { sessionRef: 's2', workspace: 'files', folderId: 'folder-ws' },
+    })
+
+    const fromGame = await game.execute('c1', { text: 'hi' }, new AbortController().signal)
+    const fromFolder = await folder.execute('c2', { text: 'hi' }, new AbortController().signal)
+
+    expect(detailsOf(fromGame)?.audio?.url).toBe('aipg-media://folders/s1/folder-ws/speech.wav')
+    expect(detailsOf(fromFolder)?.audio?.url).toBe(
+      'aipg-media://folders/s2/folder-ws/generated/speech_1.wav',
+    )
+  })
+
+  it("serves a Trial Run's clip from scratch when it works in its Agent's own folder", async () => {
+    askRendererMock.mockResolvedValue({
+      audioBase64: Buffer.from('riff').toString('base64'),
+      mediaType: 'audio/wav',
+      voice: 'Ryan',
+      engine: 'kokoro',
+    })
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'media-speech-trial-'))
+    const tool = await buildTool(SYNTHESIZE_SPEC, {
+      sessionMedia: { workspace: 'trial', agentId: 'agent-1', filesDir: async () => scratch },
+    })
+
+    const output = await tool.execute('c1', { text: 'hi' }, new AbortController().signal)
+
+    expect(detailsOf(output)?.audio?.url).toBe('aipg-media://trials/agent-1/files/speech.wav')
+    expect(fs.readFileSync(path.join(scratch, 'speech.wav'), 'utf8')).toBe('riff')
+  })
+
   it('gives a failed synthesis no details', async () => {
     askRendererMock.mockRejectedValueOnce(new Error('no voice model'))
     const tool = await buildTool(SYNTHESIZE_SPEC)
@@ -175,6 +233,30 @@ describe('mediaSpeech (agent speech tools)', () => {
 
     expect(first.savedFilePath).toBe('generated/news_summary.wav')
     expect(second.savedFilePath).toBe('generated/news_summary_1.wav')
+  })
+
+  it("keeps a game Session's earlier file when a clip has the same name", async () => {
+    askRendererMock.mockResolvedValue({
+      audioBase64: Buffer.from('new-take').toString('base64'),
+      mediaType: 'audio/wav',
+      voice: 'Ryan',
+      engine: 'kokoro',
+    })
+    const filesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'session-files-'))
+    fs.writeFileSync(path.join(filesDir, 'speech.wav'), 'earlier')
+    const tool = await buildTool(SYNTHESIZE_SPEC, {
+      sessionMedia: {
+        sessionRef: 'session-1',
+        workspace: 'game',
+        filesDir: async () => filesDir,
+        folderId: 'folder-ws',
+      },
+    })
+
+    await run(tool, { text: 'one' })
+
+    expect(fs.readFileSync(path.join(filesDir, 'speech.wav'), 'utf8')).toBe('earlier')
+    expect(fs.readFileSync(path.join(filesDir, 'speech-1.wav'), 'utf8')).toBe('new-take')
   })
 
   it('reports empty text and an engine failure as a tool failure', async () => {
@@ -220,5 +302,48 @@ describe('mediaSpeech (agent speech tools)', () => {
       message: expect.stringContaining('Unsupported audio file type'),
     })
     expect(askRendererMock).not.toHaveBeenCalled()
+  })
+
+  it('tells the agent not to call it again once the user declined the model download', async () => {
+    askRendererMock.mockRejectedValueOnce(
+      declinedDownload('Kokoro speech model download was cancelled'),
+    )
+    const tool = await buildTool(SYNTHESIZE_SPEC)
+
+    const first = await run(tool, { text: 'hello' })
+    const second = await run(tool, { text: 'again' })
+
+    expect(first).toMatchObject({ ok: false, declined: true })
+    expect(first.message).toContain('declined the download')
+    expect(first.message).toContain('Do not call synthesizeTextToSpeech again')
+    expect(second).toEqual(first)
+    expect(askRendererMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('remembers a declined transcription model the same way', async () => {
+    fs.writeFileSync(path.join(workspaceDir, 'note.wav'), 'A')
+    askRendererMock.mockRejectedValueOnce(declinedDownload('Whisper model download was cancelled'))
+    const tool = await buildTool(TRANSCRIBE_SPEC)
+
+    const first = await run(tool, { sourceAudioPath: 'note.wav' })
+    await run(tool, { sourceAudioPath: 'note.wav' })
+
+    expect(first).toMatchObject({ ok: false, declined: true })
+    expect(first.message).toContain('Do not call transcribeAudio again')
+    expect(askRendererMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('lets the agent retry after a failure that was not a decline', async () => {
+    askRendererMock.mockRejectedValueOnce(new Error('download failed'))
+    askRendererMock.mockResolvedValueOnce({
+      audioBase64: Buffer.from('riff').toString('base64'),
+      mediaType: 'audio/wav',
+      voice: 'Ryan',
+      engine: 'kokoro',
+    })
+    const tool = await buildTool(SYNTHESIZE_SPEC)
+
+    expect(await run(tool, { text: 'hello' })).toMatchObject({ ok: false })
+    expect(await run(tool, { text: 'hello' })).toMatchObject({ ok: true })
   })
 })

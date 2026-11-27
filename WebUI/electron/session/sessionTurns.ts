@@ -1,0 +1,63 @@
+import { emitSessionTurns } from '../kernel/kernelBus'
+import type { SessionTurn, SessionTurns } from '@/types/sessionIpc'
+
+/**
+ * A Session admits one turn in flight at a time, whatever its kind; the Turn Queue
+ * (ADR-0002) still decides when that turn runs. Turns outside a Session (Channels)
+ * and media nested in a chat or agent turn never claim one.
+ */
+
+export const SESSION_BUSY_MESSAGE = 'This Session already has a turn in flight.'
+
+let turns: SessionTurns = {}
+
+function publish(next: SessionTurns): void {
+  turns = next
+  emitSessionTurns(turns)
+}
+
+/** False when the Session already has a turn; the caller refuses its turn. */
+export function claimSessionTurn(sessionId: string, turn: SessionTurn): boolean {
+  if (turns[sessionId]) return false
+  publish({ ...turns, [sessionId]: { ...turn } })
+  return true
+}
+
+const releasedListeners = new Set<(sessionId: string) => void>()
+
+export function releaseSessionTurn(sessionId: string, turnId: string): void {
+  if (turns[sessionId]?.turnId !== turnId) return
+  const { [sessionId]: _released, ...rest } = turns
+  publish(rest)
+  for (const listener of releasedListeners) listener(sessionId)
+}
+
+/** Called each time a Session's turn ends and the Session is idle again. */
+export function onSessionTurnReleased(listener: (sessionId: string) => void): () => void {
+  releasedListeners.add(listener)
+  return () => releasedListeners.delete(listener)
+}
+
+export function sessionTurnOf(sessionId: string): SessionTurn | undefined {
+  return turns[sessionId]
+}
+
+/** Runs `run` as the Session's turn, or returns `refused` when another holds it. */
+export async function inSessionTurn<T>(
+  sessionId: string | undefined,
+  turn: SessionTurn,
+  run: () => Promise<T>,
+  refused: () => T,
+): Promise<T> {
+  if (!sessionId) return run()
+  if (!claimSessionTurn(sessionId, turn)) return refused()
+  try {
+    return await run()
+  } finally {
+    releaseSessionTurn(sessionId, turn.turnId)
+  }
+}
+
+export function resetSessionTurnsForTest(): void {
+  turns = {}
+}

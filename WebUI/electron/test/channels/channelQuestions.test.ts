@@ -231,7 +231,7 @@ describe('channel question registry', () => {
     expect(answered).toBe(false)
   })
 
-  it('retires Channel Questions asked on a channel that is no longer the Notification Channel', async () => {
+  it('retires Channel Questions asked on a Channel that was turned off', async () => {
     const reg = registry()
     const telegram = fakeChannel('telegram')
     const slack = fakeChannel('slack')
@@ -243,13 +243,13 @@ describe('channel question registry', () => {
       typedReply: true,
     })
     await flush()
-    reg.retireOutside('slack', '⏹ Not here.')
+    reg.retireOutside(['slack', 'local-web'], '⏹ Not here.')
     expect(reg.isOpen(onTelegram.id)).toBe(false)
     expect(reg.isOpen(onSlack.id)).toBe(true)
     expect(reg.isOpen(inTurn.id)).toBe(true)
     expect(telegram.edits).toEqual([{ messageId: 1, text: 'Download A?\n\n⏹ Not here.' }])
 
-    reg.retireOutside(null, '⏹ Closed.')
+    reg.retireOutside([], '⏹ Closed.')
     expect(reg.isOpen(onSlack.id)).toBe(false)
     expect(reg.isOpen(inTurn.id)).toBe(true)
   })
@@ -258,7 +258,7 @@ describe('channel question registry', () => {
     const reg = registry()
     const ch = fakeChannel()
     const q = reg.ask({ adapter: ch.adapter, summaryMarkdown: 'Download?' })
-    reg.retireOutside(null, '⏹ Not here.')
+    reg.retireOutside([], '⏹ Not here.')
     await flush()
     expect(ch.prompts).toHaveLength(1)
     expect(ch.edits).toEqual([{ messageId: 1, text: 'Download?\n\n⏹ Not here.' }])

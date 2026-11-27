@@ -31,8 +31,11 @@ async function loadAipgRoot(opts: {
   platform: NodeJS.Platform
   sharedResourcesDir?: string
   installDir?: string | null
+  build?: { commit?: string; tag?: string }
 }) {
   vi.resetModules()
+  vi.stubEnv('VITE_GIT_COMMIT', opts.build?.commit ?? 'testbuild')
+  vi.stubEnv('VITE_GIT_TAG', opts.build?.tag ?? '')
   setProp(process, 'platform', opts.platform)
   vi.doMock('electron', () => ({
     app: { isPackaged: opts.isPackaged, getVersion: () => '0.0.0-test' },
@@ -72,6 +75,7 @@ afterEach(() => {
   vi.doUnmock('../../kernel/installConfig.ts')
   vi.doUnmock('../../kernel/sharedAcl.ts')
   vi.resetModules()
+  vi.unstubAllEnvs()
   setProp(process, 'platform', origPlatform)
   setProp(process, 'resourcesPath', origResourcesPath)
   process.env.PUBLIC = origPublic
@@ -190,14 +194,168 @@ describe('packagedResourcesRoot', () => {
     fs.writeFileSync(path.join(tmpResources, 'notes.txt'), 'shipped-note')
     const sharedRoot = path.join(tmpPublic, 'AI Playground', 'resources')
     fs.mkdirSync(sharedRoot, { recursive: true })
-    fs.writeFileSync(path.join(sharedRoot, '.aipg-seed-version'), '0.0.0-test')
     fs.writeFileSync(path.join(sharedRoot, 'uv.exe'), 'trojan')
     fs.writeFileSync(path.join(sharedRoot, 'planted.txt'), 'leave-me')
     const mod = await loadAipgRoot({ isPackaged: true, mode: 'shared', platform: 'win32' })
+    fs.writeFileSync(path.join(sharedRoot, '.aipg-seed-version'), mod.seedId())
 
     expect(mod.packagedResourcesRoot()).toBe(sharedRoot)
     expect(fs.readFileSync(path.join(sharedRoot, 'uv.exe'), 'utf-8')).toBe('from-bundle')
     expect(fs.readFileSync(path.join(sharedRoot, 'planted.txt'), 'utf-8')).toBe('leave-me')
     expect(fs.existsSync(path.join(sharedRoot, 'notes.txt'))).toBe(false)
+  })
+})
+
+describe('packagedResourcesRoot — per-build re-seed', () => {
+  const sharedRoot = () => path.join(tmpPublic, 'AI Playground', 'resources')
+
+  function plantModes(base: string, files: Record<string, string>): void {
+    for (const [rel, content] of Object.entries(files)) {
+      const abs = path.join(base, 'modes', rel)
+      fs.mkdirSync(path.dirname(abs), { recursive: true })
+      fs.writeFileSync(abs, content)
+    }
+  }
+
+  function writeBareMarker(): void {
+    fs.writeFileSync(path.join(sharedRoot(), '.aipg-seed-version'), '0.0.0-test')
+  }
+
+  it('re-seeds a bare-version marker and overwrites the stale shipped preset', async () => {
+    plantModes(tmpResources, { 'Assistant.json': '{"agentPreset":true}' })
+    plantModes(sharedRoot(), { 'Assistant.json': '{"agentPreset":false}' })
+    writeBareMarker()
+    const mod = await loadAipgRoot({
+      isPackaged: true,
+      mode: 'shared',
+      platform: 'win32',
+      build: { commit: 'feedbee' },
+    })
+
+    expect(mod.packagedResourcesRoot()).toBe(sharedRoot())
+    expect(fs.readFileSync(path.join(sharedRoot(), 'modes', 'Assistant.json'), 'utf-8')).toBe(
+      '{"agentPreset":true}',
+    )
+    expect(fs.readFileSync(path.join(sharedRoot(), '.aipg-seed-version'), 'utf-8')).toBe(
+      mod.seedId(),
+    )
+  })
+
+  it('removes preset files and directories the new build dropped', async () => {
+    plantModes(tmpResources, { 'Assistant.json': 'new', 'agent-pack/readme.txt': 'new' })
+    plantModes(sharedRoot(), {
+      'Assistant.json': 'old',
+      'Agent.json': 'retired',
+      'Agent.backup/Agent.json': 'retired-backup',
+      'agent-pack/readme.txt': 'old',
+    })
+    writeBareMarker()
+    const mod = await loadAipgRoot({ isPackaged: true, mode: 'shared', platform: 'win32' })
+
+    mod.packagedResourcesRoot()
+
+    expect(fs.existsSync(path.join(sharedRoot(), 'modes', 'Agent.json'))).toBe(false)
+    expect(fs.existsSync(path.join(sharedRoot(), 'modes', 'Agent.backup'))).toBe(false)
+    expect(fs.existsSync(path.join(sharedRoot(), 'modes', 'Assistant.json'))).toBe(true)
+    expect(fs.existsSync(path.join(sharedRoot(), 'modes', 'agent-pack'))).toBe(true)
+    expect(
+      fs.readFileSync(path.join(sharedRoot(), 'modes', 'agent-pack', 'readme.txt'), 'utf-8'),
+    ).toBe('new')
+  })
+
+  it('prunes a dropped preset whose name starts with ".."', async () => {
+    plantModes(tmpResources, { 'Assistant.json': 'new' })
+    plantModes(sharedRoot(), { '..cache.json': 'retired' })
+    writeBareMarker()
+    const mod = await loadAipgRoot({ isPackaged: true, mode: 'shared', platform: 'win32' })
+
+    mod.packagedResourcesRoot()
+
+    expect(fs.existsSync(path.join(sharedRoot(), 'modes', '..cache.json'))).toBe(false)
+  })
+
+  it('prunes only the shipped preset tree, leaving other writable files untouched', async () => {
+    plantModes(tmpResources, { 'Assistant.json': 'new' })
+    plantModes(sharedRoot(), { 'Agent.json': 'retired' })
+    fs.mkdirSync(path.join(sharedRoot(), 'models'), { recursive: true })
+    fs.writeFileSync(path.join(sharedRoot(), 'models', 'downloaded.json'), 'keep')
+    fs.mkdirSync(path.join(sharedRoot(), 'user-presets'), { recursive: true })
+    fs.writeFileSync(path.join(sharedRoot(), 'user-presets', 'mine.json'), 'mine')
+    writeBareMarker()
+    const mod = await loadAipgRoot({ isPackaged: true, mode: 'shared', platform: 'win32' })
+
+    mod.packagedResourcesRoot()
+
+    expect(fs.existsSync(path.join(sharedRoot(), 'modes', 'Agent.json'))).toBe(false)
+    expect(fs.readFileSync(path.join(sharedRoot(), 'models', 'downloaded.json'), 'utf-8')).toBe(
+      'keep',
+    )
+    expect(fs.readFileSync(path.join(sharedRoot(), 'user-presets', 'mine.json'), 'utf-8')).toBe(
+      'mine',
+    )
+  })
+
+  it.skipIf(process.platform === 'win32')(
+    'leaves a link inside the preset tree alone and its target untouched',
+    async () => {
+      const outside = path.join(tmpBase, 'outside')
+      fs.mkdirSync(outside, { recursive: true })
+      fs.writeFileSync(path.join(outside, 'secret.txt'), 'secret')
+      plantModes(tmpResources, { 'Assistant.json': 'new' })
+      fs.mkdirSync(path.join(sharedRoot(), 'modes'), { recursive: true })
+      fs.symlinkSync(outside, path.join(sharedRoot(), 'modes', 'planted-link'), 'dir')
+      writeBareMarker()
+      const mod = await loadAipgRoot({
+        isPackaged: true,
+        mode: 'shared',
+        platform: 'win32',
+      })
+
+      mod.packagedResourcesRoot()
+
+      expect(fs.lstatSync(path.join(sharedRoot(), 'modes', 'planted-link')).isSymbolicLink()).toBe(
+        true,
+      )
+      expect(fs.readFileSync(path.join(outside, 'secret.txt'), 'utf-8')).toBe('secret')
+    },
+  )
+
+  it('a second launch on the same build changes nothing', async () => {
+    plantModes(tmpResources, { 'Assistant.json': 'current' })
+    fs.writeFileSync(path.join(tmpResources, 'uv.exe'), 'from-bundle')
+    const first = await loadAipgRoot({ isPackaged: true, mode: 'shared', platform: 'win32' })
+    first.packagedResourcesRoot()
+    const marker = fs.readFileSync(path.join(sharedRoot(), '.aipg-seed-version'), 'utf-8')
+    fs.writeFileSync(path.join(sharedRoot(), 'user-added.txt'), 'mine')
+    fs.writeFileSync(path.join(sharedRoot(), 'modes', 'stale.json'), 'keep-on-match')
+
+    const second = await loadAipgRoot({ isPackaged: true, mode: 'shared', platform: 'win32' })
+
+    expect(second.packagedResourcesRoot()).toBe(sharedRoot())
+    expect(fs.readFileSync(path.join(sharedRoot(), '.aipg-seed-version'), 'utf-8')).toBe(marker)
+    expect(marker).toBe(second.seedId())
+    expect(fs.readFileSync(path.join(sharedRoot(), 'user-added.txt'), 'utf-8')).toBe('mine')
+    expect(fs.existsSync(path.join(sharedRoot(), 'modes', 'stale.json'))).toBe(true)
+  })
+
+  it('produces a marker unlike a bare version, with one warning, when the build has no identity', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    plantModes(tmpResources, { 'Assistant.json': 'new' })
+    fs.mkdirSync(sharedRoot(), { recursive: true })
+    writeBareMarker()
+    const mod = await loadAipgRoot({
+      isPackaged: true,
+      mode: 'shared',
+      platform: 'win32',
+      build: { commit: '', tag: '' },
+    })
+
+    mod.packagedResourcesRoot()
+
+    const marker = fs.readFileSync(path.join(sharedRoot(), '.aipg-seed-version'), 'utf-8')
+    expect(marker).not.toBe('0.0.0-test')
+    expect(marker).toContain('0.0.0-test')
+    expect(mod.seedId()).toBe('2|0.0.0-test|')
+    expect(warn).toHaveBeenCalledTimes(1)
   })
 })

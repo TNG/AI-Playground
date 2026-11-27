@@ -83,10 +83,21 @@ export function handleChatAnswer(payload: ChatAnswerPayload): void {
   }
   pending.delete(payload.requestId)
   if ('error' in payload) {
-    entry.reject(new Error(payload.error))
+    entry.reject(payload.declined ? declinedDownloadError(payload.error) : new Error(payload.error))
   } else {
     entry.resolve(payload.result)
   }
+}
+
+type DeclinedDownloadError = Error & { declinedDownload: true }
+
+function declinedDownloadError(message: string): DeclinedDownloadError {
+  return Object.assign(new Error(message), { declinedDownload: true as const })
+}
+
+/** Whether a question failed because the user declined the model download it needed. */
+export function isDeclinedDownload(error: unknown): boolean {
+  return (error as Partial<DeclinedDownloadError> | null)?.declinedDownload === true
 }
 
 /** Settles every outstanding question — the renderer that was asked is gone. */

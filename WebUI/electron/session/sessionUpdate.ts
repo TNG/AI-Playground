@@ -1,0 +1,186 @@
+import {
+  historyAsSeenBy,
+  type HistoryReader,
+  type SeenArtifact,
+  type SeenHistoryEntry,
+} from './historyArtifacts'
+import { readHistoryEntries } from './sessionHistory'
+import { mutateSession, readSession } from './sessions'
+import type { HistoryEntry } from '@/types/sessionIpc'
+
+const UPDATE_CAP = 1500
+const EXCERPT_CHARS = 120
+const LIST_PROMPT_CHARS = 80
+const HEADER = 'Session Update — what happened in this Session since your last turn:'
+
+/** A reader of Session Updates: an agent preset's Harness Session, or the Session's chat. */
+export type SessionUpdateConsumer = {
+  /** Its cursor's key in `session.json` `updateCursors`. */
+  key: string
+  /** Its own harness turns; chat-engine ones count only once replayed (`isOwn`). */
+  ownPreset?: string
+  /** Entries of this Harness Session are its own: an Agent Run's Steps and its Follow-ups. */
+  harnessSessionId?: string
+  /** A Follow-up's run, whose Steps may predate `harnessSessionId` and Session Update cursors. */
+  run?: { taskName: string; startedAt: number }
+  isOwn?: (entry: HistoryEntry) => boolean
+  /** The folders the consumer opens files from; without one, Session Folder paths. */
+  reader?: HistoryReader
+}
+
+export type SessionUpdateOptions = {
+  artifactPath?: (sessionRelativePath: string) => string
+}
+
+function excerpt(text: string, max: number): string {
+  const flat = text.replace(/\s+/g, ' ').trim()
+  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat
+}
+
+function clock(timestamp: number): string {
+  const date = new Date(timestamp)
+  const pad = (value: number) => String(value).padStart(2, '0')
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+/** How a line names an Artifact: its path, or that the reader cannot open it. */
+export function seenArtifactText(artifact: SeenArtifact, artifactPath = (p: string) => p): string {
+  return 'path' in artifact ? artifactPath(artifact.path) : `(${artifact.mediaType} not accessible)`
+}
+
+function outcomeOf(entry: SeenHistoryEntry, artifactPath: (p: string) => string): string {
+  if (entry.artifacts.length > 0) {
+    return entry.artifacts.map((artifact) => seenArtifactText(artifact, artifactPath)).join(', ')
+  }
+  if (entry.response) return `"${excerpt(entry.response, EXCERPT_CHARS)}"`
+  return `(${entry.status})`
+}
+
+function updateLine(entry: SeenHistoryEntry, artifactPath: (p: string) => string): string {
+  const prompt = excerpt(entry.prompt, EXCERPT_CHARS)
+  return `[${clock(entry.timestamp)}] ${entry.agentName ?? entry.preset}: "${prompt}" → ${outcomeOf(entry, artifactPath)}`
+}
+
+const omittedLine = (count: number) => `${count} earlier entries omitted — use \`session_history\``
+
+/** The templated digest of `entries` (oldest first), capped keeping the newest; null when empty. */
+export function buildSessionUpdate(
+  entries: SeenHistoryEntry[],
+  options: SessionUpdateOptions = {},
+): string | null {
+  if (entries.length === 0) return null
+  const artifactPath = options.artifactPath ?? ((p: string) => p)
+  const kept: string[] = []
+  let length = HEADER.length
+  for (let index = entries.length - 1; index >= 0; index--) {
+    const line = updateLine(entries[index], artifactPath)
+    const omitted = index > 0 ? omittedLine(index).length + 1 : 0
+    if (kept.length > 0 && length + line.length + 1 + omitted > UPDATE_CAP) break
+    kept.unshift(line)
+    length += line.length + 1
+  }
+  const omitted = entries.length - kept.length
+  return [HEADER, ...kept, ...(omitted > 0 ? [omittedLine(omitted)] : [])].join('\n')
+}
+
+/** A turn the user ran with this preset, not an Agent Run's. */
+export function isPresetTurn(entry: HistoryEntry, preset: string | undefined): boolean {
+  return !!preset && entry.preset === preset && !entry.taskName && !entry.agentId
+}
+
+function isOwnTurn(entry: HistoryEntry, consumer: SessionUpdateConsumer): boolean {
+  if (entry.kind !== 'chat' && isPresetTurn(entry, consumer.ownPreset)) return true
+  if (consumer.harnessSessionId && entry.harnessSessionId === consumer.harnessSessionId) return true
+  if (isLegacyStepOf(entry, consumer.run)) return true
+  return consumer.isOwn?.(entry) ?? false
+}
+
+function isLegacyStepOf(entry: HistoryEntry, run: SessionUpdateConsumer['run']): boolean {
+  return (
+    !!run &&
+    !entry.harnessSessionId &&
+    entry.taskName === run.taskName &&
+    entry.timestamp >= run.startedAt
+  )
+}
+
+function firstUnseen(entries: HistoryEntry[], consumer: SessionUpdateConsumer, cursor?: string) {
+  if (cursor) return entries.findIndex((entry) => entry.id === cursor) + 1
+  if (!consumer.run) return 0
+  const since = consumer.run.startedAt
+  const index = entries.findIndex((entry) => entry.timestamp >= since)
+  return index < 0 ? entries.length : index
+}
+
+async function advanceCursor(
+  sessionId: string,
+  key: string,
+  entries: HistoryEntry[],
+  cursor?: string,
+) {
+  const newest = entries.at(-1)
+  if (!newest || newest.id === cursor) return
+  await mutateSession(sessionId, (current) => ({
+    ...current,
+    updateCursors: { ...current.updateCursors, [key]: newest.id },
+  }))
+}
+
+/** Mark everything so far as seen without reporting it: an Agent Run starts with no context. */
+export async function skipSessionUpdate(
+  sessionId: string,
+  consumer: Pick<SessionUpdateConsumer, 'key'>,
+): Promise<void> {
+  const [file, entries] = await Promise.all([readSession(sessionId), readHistoryEntries(sessionId)])
+  await advanceCursor(sessionId, consumer.key, entries, file.updateCursors[consumer.key])
+}
+
+/**
+ * The consumer's Session Update since its last turn, advancing its cursor to the
+ * newest entry read — call it once when the turn starts.
+ */
+export async function takeSessionUpdate(
+  sessionId: string,
+  consumer: SessionUpdateConsumer,
+): Promise<string | null> {
+  const [file, entries] = await Promise.all([readSession(sessionId), readHistoryEntries(sessionId)])
+  const cursor = file.updateCursors[consumer.key]
+  const missed = entries
+    .slice(firstUnseen(entries, consumer, cursor))
+    .filter((entry) => !isOwnTurn(entry, consumer))
+  await advanceCursor(sessionId, consumer.key, entries, cursor)
+  return buildSessionUpdate(await historyAsSeenBy(sessionId, missed, consumer.reader))
+}
+
+export type SessionHistoryRow = { id: string; time: string; preset: string; prompt: string }
+
+/** `session_history list`: newest first, optionally one preset's entries, paged. */
+export async function listSessionHistory(
+  sessionId: string,
+  query: { preset?: string; limit?: number; offset?: number },
+): Promise<SessionHistoryRow[]> {
+  const offset = Math.max(0, query.offset ?? 0)
+  const limit = Math.max(1, query.limit ?? 20)
+  return (await readHistoryEntries(sessionId))
+    .filter((entry) => !query.preset || entry.preset === query.preset)
+    .reverse()
+    .slice(offset, offset + limit)
+    .map((entry) => ({
+      id: entry.id,
+      time: new Date(entry.timestamp).toISOString(),
+      preset: entry.preset,
+      prompt: excerpt(entry.prompt, LIST_PROMPT_CHARS),
+    }))
+}
+
+/** `session_history get`: one entry in full, Artifacts as `reader` sees them. */
+export async function getSessionHistoryEntry(
+  sessionId: string,
+  id: string,
+  reader?: HistoryReader,
+): Promise<SeenHistoryEntry | null> {
+  const entry = (await readHistoryEntries(sessionId)).find((candidate) => candidate.id === id)
+  if (!entry) return null
+  const [seen] = await historyAsSeenBy(sessionId, [entry], reader)
+  return seen
+}

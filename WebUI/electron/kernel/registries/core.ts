@@ -17,7 +17,8 @@ import z from 'zod'
 import { LocalSettingsSchema } from '../localSettings'
 import { ipcErrorText, ipcFail, typedSend } from '../typedIpc'
 import { hintFromError } from '../../adapters/backends/applicationControl.ts'
-import { revealFileInFolder, startFileDrag } from '../../adapters/osFileActions.ts'
+import { revealFileInFolder, saveFileCopy, startFileDrag } from '../../adapters/osFileActions.ts'
+import { isFolder } from '../../agent/hostPathContainment.ts'
 import type {
   CoreInvokeName,
   CoreSendName,
@@ -51,6 +52,7 @@ import type { DemoProfile, loadDemoProfile } from '../../persist/demoProfile'
 import type { getAudioDir } from '../../persist/userDataPaths'
 import type { saveGeneratedAudioFile } from '../../persist/audioFiles'
 import type { handleChatTelemetryEvent, laminarConfig } from '../../observability/laminar'
+import type { ComponentChanges } from '../componentChanges'
 import {
   collectComputeSnapshot,
   computeMetricsProbeReport,
@@ -88,10 +90,25 @@ import {
   startEmbeddingServer,
 } from '../../rag/embeddingServer'
 import { ingestDocument, retrieveChunks } from '../../rag/langchainCalls'
-import type { IpcMutationResult, IpcOk, IpcOkWith } from '@/types/ipcChannels'
+import type {
+  IpcMutationResult,
+  IpcOk,
+  IpcOkWith,
+  ComponentChangeResult,
+} from '@/types/ipcChannels'
 import type { SpeechSynthesisRequest } from '@/types/speechIpc'
 
 const execAsync = promisify(exec)
+
+/** A Component change refused because work holds it: a code and the kind of work. */
+function refusedChange(component: string, decision: ReturnType<ComponentChanges['change']>) {
+  if (decision.allowed) return null
+  return {
+    success: false as const,
+    error: `Cannot change ${component} while a ${decision.work} is in flight.`,
+    refusal: { code: decision.code, work: decision.work },
+  }
+}
 
 /**
  * Everything in main.ts the 76 flat-channel handlers close over — the wiring
@@ -175,6 +192,8 @@ export type CoreDeps = {
   HomeAgentBackendService: typeof HomeAgentBackendService
   Qwen3TtsBackendService: typeof Qwen3TtsBackendService
   WhisperBackendService: typeof WhisperBackendService
+  /** The in-use guard: install/repair/update/uninstall are refused while work holds a Component. */
+  componentChanges: ComponentChanges
 }
 
 export function buildCoreInvokeRegistry(deps: CoreDeps) {
@@ -493,35 +512,6 @@ export function buildCoreInvokeRegistry(deps: CoreDeps) {
       }
     },
 
-    // Persist an inbound Home Agent document (base64) to disk so the langchain
-    // RAG loaders (which require a real filepath) can index it, and so the
-    // persisted ragList entry keeps a stable path. Returns the absolute path.
-    saveHomeAgentDocument: async (
-      _event,
-      filename: string,
-      base64: string,
-    ): Promise<IpcOkWith<{ filepath: string }>> => {
-      const supportedExtensions = ['txt', 'md', 'doc', 'docx', 'pdf']
-      try {
-        if (typeof filename !== 'string' || typeof base64 !== 'string') {
-          return { success: false, error: 'invalid arguments' }
-        }
-        const safeName = path.basename(filename).replace(/[^\w.\-]+/g, '_')
-        const ext = safeName.includes('.') ? safeName.split('.').pop()!.toLowerCase() : ''
-        if (!supportedExtensions.includes(ext)) {
-          return { success: false, error: `unsupported document type (.${ext})` }
-        }
-        const ragDocumentsDir = path.join(deps.mediaDir, 'rag-documents')
-        await fs.promises.mkdir(ragDocumentsDir, { recursive: true })
-        const uniqueName = `${randomUUID()}-${safeName}`
-        const filePath = path.join(ragDocumentsDir, uniqueName)
-        await fs.promises.writeFile(filePath, Buffer.from(base64, 'base64'))
-        return { success: true, filepath: filePath }
-      } catch (e) {
-        return ipcFail(e)
-      }
-    },
-
     readAipgMediaAsBase64: async (
       _event,
       url: string,
@@ -574,6 +564,8 @@ export function buildCoreInvokeRegistry(deps: CoreDeps) {
       }
       return fs.existsSync(path)
     },
+
+    isFolderPath: (_event, folderPath: string) => isFolder(folderPath),
 
     getInitSetting: (event) => {
       const win = BrowserWindow.fromWebContents(event.sender)
@@ -703,6 +695,7 @@ export function buildCoreInvokeRegistry(deps: CoreDeps) {
     },
 
     getPlatform: () => process.platform,
+    getHomePath: () => app.getPath('home'),
 
     addDocumentToRAGList: (
       _event,
@@ -763,11 +756,26 @@ export function buildCoreInvokeRegistry(deps: CoreDeps) {
       return ''
     },
 
-    uninstall: (_event: IpcMainInvokeEvent, serviceName: string) => {
+    componentChangeAdmission: (
+      _event: IpcMainInvokeEvent,
+      serviceName: BackendServiceName,
+    ): ComponentChangeResult => {
+      const refusal = refusedChange(serviceName, deps.componentChanges.change(serviceName))
+      if (refusal) {
+        deps.appLogger.warn(`Refused to change ${serviceName}: it is in use`, 'electron-backend')
+        return refusal
+      }
+      return { success: true }
+    },
+
+    uninstall: async (
+      _event: IpcMainInvokeEvent,
+      serviceName: string,
+    ): Promise<ComponentChangeResult> => {
       const serviceRegistry = deps.getServiceRegistry()
       if (!serviceRegistry) {
         deps.appLogger.warn('received uninstall too early during aipg startup', 'electron-backend')
-        return
+        return { success: true }
       }
       const service = serviceRegistry.getService(serviceName)
       if (!service) {
@@ -775,9 +783,29 @@ export function buildCoreInvokeRegistry(deps: CoreDeps) {
           `Tried to uninstall service ${serviceName} which is not known`,
           'electron-backend',
         )
-        return
+        return { success: true }
       }
-      return service.uninstall()
+      const admission = deps.componentChanges.uninstall(
+        serviceName as BackendServiceName,
+        service.isRequired,
+      )
+      if (!admission.allowed) {
+        deps.appLogger.warn(
+          `Refused to uninstall required service ${serviceName}`,
+          'electron-backend',
+        )
+        return { success: false, error: admission.error }
+      }
+      const refusal = refusedChange(
+        serviceName,
+        deps.componentChanges.change(serviceName as BackendServiceName),
+      )
+      if (refusal) {
+        deps.appLogger.warn(`Refused to uninstall ${serviceName}: it is in use`, 'electron-backend')
+        return refusal
+      }
+      await service.uninstall()
+      return { success: true }
     },
 
     updateServiceSettings: (_event: IpcMainInvokeEvent, settings) => {
@@ -971,7 +999,10 @@ export function buildCoreInvokeRegistry(deps: CoreDeps) {
       return service.stop()
     },
 
-    setUpService: async (_event: IpcMainInvokeEvent, serviceName: BackendServiceName) => {
+    setUpService: async (
+      _event: IpcMainInvokeEvent,
+      serviceName: BackendServiceName,
+    ): Promise<ComponentChangeResult> => {
       const serviceRegistry = deps.getServiceRegistry()
       const win = deps.getWin()
       if (!serviceRegistry || !win) {
@@ -979,7 +1010,7 @@ export function buildCoreInvokeRegistry(deps: CoreDeps) {
           'received setup signal too early during aipg startup',
           'electron-backend',
         )
-        return
+        return { success: false, error: 'Service registry not ready' }
       }
       const service = serviceRegistry.getService(serviceName)
       if (!service) {
@@ -987,7 +1018,13 @@ export function buildCoreInvokeRegistry(deps: CoreDeps) {
           `Tried to set up service ${serviceName} which is not known`,
           'electron-backend',
         )
-        return
+        return { success: false, error: `Service ${serviceName} is not known` }
+      }
+
+      const refusal = refusedChange(serviceName, deps.componentChanges.change(serviceName))
+      if (refusal) {
+        deps.appLogger.warn(`Refused to set up ${serviceName}: it is in use`, 'electron-backend')
+        return refusal
       }
 
       // Never run two installs for the same service concurrently: they would run
@@ -1000,7 +1037,7 @@ export function buildCoreInvokeRegistry(deps: CoreDeps) {
           `Ignoring set up request for ${serviceName}: an installation is already in progress`,
           'electron-backend',
         )
-        return
+        return { success: true }
       }
       service.setUpInProgress = true
 
@@ -1043,6 +1080,7 @@ export function buildCoreInvokeRegistry(deps: CoreDeps) {
       } finally {
         service.setUpInProgress = false
       }
+      return { success: true }
     },
 
     ensureBackendReadiness: async (
@@ -1548,6 +1586,17 @@ export function buildCoreInvokeRegistry(deps: CoreDeps) {
           'electron-backend',
         )
         return undefined
+      }
+    },
+
+    saveMediaCopy: async (event, url) => {
+      try {
+        const filePath = getAssetPathFromUrl(url, deps)
+        if (!filePath) throw new Error(`Not a media file: ${url}`)
+        await saveFileCopy(event.sender, filePath)
+        return { success: true }
+      } catch (error) {
+        return ipcFail(error)
       }
     },
 

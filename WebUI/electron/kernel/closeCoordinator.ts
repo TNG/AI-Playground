@@ -14,6 +14,8 @@ export type CloseCoordinatorDeps = {
   /** Calls `refresh` periodically until the returned stop function runs. */
   whileAsking: (refresh: () => Promise<void>) => () => void
   quit: () => void
+  /** Marks the coming quit as a restart; runs only once the quit is decided. */
+  relaunch: () => void
   minimizeWindow: () => void
   suspendSchedules: () => void
   resumeSchedules: () => void
@@ -30,6 +32,7 @@ export function closeQuestion(work: InFlightWorkItem[]): CloseQuestion {
 
 export function createCloseCoordinator(deps: CloseCoordinatorDeps) {
   let open: Promise<CloseOutcome> | null = null
+  let restartRequested = false
 
   async function ask(work: InFlightWorkItem[]): Promise<CloseAnswer> {
     let shown = JSON.stringify(closeQuestion(work))
@@ -64,16 +67,25 @@ export function createCloseCoordinator(deps: CloseCoordinatorDeps) {
         return 'kept-open'
       }
     }
+    if (restartRequested) deps.relaunch()
     deps.quit()
     return 'quit'
   }
 
+  function requestClose(): Promise<CloseOutcome> {
+    open ??= decide().finally(() => {
+      open = null
+      restartRequested = false
+    })
+    return open
+  }
+
   return {
-    requestClose(): Promise<CloseOutcome> {
-      open ??= decide().finally(() => {
-        open = null
-      })
-      return open
+    requestClose,
+    /** A close that relaunches once quit; Keep open cancels both. An open close stays plain. */
+    requestRestart(): Promise<CloseOutcome> {
+      if (!open) restartRequested = true
+      return requestClose()
     },
   }
 }

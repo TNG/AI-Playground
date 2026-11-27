@@ -15,8 +15,8 @@ import { test, expect } from './fixtures'
 /**
  * The smallest chat model per backend, as of the current `WebUI/external/models.json`:
  * Qwen3.5-4B Q4_K_M (~2.5 GB) on llama.cpp and Qwen3.5-4B int4 on OpenVINO. Both
- * call tools and think, and both have a context window large enough that the Chat
- * settings' tool section fits. They are still the smallest LLMs left in the catalog,
+ * call tools and think, and both have a context window large enough for Assistant's
+ * default capabilities. They are still the smallest LLMs left in the catalog,
  * which is what keeps this download-bound spec from pulling a 9B.
  *
  * Hard-coded rather than derived: the library sorts by *on-disk* size, which is blank
@@ -37,7 +37,7 @@ const TARGETS = {
      * The picker offers exactly one of these, decided by the inference device:
      * ModelSelector hides `npuSupport` models on GPU and everything else on NPU.
      * Qwen3.5-9B is the GPU OpenVINO model; `Qwen3-8B-int4-cw-ov` is the NPU build
-     * the Assistant preset pins. The unload step above may have switched devices,
+     * Assistant switches to on the NPU. The unload step above may have switched devices,
      * so the restore takes whichever of the two this device is listing.
      */
     presetDefaults: ['Qwen3.5-9B-int4-ov', 'Qwen3-8B-int4-cw-ov'],
@@ -57,26 +57,26 @@ test('the model library lists, filters and round-trips a model through download,
   await app.installAllBackends()
 
   // Which backend the library is exercised for decides which model is downloaded, so
-  // it is settled first. As in the chat preset specs: llama.cpp on NVIDIA (where the
+  // it is settled first. As in the preset specs: llama.cpp on NVIDIA (where the
   // app filters OpenVINO out and the picker may not even be shown), and a random one
   // of the two on Intel/OpenVINO modes.
-  const presetActive = await app.main.selectPreset('Chat', 'Assistant')
+  const presetActive = await app.main.selectPreset('Assistant', 'Assistant')
   test.skip(!presetActive, 'The "Assistant" preset is not available in this product mode')
 
   let offered: string[] = []
   let backend: BackendLabel = 'llamaCPP - GGUF'
   await test.step('Pin the chat backend for this run', async () => {
-    await app.settings.open('Chat')
-    offered = await app.settings.availableBackends('Chat')
+    await app.settings.open()
+    offered = await app.settings.availableBackends()
     backend = offered.includes('OpenVINO')
       ? Math.random() < 0.5
         ? 'OpenVINO'
         : 'llamaCPP - GGUF'
       : 'llamaCPP - GGUF'
     if (offered.includes(backend)) {
-      await app.settings.selectBackend(backend, 'Chat')
+      await app.settings.selectBackend(backend)
     }
-    await app.settings.close('Chat')
+    await app.settings.close()
     test.info().annotations.push({ type: 'chat-backend', description: backend })
   })
 
@@ -102,14 +102,14 @@ test('the model library lists, filters and round-trips a model through download,
     expect(await app.models.rows.count()).toBe(1)
   })
 
-  await test.step('A search that matches nothing empties the table', async () => {
+  await test.step('A search that matches nothing empties the list', async () => {
     await app.models.search('no-such-model-anywhere')
     await app.models.expectRowAbsent(target.label)
     expect(await app.models.rows.count()).toBe(0)
     await app.models.search('')
   })
 
-  await test.step('The use-case sidebar filters to one kind of model', async () => {
+  await test.step('The use-case chips filter to one kind of model', async () => {
     await app.models.selectUseCase('Embedding')
     const labels = await app.models.visibleLabels()
     expect(labels.length).toBeGreaterThan(0)
@@ -139,6 +139,42 @@ test('the model library lists, filters and round-trips a model through download,
     // A mixed category always has more than one, so there it is live either way.
     await expect(app.models.backendFilter).toContainText('All backends')
     await expect(app.models.backendFilter).toBeEnabled()
+  })
+
+  await test.step('The filter and sort controls say what they do', async () => {
+    await expect(app.models.backendFilter).toContainText('Backend: ')
+    await expect(app.models.statusFilter).toContainText('Status: ')
+    await expect(app.models.sortControl).toHaveAccessibleName(/^Sort by: .+ ↑$/)
+    await expect(app.models.sortDirectionButton).toHaveAccessibleName('Ascending')
+    await app.models.sortDirectionButton.click()
+    await expect(app.models.sortControl).toHaveAccessibleName(/^Sort by: .+ ↓$/)
+    await expect(app.models.sortDirectionButton).toHaveAccessibleName('Descending')
+    await app.models.sortDirectionButton.click()
+    await expect(app.models.sortControl).toHaveAccessibleName(/^Sort by: .+ ↑$/)
+    await expect(app.models.capabilityFilters).toContainText('Capabilities')
+  })
+
+  await test.step('The result line counts the rows and "Clear filters" keeps the use case', async () => {
+    await app.models.selectUseCase('Embedding')
+    const unfiltered = await app.models.resultCounts()
+    expect(unfiltered.total).toBeGreaterThan(0)
+    expect(unfiltered.shown).toBe(unfiltered.total)
+    expect(await app.models.rows.count()).toBe(unfiltered.shown)
+    // The chosen chip is not a filter "Clear filters" would undo.
+    await expect(app.models.clearFiltersButton).toHaveCount(0)
+
+    await app.models.search('no-such-model-anywhere')
+    await expect(app.models.resultLine).toHaveText(`0 of ${unfiltered.total} models`)
+    await expect(app.models.clearFiltersButton).toBeVisible()
+
+    await app.models.clearFiltersButton.click()
+    await expect(app.models.searchBox).toHaveValue('')
+    await expect(app.models.useCaseChip('Embedding')).toHaveAttribute('aria-current', 'true')
+    await expect(app.models.resultLine).toHaveText(
+      `${unfiltered.total} of ${unfiltered.total} models`,
+    )
+    await expect(app.models.clearFiltersButton).toHaveCount(0)
+    await app.models.selectUseCase('All')
   })
 
   await test.step('Favoriting a model sorts it to the top of the library', async () => {
@@ -175,6 +211,7 @@ test('the model library lists, filters and round-trips a model through download,
   })
 
   await test.step('Selecting a downloadable model enables only the download action', async () => {
+    await expect(app.models.rowDownloadButton(target.label)).toBeVisible()
     await app.models.select(target.label)
     await expect(app.models.downloadSelectedButton).toBeEnabled()
     // Nothing selected is on disk, so deletion stays unavailable.
@@ -195,14 +232,15 @@ test('the model library lists, filters and round-trips a model through download,
     )
     expect(outcome).toBe('downloaded')
     await app.models.expectDownloaded(target.label, true, 60_000)
+    await expect(app.models.rowDownloadButton(target.label)).toHaveCount(0)
   })
 
   await app.models.close()
 
   await test.step('The downloaded model is usable in a preset without a download', async () => {
-    await app.settings.open('Chat')
+    await app.settings.open()
     await app.settings.selectModel(target.label)
-    await app.settings.close('Chat')
+    await app.settings.close()
 
     await app.main.sendPrompt(PROMPT)
     // The whole point of downloading from the library: the model is on disk, so the
@@ -224,9 +262,9 @@ test('the model library lists, filters and round-trips a model through download,
     // machine with a single device has nothing to switch to, and llama.cpp loads
     // without mmap anyway, so the delete is asserted either way. The next spec's
     // installAllBackends() re-pins every preset to the default GPU.
-    await app.settings.open('Chat')
-    const switched = await app.settings.selectOtherDevice('Chat')
-    await app.settings.close('Chat')
+    await app.settings.open()
+    const switched = await app.settings.selectOtherDevice()
+    await app.settings.close()
     test.info().annotations.push({
       type: 'model-unload',
       description: switched
@@ -251,16 +289,16 @@ test('the model library lists, filters and round-trips a model through download,
   })
 
   await test.step('Put the "Assistant" preset back on its default model', async () => {
-    // The model picked in Chat settings is saved *per preset* and outlives this spec.
-    // Restore the preset's own default explicitly, the way the Text-to-Speech flow
+    // The model picked in the Inferencing tab outlives this spec. Restore the preset's
+    // own default explicitly, the way the Text-to-Speech flow
     // re-pins its voice, so a later spec is not left on the 4B this one downloaded.
     //
     // Whichever build this device offers: the step above deliberately moved the
     // inference device to unload the model, and on OpenVINO that decides which
     // variant the picker lists at all (see TARGETS).
-    await app.settings.open('Chat')
+    await app.settings.open()
     const restored = await app.settings.selectFirstOfferedModel(target.presetDefaults)
     test.info().annotations.push({ type: 'preset-default-restored', description: restored })
-    await app.settings.close('Chat')
+    await app.settings.close()
   })
 })

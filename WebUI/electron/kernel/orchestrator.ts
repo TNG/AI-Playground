@@ -11,20 +11,20 @@
 // - the typed queue (`KernelRequestMap`): text turns (chat occupancy) and
 //   artifact runs, plus a request lane for whole media-request brackets.
 //   Artifact `queue` submissions (media nested in a turn) park FIFO on the
-//   artifact queue; panel and Home Agent runs (`turn`) are Turn Queue members.
+//   artifact queue; panel runs (`turn`) are Turn Queue members.
 //   Queue lifecycle crosses the kernel bus as `queue-event`.
 // - the GPU window: which side holds the GPU, the LLM⇄ComfyUI swap, the
 //   skip-when-queued rule (a spritesheet costs one swap, not one per sprite),
 //   and the wait for open chat HTTP before stopping a backend mid-stream — no
 //   proceed-anyway bound.
-// - chat readiness admission: Chat, Agent, and Home Agent `/load` occupy as
+// - chat readiness admission: Chat and Agent occupy as
 //   `text` requests first; `ensureChatBackendReady` then loads with
 //   `skipGpuAdmission` because the window wait already happened.
 //
 // - the Turn Queue: text requests that `joinsTurnQueue` (agent turns, local and
-//   cloud; local Chat and Home Agent turns; title summaries) and panel / Home
-//   Agent media runs hold one exclusive place for their whole turn and wait FIFO
-//   for it. Cloud Chat / Home Agent turns stay outside it. Media nested in the
+//   cloud; local Chat turns; title summaries) and panel
+//   media runs hold one exclusive place for their whole turn and wait FIFO
+//   for it. Cloud Chat turns stay outside it. Media nested in the
 //   holder's turn runs within it (same conversation key); members still waiting
 //   never block it. Waiting members
 //   carry their 1-based position and the holder's kind of work on `queue-event`
@@ -35,7 +35,7 @@
 //   before it continues. The yield and the reclaim are separate on purpose: a
 //   run reclaims when it next needs the model, not when the user answers, so a
 //   nested generation still finishing for it can never wait on the place.
-//   Panel / Home Agent runs ask for their missing models as they are submitted;
+//   Panel runs ask for their missing models as they are submitted;
 //   one that gets the place while the user is still deciding gives it up the
 //   same way and takes it back at the front once answered. Media nested in a
 //   turn asks at submit too, as a pause of that turn, before it is admitted.
@@ -52,6 +52,8 @@ import { registerUserWaitQueue } from './userWait'
 import type { PauseReason, TurnWork } from '@/types/kernelEvents'
 import type { ArtifactRunMode } from '@/types/artifactIpc'
 import type { OpenArtifactRun } from '@/types/lifecycleIpc'
+import type { BackendServiceName } from '@/assets/js/store/backendServices'
+import type { HeldComponent } from '@/types/componentChange'
 import {
   artifactRunActive,
   artifactRunTag,
@@ -78,6 +80,8 @@ export type TextRequest = {
   joinsTurnQueue?: boolean
   /** Lets a waiting member say what it waits for. */
   work?: TurnWork
+  /** The Component this turn occupies (a local LLM backend); absent for cloud turns. */
+  component?: BackendServiceName
   /** Makes the member pausable: it gives up its place while the user is asked something. */
   pause?: TurnPause
 }
@@ -126,6 +130,8 @@ export type OrchestratorDeps = {
   restartChatBackend(): Promise<void>
   /** In-flight /v1/chat/completions requests (chat turns, media specialists, summarize). */
   chatRequestsOpen(): number
+  /** Holds or work changed: recompute which Components are in use. */
+  onWorkHoldsChanged?(): void
 }
 
 let orchestratorDeps: OrchestratorDeps | null = null
@@ -172,7 +178,7 @@ const textOccupancy = new Map<string, TextOccupancy>()
 // submission order, each with the callback that hands it the place.
 let turnHolder: string | null = null
 const turnQueue: Array<{ runId: string; take: () => void; drop: () => void }> = []
-// Panel / Home Agent runs that are Turn Queue members, from submission until they
+// Panel runs that are Turn Queue members, from submission until they
 // settle, each with the abort that withdraws or cancels it.
 const turnMemberRuns = new Map<string, AbortController>()
 // Runs nested in a turn while their models are checked or the user is asked for them.
@@ -244,6 +250,34 @@ export function mediaRequestsQueued(): number {
   return mediaRequestQueue.length
 }
 
+/**
+ * Components held by work in flight here: a local turn's or Agent Run's backend,
+ * and ComfyUI while any media run (or a media-request bracket) is open.
+ */
+export function openComponentHolds(): HeldComponent[] {
+  const holds: HeldComponent[] = []
+  for (const entry of textOccupancy.values()) {
+    if (!entry.component) continue
+    holds.push({
+      component: entry.component,
+      work: entry.work === 'agent' ? 'agent-run' : 'turn',
+    })
+  }
+  if (
+    openArtifactModes.size > 0 ||
+    mediaRequestActive ||
+    mediaRequestQueue.length > 0 ||
+    admittedArtifactRuns > 0
+  ) {
+    holds.push({ component: 'comfyui-backend', work: 'media-run' })
+  }
+  return holds
+}
+
+function notifyWorkHoldsChanged(): void {
+  orchestratorDeps?.onWorkHoldsChanged?.()
+}
+
 export function textRequestsOpen(): number {
   return textOccupancy.size
 }
@@ -281,7 +315,7 @@ function unrelatedLocalTextOpen(conversationKey?: string): boolean {
 // ── Artifact run queue ────────────────────────────────────────────────────────
 
 /**
- * Submits a resolved run. `queue: 'turn'` (panel / Home Agent) joins the Turn
+ * Submits a resolved run. `queue: 'turn'` (panel) joins the Turn
  * Queue: it waits FIFO with turns for the place and holds it while it runs.
  * `'queue'` (chat tool lanes, in-process agent tools) parks FIFO on the artifact
  * queue and may run nested inside its parent turn, never behind waiting members.
@@ -291,8 +325,12 @@ export function submitArtifactRun(
   options: { queue: 'turn' | 'queue' } = { queue: 'turn' },
 ): Promise<ArtifactRunResult> {
   openArtifactModes.set(payload.runId, payload.mode)
+  notifyWorkHoldsChanged()
   const run = options.queue === 'turn' ? runAsTurnMember(payload) : runInTurn(payload)
-  return run.finally(() => openArtifactModes.delete(payload.runId))
+  return run.finally(() => {
+    openArtifactModes.delete(payload.runId)
+    notifyWorkHoldsChanged()
+  })
 }
 
 const DECLINED: RunModelsOutcome = { state: 'declined' }
@@ -317,7 +355,8 @@ async function runInTurn(submitted: ArtifactRunPayload): Promise<ArtifactRunResu
     } finally {
       preflightCancels.delete(payload.runId)
     }
-    if (outcome.state !== 'ready' || cancel.signal.aborted) {
+    if (cancel.signal.aborted) return settleUnstartedRun(payload)
+    if (outcome.state !== 'ready') {
       return settleUnstartedRun(payload, outcome)
     }
     payload = { ...payload, modelsConsented: true }
@@ -407,7 +446,9 @@ function settleUnstartedRun(
   const result: ArtifactRunResult =
     models?.state === 'failed'
       ? { state: 'failed', items: [], error: models.error }
-      : cancelledRun()
+      : models?.state === 'declined'
+        ? { ...cancelledRun('The user declined the model download.'), declined: true }
+        : cancelledRun()
   emitArtifactPhase(artifactRunTag(payload), result.state, undefined, result.error)
   emitArtifactFinished(payload)
   return result
@@ -633,6 +674,7 @@ export async function submitTextRequest(request: TextRequest, signal?: AbortSign
     throw new Error(`Text request ${request.runId} is already occupying the queue`)
   }
   textOccupancy.set(request.runId, { ...request, phase: 'waiting', userWaits: [], yielded: false })
+  notifyWorkHoldsChanged()
   // Joined before announcing, so the enqueued event already carries its position.
   const place = request.joinsTurnQueue ? takeTurnPlace(request.runId, signal) : null
   emitQueueEvent({
@@ -676,6 +718,7 @@ export function finishTextRequest(runId: string): void {
   const entry = textOccupancy.get(runId)
   if (!entry) return
   textOccupancy.delete(runId)
+  notifyWorkHoldsChanged()
   leaveTurnQueue(runId)
   emitQueueEvent({
     runKey: runId,
@@ -972,6 +1015,7 @@ export function runMediaRequest<T>(
       const index = mediaRequestQueue.indexOf(entry)
       if (index === -1) return
       mediaRequestQueue.splice(index, 1)
+      notifyWorkHoldsChanged()
       emitQueueEvent({
         runKey: entry.runKey,
         kind: 'media-request',
@@ -983,6 +1027,7 @@ export function runMediaRequest<T>(
     }
     options.abortSignal?.addEventListener('abort', onAbort, { once: true })
     mediaRequestQueue.push(entry)
+    notifyWorkHoldsChanged()
     emitQueueEvent({
       runKey: options.runKey,
       kind: 'media-request',
@@ -999,6 +1044,7 @@ function drainMediaRequestLane(): void {
   const entry = mediaRequestQueue.shift()
   if (!entry) return
   mediaRequestActive = true
+  notifyWorkHoldsChanged()
   void (async () => {
     try {
       if (entry.abortSignal?.aborted) {
@@ -1028,6 +1074,7 @@ function drainMediaRequestLane(): void {
         conversationKey: entry.conversationKey,
       })
       mediaRequestActive = false
+      notifyWorkHoldsChanged()
       drainMediaRequestLane()
     }
   })()
@@ -1147,8 +1194,44 @@ async function considerRelease(): Promise<void> {
 }
 
 /**
+ * Hands the GPU back to chat for a panel media run's Overview Summary update.
+ * The run still holds the Turn Queue's place, so this skips `considerRelease`'s
+ * skip-when-queued rule: queued media waits for its own admission, and the run
+ * that needs the summary gets the chat model before it settles.
+ */
+export async function prepareChatForSettlement(): Promise<void> {
+  if (!orchestratorDeps || gpuWindow !== 'media') return
+  if (swapBackInFlight) {
+    await swapBackInFlight.catch(() => {})
+    return
+  }
+  const deps = orchestratorDeps
+  gpuWindow = 'chat'
+  swapBackInFlight = (async () => {
+    try {
+      await deps.freeComfyMemory()
+    } catch (error) {
+      appLogger.warn(`Freeing image models failed: ${String(error)}`, 'electron-backend')
+    }
+    try {
+      await deps.restartChatBackend()
+    } catch (error) {
+      appLogger.warn(
+        `Could not load the chat model again after generating: ${String(error)}`,
+        'electron-backend',
+      )
+    }
+  })()
+  try {
+    await swapBackInFlight
+  } finally {
+    swapBackInFlight = null
+  }
+}
+
+/**
  * Resolves once the GPU window is back on chat and no swap-back is running.
- * Chat, Agent, and Home Agent `/load` wait here via `submitTextRequest`.
+ * Chat and Agent wait here via `submitTextRequest`.
  * No proceed-anyway bound: abort the signal (cancel the turn) to give up.
  */
 export async function awaitChatWindow(signal?: AbortSignal): Promise<void> {

@@ -1,20 +1,61 @@
+import { z } from 'zod'
 import type { ChannelKind } from '@/assets/js/store/channels/types'
 import type { PauseReason } from './kernelEvents'
 
-/** Where a Notification goes, and whether it can go at all. */
-export type NotificationRoute = {
-  /** The title-bar master toggle is on and the Home Agent backend is running. */
-  homeAgentEnabled: boolean
-  notificationChannel: ChannelKind | null
+/** The Harness Session an Answer runs in, and the Session it belongs to. */
+export const AnswerTargetSchema = z.object({ sessionRef: z.string(), harnessSessionId: z.string() })
+export type AnswerTarget = z.infer<typeof AnswerTargetSchema>
+
+/** Who sent a channel message: a live Harness Session, or one that has since been deleted. */
+export type SessionMessageOwner = AnswerTarget | { deletedSession: true }
+
+/** A posted Start Prompt Request, which the message map records with no Session. */
+export const StartPromptRequestOwnerSchema = z.object({ startPromptRequest: z.literal(true) })
+export type StartPromptRequestOwner = z.infer<typeof StartPromptRequestOwnerSchema>
+
+/** A live Trial Run that sent a channel message: its Harness Session and its Agent (ADR 0011). */
+export const TrialRunOwnerSchema = z.object({
+  trialRun: z.literal(true),
+  harnessSessionId: z.string(),
+  agentId: z.string(),
+})
+export type TrialRunOwner = z.infer<typeof TrialRunOwnerSchema>
+
+/** A Trial Run thrown away since it sent the message: by the next one, a discard, or a restart. */
+export const ThrownAwayTrialRunSchema = z.object({
+  thrownAwayTrialRun: z.literal(true),
+  agentId: z.string(),
+})
+export type ThrownAwayTrialRun = z.infer<typeof ThrownAwayTrialRunSchema>
+
+export type TrialRunMessageOwner = TrialRunOwner | ThrownAwayTrialRun
+
+/** A channel message in the message map: a Session's, a Trial Run's, or a Start Prompt Request. */
+export type ChannelMessageOwner =
+  SessionMessageOwner | TrialRunMessageOwner | StartPromptRequestOwner
+
+export function isStartPromptRequest(owner: ChannelMessageOwner): owner is StartPromptRequestOwner {
+  return 'startPromptRequest' in owner
 }
 
-/** Who sent a channel message: a live agent session, or one that has since been deleted. */
-export type ChannelMessageOwner = { sessionId: string } | { deletedSession: true }
+export function isAnswerTarget(owner: ChannelMessageOwner): owner is AnswerTarget {
+  return 'sessionRef' in owner
+}
+
+export function isTrialRunOwner(owner: ChannelMessageOwner): owner is TrialRunOwner {
+  return 'trialRun' in owner
+}
+
+export function isTrialRunMessage(owner: ChannelMessageOwner): owner is TrialRunMessageOwner {
+  return isTrialRunOwner(owner) || 'thrownAwayTrialRun' in owner
+}
 
 /** Automatic Notification texts in the app language. */
 export type NotificationTemplates = {
-  /** First line of every agent's Notification: `{title}` (a label) */
+  /** First line of an Agent Run's, a Trial Run's or an agent preset's Notification: `{title}` */
   header: string
+  /** First line of a Notification from a Session's Assistant: `{title}` (a label) */
+  assistantHeader: string
   /** `{title}` (a label), `{reason}` */
   paused: string
   /** `{kind}`, `{summary}` */
@@ -24,10 +65,10 @@ export type NotificationTemplates = {
   failed: string
   /** The label of a session, quoted: `{title}` */
   sessionLabel: string
-  /** The label of a Task run: `{task}`, `{step}`, `{steps}` */
-  taskLabel: string
-  /** The title of a session with no title. */
+  /** The title of a session with no title, as the desktop shows it. */
   untitled: string
+  /** The name of a Trial Run's Agent with no name. */
+  untitledAgent: string
   /** Label of the 💬 Answer button under an answerable Notification. */
   answerButton: string
   /** Last line of a Notification from a session that cannot be answered remotely. */
@@ -36,15 +77,23 @@ export type NotificationTemplates = {
   answerInThread: string
   /** Last line of an answerable Notification on a channel answered by replying to the message. */
   answerByReply: string
+  /** Told on each Channel whose queued messages a quit drops: `{count}` */
+  queueDroppedOnQuit: string
+  /** An Agent Run a Channel started: `{name}` (the Agent), `{title}` (the Session's label) */
+  agentStarted: string
+  /** The label of a Trial Run's Notification: `{agent}` (the Agent's name) */
+  trialRunLabel: string
 }
 
-/** What main needs from the window to deliver a Notification (docs/adr/0003). */
-export type NotificationConfig = NotificationRoute & {
-  /** Background Sessions notify when they pause or fail. */
-  autoNotify: boolean
-  /** The Agent Mode session open on screen; null while Agent Mode is not shown. */
-  sessionInView: string | null
-  /** Sessions whose folder uses the real system shell; Answers to them are refused. */
+/** What main needs from the window to deliver a Notification (docs/adr/0010). */
+export type NotificationConfig = {
+  /** The enabled, verified Channels; empty while the Channels toggle is off. */
+  channels: ChannelKind[]
+  /** The Session open in the window, shown or not; null when none is. */
+  sessionOnScreen: string | null
+  /** The Harness Session of the Trial Run the Agent Library shows, shown or not; null when none. */
+  trialRunInView: string | null
+  /** Harness Sessions whose folder uses the real system shell; Answers to them are refused. */
   realShellSessions: string[]
   templates: NotificationTemplates
 }

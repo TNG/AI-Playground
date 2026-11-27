@@ -1,0 +1,176 @@
+import { randomUUID } from 'node:crypto'
+import { appLoggerInstance } from '../observability/logger'
+import { emitSessionChanged } from '../kernel/kernelBus'
+import { followSessionTitle } from './appWorkspace'
+import { moveGeneratedIntoWorkspace, type WorkspaceFile } from './sessionWorkspace'
+import { settleTurn, type TurnSettlement } from './sessionSettlement'
+import { mutateSession, sessionDocumentOf } from './sessions'
+import { afterTurn, type TitleSource } from './sessionTitle'
+import type { MediaItem } from '@/types/mediaItem'
+import type { HistoryArtifact, HistoryEntryKind, SessionDocument } from '@/types/sessionIpc'
+import type { MediaTurnData, MediaTurnStatus, TimelineMessage } from '@/types/sessionTimeline'
+
+const LOG_SCOPE = 'sessions'
+
+export type MediaTurn = {
+  sessionId: string
+  runId: string
+  mode: MediaTurnData['mode']
+  preset: string
+  variant?: string
+  prompt: string
+  status: MediaTurnStatus
+  error?: string
+  durationMs?: number
+  /** The run's finished items, still pointing at ComfyUI's output directory. */
+  items: MediaItem[]
+  /** Slots a failed or cancelled run left without a result; kept so the card keeps their box. */
+  unfinished?: MediaItem[]
+  /** Resolves an `aipg-media://` URL to the file it names, or null when it names none. */
+  localPathOf: (url: string) => string | null
+}
+
+const KIND_OF_MODE: Record<MediaTurn['mode'], HistoryEntryKind> = {
+  imageGen: 'image',
+  imageEdit: 'edit',
+  video: 'video',
+}
+
+/** Moves the media-folder file behind `url` into the Session's Workspace; null leaves it there. */
+export async function adoptMediaFile(
+  sessionId: string,
+  url: string | undefined,
+  localPathOf: (url: string) => string | null,
+): Promise<WorkspaceFile | null> {
+  if (!url?.startsWith('aipg-media://media/')) return null
+  const source = localPathOf(url)
+  if (!source) return null
+  try {
+    return await moveGeneratedIntoWorkspace(sessionId, source)
+  } catch (error) {
+    appLoggerInstance.warn(`could not move ${source} into its Session: ${error}`, LOG_SCOPE)
+    return null
+  }
+}
+
+function withoutInlineImages(item: MediaItem): MediaItem {
+  const inline = (value: unknown) => typeof value === 'string' && value.startsWith('data:')
+  return {
+    ...item,
+    sourceImageUrl: inline(item.sourceImageUrl) ? undefined : item.sourceImageUrl,
+    dynamicSettings: item.dynamicSettings?.map((input) =>
+      inline(input.current) ? { ...input, current: '' as never } : input,
+    ),
+  } as MediaItem
+}
+
+type AdoptedItem = { item: MediaItem; artifact?: HistoryArtifact }
+
+async function adoptItem(turn: MediaTurn, item: MediaItem): Promise<AdoptedItem> {
+  const mainUrl =
+    item.type === 'image' ? item.imageUrl : item.type === 'video' ? item.videoUrl : item.model3dUrl
+  const main = await adoptMediaFile(turn.sessionId, mainUrl, turn.localPathOf)
+  const thumbnail =
+    item.type === 'image'
+      ? null
+      : await adoptMediaFile(turn.sessionId, item.thumbnailUrl, turn.localPathOf)
+  const patch: Partial<MediaItem> = {}
+  if (main) {
+    if (item.type === 'image') Object.assign(patch, { imageUrl: main.url })
+    else if (item.type === 'video') Object.assign(patch, { videoUrl: main.url })
+    else Object.assign(patch, { model3dUrl: main.url })
+  }
+  if (thumbnail) Object.assign(patch, { thumbnailUrl: thumbnail.url })
+  return {
+    item: withoutInlineImages({ ...item, ...patch } as MediaItem),
+    artifact: main ? { ...main.artifact, mediaType: item.type } : undefined,
+  }
+}
+
+/**
+ * Settles a panel run into its Session; returns its items as moved into `files/`.
+ * A panel run carries the renderer-resolved summariser and the GPU handoff its
+ * Overview Summary update needs (the run still holds the Turn Queue's place).
+ */
+export async function recordMediaTurn(
+  turn: MediaTurn,
+  settlement: Pick<TurnSettlement, 'summariser' | 'beforeSummary'> = {},
+): Promise<MediaItem[]> {
+  const adopted: AdoptedItem[] = []
+  for (const item of turn.items) adopted.push(await adoptItem(turn, item))
+  const items = adopted.map(({ item }) => item)
+
+  const written = await settleTurn(
+    turn.sessionId,
+    {
+      preset: turn.preset,
+      variant: turn.variant,
+      kind: KIND_OF_MODE[turn.mode],
+      prompt: turn.prompt,
+      status: turn.status,
+      artifacts: adopted.flatMap(({ artifact }) => (artifact ? [artifact] : [])),
+    },
+    { ...settlement, summariserAdmitted: true },
+  )
+
+  const now = Date.now()
+  const metadata = written ? { metadata: { historyEntryId: written.id } } : {}
+  const messages: TimelineMessage[] = [
+    {
+      id: `msg-${randomUUID()}`,
+      role: 'user',
+      createdAt: now,
+      parts: [{ type: 'text', text: turn.prompt }],
+      ...metadata,
+    },
+    {
+      id: `msg-${randomUUID()}`,
+      role: 'assistant',
+      createdAt: now,
+      ...metadata,
+      parts: [
+        {
+          type: 'data-media',
+          data: {
+            runId: turn.runId,
+            mode: turn.mode,
+            preset: turn.preset,
+            variant: turn.variant,
+            status: turn.status,
+            error: turn.error,
+            durationMs: turn.durationMs,
+            items: [...items, ...(turn.unfinished ?? []).map(withoutInlineImages)],
+          },
+        },
+      ],
+    },
+  ]
+  await appendTurnToTimeline(turn.sessionId, {
+    title: { kind: KIND_OF_MODE[turn.mode], preset: turn.preset, prompt: turn.prompt },
+    messages,
+    at: now,
+  })
+  return items
+}
+
+/**
+ * Appends a settled turn's messages to the Session's display timeline, titles
+ * an untitled Session from it and tells the renderer.
+ */
+export async function appendTurnToTimeline(
+  sessionId: string,
+  turn: { title: TitleSource; messages: TimelineMessage[]; at: number },
+): Promise<SessionDocument> {
+  const file = await mutateSession(sessionId, (current) => ({
+    ...current,
+    ...afterTurn(current, turn.title),
+    timeline: [...current.timeline, ...turn.messages],
+    updatedAt: Math.max(turn.at, current.updatedAt),
+  }))
+  const document = sessionDocumentOf(file)
+  emitSessionChanged(document)
+  await followSessionTitle(sessionId).catch((error) =>
+    appLoggerInstance.warn(`could not rename the Workspace: ${String(error)}`, LOG_SCOPE),
+  )
+  return document
+}

@@ -1,0 +1,56 @@
+import { sessionTimelineItems, withoutMessageHiding } from '@/lib/sessionTimeline'
+import type { PendingAudio, PendingMedia, SessionTimelineItem } from '@/lib/turnTypes'
+import type { AgentRunTag, AgentTurnTag } from '@/types/sessionTimeline'
+
+export type TrialRunView = {
+  harnessSessionId: string
+  presetName: string
+  taskRun: AgentRunTag
+  /** The Harness Session record's messages, which carry no timeline tag of their own. */
+  saved: readonly { id: string }[]
+  /** The runtime's messages while a turn is streaming. */
+  live?: readonly { id: string }[]
+  /** Set while the Trial Run's own turn is in flight. */
+  inFlight?: boolean
+}
+
+/**
+ * A Trial Run is the Agent Library's, not a Session's: its turns are a
+ * transcript to read, so none of them is re-runnable, editable or deletable.
+ */
+function asTranscript<M extends PendingMedia, A extends PendingAudio>(
+  items: SessionTimelineItem<M, A>[],
+): SessionTimelineItem<M, A>[] {
+  for (const item of items) {
+    if (item.kind !== 'agent') continue
+    const { harnessTurn: _harnessTurn, ...footer } = item.footer
+    item.footer = {
+      ...footer,
+      actions: footer.actions.filter((action) => action !== 'regenerate' && action !== 'delete'),
+    }
+    if (item.prompt?.editable) item.prompt.editable = false
+  }
+  return items
+}
+
+/** A Trial Run as the Session timeline shows an Agent Run: its start bubble, then ordinary Turns. */
+export function trialRunItems<
+  M extends PendingMedia = PendingMedia,
+  A extends PendingAudio = PendingAudio,
+>(view: TrialRunView): SessionTimelineItem<M, A>[] {
+  const tag: AgentTurnTag = {
+    presetName: view.presetName,
+    harnessSessionId: view.harnessSessionId,
+    taskRun: view.taskRun,
+  }
+  const timeline = view.saved.map((message) => ({
+    ...message,
+    metadata: { ...(message as { metadata?: object }).metadata, agentTurn: tag },
+  }))
+  const items = sessionTimelineItems<M, A>(timeline, {
+    agents: view.live ? [{ tag, messages: view.live, live: true }] : [],
+    ...(view.inFlight ? { agentRunsInFlight: [view.harnessSessionId] } : {}),
+  })
+  // A Trial Run is the Agent Library's, not a Session's: none of it is hidden.
+  return asTranscript(withoutMessageHiding(items))
+}

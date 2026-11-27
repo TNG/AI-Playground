@@ -1,21 +1,8 @@
 import { type Locator, type Page, expect } from '@playwright/test'
 import { reportingAppErrors } from '../appErrors'
 
-/**
- * Prompt-area mode labels (accessible names of the mode buttons), which are also
- * what the mode's settings sidebar is named after ("<Mode> Settings").
- */
-export type ChatMode = 'Chat' | 'Audio' | 'Image Gen' | 'Image Edit' | 'Video'
-
-/**
- * An agent preset's label as the app displays it ("Agent Maker", "Acer Game Agent"),
- * read with {@link MainPage.activePresetLabel}. Agent Mode has no mode button, so its
- * sidebar is named after the preset instead — OEM-branded, hence read, not spelled.
- */
-export type AgentPresetLabel = string & { readonly __agentPresetLabel: true }
-
-/** What a settings sidebar and its prompt-area button are named after. */
-export type SettingsOwner = ChatMode | AgentPresetLabel
+/** Prompt-area mode labels (accessible names of the mode buttons). */
+export type PromptBarMode = 'Assistant' | 'Audio' | 'Image Gen' | 'Image Edit' | 'Video'
 
 /**
  * Page object for the running main view: the prompt area (mode switch, prompt
@@ -51,9 +38,12 @@ export class MainPage {
    * button and the transient disabled "Stopping" button.
    */
   get busyButton(): Locator {
-    return this.page
-      .getByRole('button', { name: 'Stop generating' })
-      .or(this.page.getByRole('button', { name: 'Stopping' }))
+    return this.page.getByRole('button', { name: 'Stop generating' }).or(this.stoppingButton)
+  }
+
+  /** The disabled spinner between Stop and Send, while main releases a stopped Turn. */
+  get stoppingButton(): Locator {
+    return this.page.getByRole('button', { name: 'Stopping' })
   }
 
   /**
@@ -63,6 +53,65 @@ export class MainPage {
    */
   get generatedImages(): Locator {
     return this.page.getByRole('img', { name: 'Generated result' })
+  }
+
+  /** The newest generated-media card's action toolbar (copy, zoom, save, …). */
+  get resultToolbar(): Locator {
+    return this.page.getByRole('toolbar', { name: 'File actions' }).last()
+  }
+
+  /**
+   * The newest image's toolbar is hidden until the image is hovered, and shown without
+   * hover once the device reports it cannot hover. Reads computed opacity, because
+   * `toBeVisible()` counts an element at opacity 0 as visible.
+   */
+  async expectResultToolbarRevealedOnHover(): Promise<void> {
+    const toolbar = this.resultToolbar
+    const opacity = () => toolbar.evaluate((el) => Number(getComputedStyle(el).opacity))
+    if (!(await this.page.evaluate(() => matchMedia('(any-hover: hover)').matches))) {
+      await expect.poll(opacity, { message: 'toolbar shown where nothing can hover' }).toBe(1)
+      return
+    }
+    await this.page.mouse.move(0, 0)
+    await this.page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+    await expect.poll(opacity, { message: 'toolbar hidden before hover' }).toBe(0)
+    await this.generatedImages.last().hover()
+    await expect.poll(opacity, { message: 'toolbar shown on hover' }).toBe(1)
+    await this.page.mouse.move(0, 0)
+    await expect.poll(opacity, { message: 'toolbar hidden again after hover' }).toBe(0)
+
+    // Touch emulation switches off both `hover` and `any-hover` in Blink's settings.
+    const cdp = await this.page.context().newCDPSession(this.page)
+    try {
+      await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 })
+      expect(
+        await this.page.evaluate(() => matchMedia('(any-hover: hover)').matches),
+        'touch emulation should make Chromium report that no input can hover',
+      ).toBe(false)
+      await expect.poll(opacity, { message: 'toolbar shown where nothing can hover' }).toBe(1)
+    } finally {
+      await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: false }).catch(() => {})
+      await cdp.detach().catch(() => {})
+    }
+  }
+
+  /** Deletes the newest image through its toolbar and the confirm dialog; its card then says so. */
+  async deleteNewestResult(): Promise<void> {
+    const images = this.generatedImages
+    const before = await images.count()
+    const deletedBefore = await this.page
+      .getByRole('status')
+      .filter({ hasText: 'File deleted' })
+      .count()
+    await images.last().hover()
+    await this.resultToolbar.getByRole('button', { name: 'Delete file' }).click()
+    const dialog = this.page.getByRole('alertdialog', { name: 'Delete this file?' })
+    await dialog.getByRole('button', { name: 'Delete', exact: true }).click()
+    await expect(dialog).toBeHidden()
+    await expect(images).toHaveCount(before - 1)
+    await expect(this.page.getByRole('status').filter({ hasText: 'File deleted' })).toHaveCount(
+      deletedBefore + 1,
+    )
   }
 
   /** Generated video result(s), in either the chat panel or the direct Video panel. */
@@ -76,9 +125,9 @@ export class MainPage {
   }
 
   /**
-   * The <audio> player rendered by ChatTtsToolResult in the last assistant turn. It
+   * The <audio> player of the audio card (AudioArtifactCard) in the last assistant turn. It
    * appears only once synthesis succeeds AND the saved WAV has been loaded into a
-   * playback source (before that the bubble shows "Loading audio…"), so its presence
+   * playback source (before that the card shows a placeholder), so its presence
    * is a strong success signal for a Text-to-Speech turn.
    */
   get ttsAudioPlayer(): Locator {
@@ -142,7 +191,7 @@ export class MainPage {
    * The prompt-area attachment file input (the "+" control). Present only when the
    * active preset allows an attachment: a vision chat model (image) or a RAG preset
    * (document). Used for chat-mode attachments; ComfyUI reference images are set in
-   * the settings sidebar instead (see {@link SpecificSettingsPage.attachReferenceImages}).
+   * the Attributes tab instead (see {@link SpecificSettingsPage.attachReferenceImages}).
    */
   get chatAttachmentInput(): Locator {
     return this.page.getByLabel('Attach image or document')
@@ -208,6 +257,11 @@ export class MainPage {
     }
   }
 
+  /** The "Source Docs" badge on the last assistant turn, shown when it searched documents. */
+  get sourceDocsBadge(): Locator {
+    return this.assistantResponses.last().getByRole('button', { name: 'Source Docs' })
+  }
+
   /** The collapsible "reasoning" trace toggle(s) in the last assistant turn. */
   get reasoningBlocks(): Locator {
     return this.assistantResponses.last().getByRole('button', { name: /Reasoning/i })
@@ -234,8 +288,11 @@ export class MainPage {
     ).not.toMatch(/using the preset\s+unknown/i)
   }
 
-  modeButton(label: ChatMode): Locator {
-    return this.page.getByRole('button', { name: label, exact: true })
+  /** Scoped to the Mode buttons: the Assistant preset's own tile is a button named "Assistant" too. */
+  modeButton(label: PromptBarMode): Locator {
+    return this.page
+      .getByRole('group', { name: 'Mode', exact: true })
+      .getByRole('button', { name: label, exact: true })
   }
 
   /**
@@ -252,21 +309,27 @@ export class MainPage {
     return this.page.locator(`[data-aipg-preset-name="${name}"]`)
   }
 
+  /**
+   * Hover the Assistant Mode button and assert its picker is one flat row like every
+   * other Mode's: no "Agent" group and no Manage Agents button. Leaves it closed.
+   */
+  async expectFlatAssistantPicker(): Promise<void> {
+    await this.modeButton('Assistant').hover()
+    const card = this.presetCard('Assistant')
+    await card.waitFor({ state: 'visible', timeout: 15_000 })
+    const picker = this.page.getByRole('dialog').filter({ has: card })
+    await expect(picker.getByRole('group', { name: 'Agent', exact: true })).toHaveCount(0)
+    await expect(picker.getByRole('button', { name: 'Manage Agents…' })).toHaveCount(0)
+    await this.page.keyboard.press('Escape')
+    // The picker opens on pointerenter, so the next hover of this button must re-enter it.
+    await this.page.mouse.move(0, 0)
+  }
+
   /** The active-preset indicator at the top-left of the input. Its accessible
    *  name is `Active preset: <name>` (a live `status` region), so it's the
    *  stable signal that an async preset switch has landed. */
   activePresetIndicator(name: string): Locator {
     return this.page.getByRole('status', { name: `Active preset: ${name}` })
-  }
-
-  /** The active preset's display label, off the indicator that {@link selectPreset} waits on. */
-  async activePresetLabel(): Promise<AgentPresetLabel> {
-    const prefix = 'Active preset: '
-    const name = await this.page
-      .getByRole('status', { name: new RegExp(`^${prefix}`) })
-      .getAttribute('aria-label')
-    if (!name?.startsWith(prefix)) throw new Error('No active preset indicator')
-    return name.slice(prefix.length) as AgentPresetLabel
   }
 
   /**
@@ -276,7 +339,7 @@ export class MainPage {
    * leaving nothing open — when the preset isn't offered for this mode, so
    * callers can skip. On success the picker has closed and the switch completed.
    */
-  async selectPreset(mode: ChatMode, preset: string): Promise<boolean> {
+  async selectPreset(mode: PromptBarMode, preset: string): Promise<boolean> {
     // Hovering the button opens the picker; it stays open while the pointer
     // rests there, and moving onto a preset card keeps it open too.
     await this.modeButton(mode).hover()
@@ -406,7 +469,7 @@ export class MainPage {
 
   /**
    * Wait for a Text-to-Speech turn to finish and render a playable audio result.
-   * The synthesizeTextToSpeech tool emits a ChatTtsToolResult bubble with an
+   * The synthesizeTextToSpeech tool emits an AudioArtifactCard with an
    * `<audio controls>` element once the WAV is produced and loaded.
    */
   async waitForTtsAudio(timeout: number = MainPage.TEXT_TIMEOUT): Promise<void> {
@@ -440,40 +503,18 @@ export class MainPage {
     })
   }
 
-  /**
-   * MCP tool-call cards (ChatMcpToolDisplay) in the last assistant turn. Each card's
-   * header reads "MCP tool call - <serverId> MCP - <toolName>", so a card scoped to a
-   * server id is proof the agent actually invoked one of that server's tools rather
-   * than answering from memory.
-   */
-  mcpToolCallCards(serverId: string): Locator {
-    return this.assistantResponses
-      .last()
-      .getByText(new RegExp(`MCP tool call - ${serverId} MCP`, 'i'))
+  /** Open the last turn's details, where an agent turn shows its tool calls. */
+  async openLastTurnDetails(): Promise<void> {
+    const details = this.page.getByRole('button', { name: /^Turn Details:/ }).last()
+    await expect(details, 'the turn should list what it did').toBeVisible({ timeout: 15_000 })
+    if ((await details.getAttribute('aria-expanded')) !== 'true') await details.click()
   }
 
-  /**
-   * A completed MCP tool-call card for `serverId`: the card's clickable header holds
-   * both the "MCP tool call - <serverId> MCP - …" title and the "Completed" state pill,
-   * so filtering the header div on both proves the tool call resolved successfully.
-   */
-  mcpToolCallCompleted(serverId: string): Locator {
-    return this.assistantResponses
-      .last()
-      .locator('div.cursor-pointer')
-      .filter({ hasText: new RegExp(`MCP tool call - ${serverId} MCP`, 'i') })
-      .filter({ hasText: 'Completed' })
-  }
-
-  /** Wait until the last turn shows at least one MCP tool call for `serverId`. */
-  async waitForMcpToolCall(
-    serverId: string,
-    timeout: number = MainPage.TEXT_TIMEOUT,
-  ): Promise<void> {
-    await expect(
-      this.mcpToolCallCards(serverId).first(),
-      `expected the agent to invoke an MCP tool from the "${serverId}" server`,
-    ).toBeVisible({ timeout })
+  /** Tool-call cards named after one of `toolNames`, in the open turn details. */
+  toolCallCards(toolNames: readonly string[]): Locator {
+    return this.page.getByRole('group', {
+      name: new RegExp(`^Tool call: (${toolNames.join('|')})$`),
+    })
   }
 
   /** The hidden audio-upload input rendered by the Speech-to-Text preset surface. */

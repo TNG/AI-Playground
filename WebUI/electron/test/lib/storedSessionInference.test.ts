@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { storedSessionInference, type StoredInferenceCatalog } from '@/lib/storedSessionInference'
 
 // What a turn runs on when it is built from an Agent Session's stored settings
-// rather than from the live panel controls: the same model, backend, device,
-// window and sampling the session chose, resolved against today's catalogs.
+// rather than from the live panel controls: the same model, backend, window and
+// sampling the session chose, on the machine's selected device, resolved against today's catalogs.
 
 const catalog = (overrides: Partial<StoredInferenceCatalog> = {}): StoredInferenceCatalog => ({
   models: [
@@ -109,7 +109,29 @@ describe('storedSessionInference', () => {
     expect(inference.temperature).toBe(0.2)
   })
 
-  it('names the stored device even while another one is selected', () => {
+  it('bounds the stored max tokens by the window, falling back to the preset’s', () => {
+    const stored = storedSessionInference(
+      { backend: 'llamaCPP', selectedModels: { llamaCPP: 'Stored-27B' }, maxTokens: 100000 },
+      catalog(),
+    )
+    expect(stored.inference.maxTokens).toBe(100000)
+    expect(stored.inference.effectiveMaxTokens).toBe(4096)
+
+    const fallback = storedSessionInference(
+      { backend: 'llamaCPP', selectedModels: { llamaCPP: 'Stored-27B' } },
+      catalog({ presetMaxTokens: 2048 }),
+    )
+    expect(fallback.inference.effectiveMaxTokens).toBe(2048)
+  })
+
+  it('carries the stored system prompt', () => {
+    expect(storedSessionInference({ systemPrompt: 'Be terse.' }, catalog()).systemPrompt).toBe(
+      'Be terse.',
+    )
+    expect(storedSessionInference({}, catalog()).systemPrompt).toBeUndefined()
+  })
+
+  it('runs on the selected device, ignoring one an older Session stored', () => {
     const { inference } = storedSessionInference(
       {
         backend: 'llamaCPP',
@@ -119,23 +141,30 @@ describe('storedSessionInference', () => {
       },
       catalog(),
     )
-    expect(inference.getCurrentDeviceId()).toBe('1')
-    expect(inference.getCurrentDeviceName()).toBe('Arc A770')
+    expect(inference.getCurrentDeviceId()).toBe('0')
+    expect(inference.getCurrentDeviceName()).toBe('Arc B580')
   })
 
-  it('caps the window for an OpenVINO session stored on the NPU', () => {
-    const { inference } = storedSessionInference(
-      {
-        backend: 'openVINO',
-        selectedModels: { openVINO: 'Ov-8B' },
-        selectedDeviceId: 'NPU',
-        contextSize: 32768,
-      },
-      catalog(),
+  it('caps the window for an OpenVINO session while the NPU is selected', () => {
+    const { inference, tools } = storedSessionInference(
+      { backend: 'openVINO', selectedModels: { openVINO: 'Ov-8B' }, contextSize: 32768 },
+      catalog({
+        services: [
+          {
+            backend: 'openVINO',
+            baseUrl: 'http://127.0.0.1:29000',
+            devices: [
+              { id: 'GPU.0', name: 'Arc B580' },
+              { id: 'NPU', name: 'Intel NPU', selected: true },
+            ],
+          },
+        ],
+      }),
     )
     expect(inference.localBackendUrl).toBe('http://127.0.0.1:29000')
     expect(inference.contextSize).toBe(32768)
     expect(inference.effectiveContextWindow).toBe(8192)
+    expect(tools.onNpu).toBe(true)
   })
 
   it('uses the stored embedding model for document search', () => {
@@ -192,19 +221,30 @@ describe('storedSessionInference', () => {
 
   it('carries the stored tool toggles', () => {
     const defaults = storedSessionInference({ backend: 'llamaCPP' }, catalog()).tools
-    expect(defaults).toEqual({ toolDelegationEnabled: true, builtinToolEnablement: {} })
+    expect(defaults).toEqual({
+      toolDelegationEnabled: true,
+      builtinToolEnablement: {},
+      builtinToolPresetEnablement: {},
+      builtinToolDefaultPresets: {},
+      onNpu: false,
+    })
 
     const stored = storedSessionInference(
       {
         backend: 'llamaCPP',
         toolDelegationEnabled: false,
         builtinToolEnablement: { transcribeAudio: false },
+        builtinToolPresetEnablement: { 'Draft Image': false },
+        builtinToolDefaultPresets: { 'comfyUI:image': 'HD Image' },
       },
       catalog(),
     ).tools
     expect(stored).toEqual({
       toolDelegationEnabled: false,
       builtinToolEnablement: { transcribeAudio: false },
+      builtinToolPresetEnablement: { 'Draft Image': false },
+      builtinToolDefaultPresets: { 'comfyUI:image': 'HD Image' },
+      onNpu: false,
     })
   })
 })

@@ -41,9 +41,12 @@ const capabilities = ref<ModelCapabilityValues>(llmCapabilityDefaults())
 const errorMessage = ref('')
 const busy = ref(false)
 const animate = ref(false)
+const dialog = ref<HTMLDivElement | null>(null)
 
 onMounted(() => {
   animate.value = true
+  // Opened from a control outside it, so Escape would otherwise never reach the handler below.
+  dialog.value?.focus()
   // An NVIDIA install runs no OVMS, and its models are filtered out of the table
   // — adding one would write a row nobody can see.
   if (productMode.isNvidiaModeSelected) backend.value = 'llamaCPP'
@@ -158,15 +161,18 @@ async function submit() {
       class="dialog-mask absolute left-0 top-0 flex h-full w-full items-center justify-center bg-background/70"
     >
       <div
+        ref="dialog"
         role="dialog"
         aria-modal="true"
+        tabindex="-1"
         :aria-label="languages.REQUEST_LLM_MODEL_NAME"
-        class="flex max-h-[85vh] w-140 flex-col gap-4 overflow-y-auto rounded-2xl bg-card p-8 text-foreground shadow-2xl"
+        class="flex max-h-[85vh] w-140 flex-col gap-4 overflow-y-auto rounded-2xl bg-card p-8 text-foreground shadow-2xl outline-none"
         :class="{ 'animate-scale-in': animate }"
+        @keydown.esc="emit('close')"
       >
         <h2 class="text-lg font-semibold">{{ languages.REQUEST_LLM_MODEL_NAME }}</h2>
 
-        <div class="flex flex-col gap-1 rounded-lg border border-yellow-600 bg-yellow-600/10 p-3">
+        <div class="flex flex-col gap-1 rounded-lg border border-warning bg-warning/10 p-3">
           <p class="text-sm">{{ languages.REQUEST_LLM_MODEL_DISCLAIMER_1 }}</p>
           <p class="text-sm">{{ languages.REQUEST_LLM_MODEL_DISCLAIMER_2 }}</p>
         </div>

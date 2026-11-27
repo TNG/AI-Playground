@@ -15,6 +15,8 @@ export type SessionPromptPort = {
   whenTurnEnds: (conversationKey: string) => Promise<void>
   /** The channel Answer that started that session's turn in flight, if one did. */
   answerOrigin: (conversationKey: string) => AgentAnswerOrigin | undefined
+  /** That session's turn may ask on Channels: a Channel caused it, or its Session is reachable. */
+  reachesChannels: (conversationKey: string) => boolean
 }
 
 let registered: SessionPromptPort | null = null
@@ -40,6 +42,10 @@ export function isAgentSessionTurn(conversationKey: string | undefined): boolean
 
 export function sessionAnswerOrigin(conversationKey: string): AgentAnswerOrigin | undefined {
   return registered?.answerOrigin(conversationKey)
+}
+
+export function sessionTurnReachesChannels(conversationKey: string): boolean {
+  return !!registered?.reachesChannels(conversationKey)
 }
 
 /** Names a session or Task run the way Notifications do. */

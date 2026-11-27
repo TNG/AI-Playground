@@ -5,7 +5,6 @@ import { piAgentDir } from './piSessionStore.ts'
 import { localBaseUrl } from './piLocalEndpoint.ts'
 import { observeAgentModelCalls, trackAgentModelCalls } from './piCallTiming.ts'
 import { cloudReasoningRegistration } from './piCloudReasoning.ts'
-import { laminarConfig } from '../observability/laminar.ts'
 import { type InferenceTraceContext } from '../observability/laminarAttributes.ts'
 import type { AgentModeModelConfig } from '@/types/agentIpc'
 import { outputTokenBudget } from './piCompaction.ts'
@@ -18,6 +17,12 @@ export const CLOUD_DEFAULT_CONTEXT_WINDOW = 128000
 
 export function modelContextWindow(config: AgentModeModelConfig): number {
   return config.contextWindow ?? (config.source === 'cloud' ? CLOUD_DEFAULT_CONTEXT_WINDOW : 8192)
+}
+
+/** What one step may generate: Pi's budget for the window, or less when the user asked for less. */
+export function modelMaxTokens(config: AgentModeModelConfig): number {
+  const budget = outputTokenBudget(modelContextWindow(config), config.source)
+  return config.maxOutputTokens ? Math.min(budget, config.maxOutputTokens) : budget
 }
 
 let modelRuntime: ModelRuntime | null = null
@@ -63,14 +68,14 @@ export async function registerModel(
           reasoning: false,
           input: modelInput(config),
           contextWindow,
-          maxTokens: outputTokenBudget(contextWindow, 'local'),
+          maxTokens: modelMaxTokens(config),
           cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
           compat: { supportsDeveloperRole: false, supportsReasoningEffort: false },
         },
       ],
     })
     await runtime.setRuntimeApiKey(LOCAL_PROVIDER, 'unused')
-    observeModelCallsWhenTracing(() => localBaseUrl(config))
+    observeAgentModelCalls(() => localBaseUrl(config))
     trackAgentModelCalls(() => localBaseUrl(config))
     return { provider: LOCAL_PROVIDER, modelId: config.model }
   }
@@ -96,7 +101,7 @@ export async function registerModel(
         name: config.model,
         input: modelInput(config),
         contextWindow,
-        maxTokens: outputTokenBudget(contextWindow, 'cloud'),
+        maxTokens: modelMaxTokens(config),
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
         // Thinking dialect, from the provider base. Pi's detectCompat only
         // recognizes a few hosts, and a resold GLM is not one of them.
@@ -109,19 +114,14 @@ export async function registerModel(
     ],
   })
   await runtime.setRuntimeApiKey(CLOUD_PROVIDER, apiKey)
-  observeModelCallsWhenTracing(() => apiBase)
+  observeAgentModelCalls(() => apiBase)
   return { provider: CLOUD_PROVIDER, modelId: config.model }
-}
-
-function observeModelCallsWhenTracing(endpoint: () => string): void {
-  if (laminarConfig()) observeAgentModelCalls(endpoint)
 }
 
 export function traceContext(
   config: AgentModeModelConfig,
   getSampling: () => Record<string, unknown> | undefined,
 ): () => InferenceTraceContext {
-  const contextWindow = modelContextWindow(config)
   return () => {
     const sampling = getSampling() ?? {}
     const kwargs = (sampling.chat_template_kwargs ?? {}) as Record<string, unknown>
@@ -137,7 +137,7 @@ export function traceContext(
       sampling: {
         ...(typeof sampling.temperature === 'number' ? { temperature: sampling.temperature } : {}),
         ...(typeof sampling.top_p === 'number' ? { topP: sampling.top_p } : {}),
-        maxTokens: outputTokenBudget(contextWindow, config.source),
+        maxTokens: modelMaxTokens(config),
       },
     }
   }
@@ -145,14 +145,14 @@ export function traceContext(
 
 /**
  * A private copy of the turn's sampling, deep enough that switching thinking off
- * cannot reach back into the caller's config object. A traced llama.cpp turn also
- * asks the server to report its own timings, the way chat always does.
+ * cannot reach back into the caller's config object. A llama.cpp turn also asks the
+ * server to report its own timings, the way chat does.
  */
 export function copySamplingParams(
   params: Record<string, unknown> | undefined,
   backend: 'llamaCPP' | 'openVINO' | undefined,
 ): Record<string, unknown> | undefined {
-  const timings = backend === 'llamaCPP' && laminarConfig() ? { timings_per_token: true } : {}
+  const timings = backend === 'llamaCPP' ? { timings_per_token: true } : {}
   if (!params) return Object.keys(timings).length > 0 ? timings : undefined
   const kwargs = params.chat_template_kwargs
   return {

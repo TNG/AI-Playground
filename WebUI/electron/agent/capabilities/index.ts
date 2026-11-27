@@ -2,15 +2,19 @@ import type { ExtensionFactory, ToolDefinition } from '@earendil-works/pi-coding
 import { appLoggerInstance } from '../../observability/logger.ts'
 import type { SkillSource } from '../piCustomTools.ts'
 import { createCapabilitiesExtension } from './core.ts'
+import { filesCapability } from './files.ts'
 import { gameStudioCapability, gameStudioQuickCapability } from './gameStudio.ts'
 import { mediaCapability } from './media.ts'
 import { mcpCapability, mcpCapabilityId, mcpServerIdOf } from './mcp.ts'
 import { memoryCapability } from './memory.ts'
 import { notifyCapability } from './notify.ts'
+import { overviewCapability } from './overview.ts'
 import { ragCapability } from './rag.ts'
 import { webDebugCapability } from './webDebug.ts'
 import { webCapability } from './web.ts'
+import { webScreenshotCapability } from './webScreenshot.ts'
 import type { PlanningEnd } from '../planningPhase.ts'
+import { capabilityModelGateReason } from '@/lib/modelToolUse'
 import {
   estimateToolTokens,
   expandCapabilityIds,
@@ -42,11 +46,14 @@ export { DEFAULT_CAPABILITY_IDS } from '@/types/agentCapabilities'
 
 /** Built-in capabilities, in the order their tools are registered. */
 const BUILT_IN_CAPABILITIES: AgentCapability[] = [
+  filesCapability,
   webDebugCapability,
   webCapability,
+  webScreenshotCapability,
   mediaCapability,
   memoryCapability,
   ragCapability,
+  overviewCapability,
   notifyCapability,
   gameStudioCapability,
   gameStudioQuickCapability,
@@ -111,7 +118,9 @@ export async function resolveCapabilities(
   for (const id of wantedIds) {
     const capability = byId.get(id)
     if (!capability) continue
-    const reason = capability.unavailableReason?.(host)
+    const reason =
+      (host.modelToolUse && capabilityModelGateReason(id, host.modelToolUse)) ||
+      capability.unavailableReason?.(host)
     if (reason) {
       logger.info(`capability '${id}' unavailable: ${reason}`, LOG_SOURCE)
       continue
@@ -218,6 +227,8 @@ export type CapabilityInfo = {
   requires: string[]
   /** Slash commands the capability answers, runnable straight from settings. */
   commands: CapabilityCommand[]
+  /** Set when only a preset naming the capability offers it (see `AgentCapability.presetOwned`). */
+  presetOwned?: boolean
   unavailableReason?: string
 }
 
@@ -235,6 +246,7 @@ export function listCapabilities(
         summary: capability.summary,
         requires: capability.requires ?? [],
         commands: capability.commands ?? [],
+        ...(capability.presetOwned ? { presetOwned: true } : {}),
         ...(reason ? { unavailableReason: reason } : {}),
       }
     })

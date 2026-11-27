@@ -6,6 +6,7 @@ import {
   emitAgentChunk,
   emitAgentToolProgress,
   emitAgentTurnDone,
+  emitAgentTurnRewound,
   emitAgentTurnState,
 } from '../kernel/kernelBus.ts'
 import { closeAllBrowserSessions, closeBrowserSession } from './agentBrowser.ts'
@@ -24,7 +25,9 @@ import {
   type StreamChunk,
   type TurnSummary,
 } from './piStreamTranslate.ts'
-import type { AgentModeTurnConfig } from '@/types/agentIpc'
+import { HARNESS_TURN_REFUSALS, type AgentModeTurnConfig } from '@/types/agentIpc'
+import type { HistoryEntry } from '@/types/sessionIpc'
+import type { BackendServiceName } from '@/assets/js/store/backendServices'
 import type { IpcMutationResult } from '@/types/ipcChannels'
 import { clearPointer, readSessionStore, savePointer } from './piSessionStore.ts'
 import { briefly, LOG_SOURCE, verboseLogging } from './piAgentLog.ts'
@@ -36,14 +39,34 @@ import {
   type AgentTurn,
 } from './piAgentState.ts'
 import {
+  effectiveHostShell,
   endActiveSession,
   ensureSession,
   reapplySession,
   releaseTurnSession,
 } from './piSessionLifecycle.ts'
 import { agentRunIdentity } from './agentRunIdentity.ts'
-import { reportAgentTurnEnd } from './agentTurnOutcome.ts'
-import { noteAnswerTurn } from './notifier.ts'
+import { agentWorkspaceOverride } from './turnFolders.ts'
+import { reportAgentTurnEnd, type AgentTurnEnd } from './agentTurnOutcome.ts'
+import { trackAgentTurnInSession } from '../session/sessionAgentTurns.ts'
+import {
+  assertAgentWorkspacePresent,
+  assertSessionWorkspacePresent,
+  turnWorkspaceDir,
+} from '../session/sessionWorkspace.ts'
+import {
+  claimSessionTurn,
+  releaseSessionTurn,
+  SESSION_BUSY_MESSAGE,
+} from '../session/sessionTurns.ts'
+import { skipSessionUpdate, takeSessionUpdate } from '../session/sessionUpdate.ts'
+import {
+  answerSpeaks,
+  forgetHarnessSession,
+  noteAnswerTurn,
+  noteResultTurn,
+  noteTurnCapabilities,
+} from './notifier.ts'
 import { downloadedMissingReadinessModels } from './agentModelConsent.ts'
 import { setAgentRunIdentity } from '../observability/laminarAttributes.ts'
 import {
@@ -58,6 +81,23 @@ import {
   setLastChatBackendLoadActive,
   setTurnChatBackendLoad,
 } from '../chat/chatReadiness.ts'
+import { turnAttachments, withAttachmentReferences } from './workspaceAttachments.ts'
+import { collectAgentCallTimings, turnTimings } from './piCallTiming.ts'
+import { markHarnessTurn, rewindHarnessTurn } from './harnessTurns.ts'
+import { removeHistoryEntries } from '../session/sessionHistory.ts'
+import { removeTimelineMessagesOfTurn } from '../session/sessionTimeline.ts'
+import { removeAgentSessionMessagesOfTurn } from '../persist/agentSessionFiles.ts'
+import {
+  beginTurnJournal,
+  deleteSessionJournals,
+  deleteTurnJournal,
+  endTurnJournal,
+  restoreTurnJournal,
+  turnJournalHostShell,
+} from './workspaceJournal.ts'
+import { computeWindowSince } from '../adapters/hardware/computeMetrics.ts'
+import type { LlamaCppTimings } from '../chat/turnEngine.ts'
+import { documentsLine } from './sessionDocuments.ts'
 
 const logger = appLoggerInstance
 
@@ -175,6 +215,23 @@ function logEvent(event: AgentSessionEvent): void {
   }
 }
 
+/** What the answer's metrics footer shows; a cloud turn ran on someone else's card. */
+function answerMetrics(
+  config: AgentModeTurnConfig,
+  calls: LlamaCppTimings[],
+  startedAt: number,
+): Pick<TurnSummary, 'timings' | 'compute'> {
+  const timings = turnTimings(calls)
+  if (config.modelConfig.source === 'cloud') return timings ? { timings } : {}
+  const compute = computeWindowSince(startedAt, config.modelConfig.deviceName)
+  return { ...(timings ? { timings } : {}), compute }
+}
+
+/** The whole prompt, cache hits included — Pi's own `input` leaves them out. */
+function promptTokens(input: number, cacheRead: number, cacheWrite: number): number {
+  return input + cacheRead + cacheWrite
+}
+
 /** Usage + context occupancy at this moment, read off the live session. */
 function turnSummary(session: AgentSession): TurnSummary {
   const summary: TurnSummary = {}
@@ -183,7 +240,7 @@ function turnSummary(session: AgentSession): TurnSummary {
     const tokens = stats.tokens
     if (tokens) {
       summary.usage = {
-        inputTokens: tokens.input,
+        inputTokens: promptTokens(tokens.input, tokens.cacheRead, tokens.cacheWrite),
         outputTokens: tokens.output,
         cacheReadTokens: tokens.cacheRead,
         cacheWriteTokens: tokens.cacheWrite,
@@ -226,7 +283,11 @@ function lastStepUsage(session: AgentSession): StepUsage | undefined {
     if (!usage) return undefined
     const number = (value: unknown) => (typeof value === 'number' ? value : 0)
     return {
-      inputTokens: number(usage.input),
+      inputTokens: promptTokens(
+        number(usage.input),
+        number(usage.cacheRead),
+        number(usage.cacheWrite),
+      ),
       outputTokens: number(usage.output),
       cacheReadTokens: number(usage.cacheRead),
     }
@@ -341,6 +402,36 @@ const USAGE_SAMPLE_EVENTS = new Set([
   'compaction_end',
 ])
 
+/** The Session Update rides on the user message only: the system prompt is the KV-cache prefix. */
+async function withSessionUpdate(
+  prompt: string,
+  config: AgentModeTurnConfig,
+  session: Pick<ActiveSession, 'replayedEntryIds' | 'historyReader'>,
+): Promise<string> {
+  if (!config.sessionRef) return prompt
+  try {
+    const replayed = new Set(session.replayedEntryIds)
+    const consumer = {
+      key: config.sessionId,
+      harnessSessionId: config.sessionId,
+      ...(config.followUp ? {} : { ownPreset: config.presetName }),
+      ...(config.followedRun ? { run: config.followedRun } : {}),
+      reader: session.historyReader,
+      isOwn: (entry: HistoryEntry) => replayed.has(entry.id),
+    }
+    // A run's own turn gets none, but its Follow-ups must hear only what happened since.
+    if (config.taskRun) {
+      await skipSessionUpdate(config.sessionRef, consumer)
+      return prompt
+    }
+    const update = await takeSessionUpdate(config.sessionRef, consumer)
+    return update ? `${update}\n\n${prompt}` : prompt
+  } catch (error) {
+    logger.warn(`no Session Update for this turn: ${briefly(error)}`, LOG_SOURCE)
+    return prompt
+  }
+}
+
 export async function startAgentTurn(
   turnId: string,
   prompt: string,
@@ -350,15 +441,87 @@ export async function startAgentTurn(
   if (agentTurns.has(sessionId)) {
     return { success: false, error: 'This session already has a turn in flight.' }
   }
+  const sessionRef = config.sessionRef
+  if (
+    sessionRef &&
+    !claimSessionTurn(sessionRef, {
+      turnId,
+      kind: 'agent',
+      presetName: config.presetName,
+      harnessSessionId: sessionId,
+    })
+  ) {
+    return { success: false, error: SESSION_BUSY_MESSAGE }
+  }
   const abortController = new AbortController()
   const turn: AgentTurn = { sessionId, turnId, abort: abortController, live: null }
   agentTurns.set(sessionId, turn)
-  if (config.answer) noteAnswerTurn(sessionId, turnId, config.workspaceDir, config.answer)
+  const ownWorkspace = agentWorkspaceOverride(config)
+  // An Agent's own folder is never swapped for the Session's: missing, it fails the turn below.
+  if (sessionRef && !ownWorkspace) {
+    const workspaceDir = await turnWorkspaceDir(sessionRef, config.workspaceDir).catch(
+      () => config.workspaceDir,
+    )
+    config = { ...config, workspaceDir }
+  }
+  noteTurnCapabilities(sessionId, config.capabilities)
+  if (config.answer) {
+    noteAnswerTurn(
+      sessionId,
+      turnId,
+      config.workspaceDir,
+      config.answer,
+      answerSpeaks(config),
+      config.taskRun?.taskName,
+    )
+  } else if (config.taskRun?.notifiesResult) noteResultTurn(sessionId, turnId, config.workspaceDir)
   beginAgentTurnSnapshot(sessionId, turnId)
   emitAgentTurnState(sessionId, turnId, 'queued')
   const verbose = verboseLogging()
+  // The journal and the answer stamp record the shell the turn really runs
+  // with, after developer mode has had its say on the persisted opt-in.
+  const hostShell = effectiveHostShell(config)
+  const inSession = config.sessionRef
+    ? trackAgentTurnInSession({
+        sessionRef: config.sessionRef,
+        presetName: config.presetName ?? '',
+        workspaceDir: config.workspaceDir,
+        prompt,
+        harnessSessionId: sessionId,
+        turnId,
+        ...(config.taskRun
+          ? { taskRun: { taskName: config.taskRun.taskName, input: config.taskRun.input } }
+          : {}),
+        ...(config.followUp ? { followUp: config.followUp } : {}),
+        ...(config.modelConfig.source === 'local' && config.readiness
+          ? {
+              summariser: {
+                model: {
+                  backend: config.modelConfig.backend ?? 'llamaCPP',
+                  modelId: config.modelConfig.model,
+                  baseUrl: config.modelConfig.baseUrl,
+                  readiness: config.readiness,
+                  ...(config.modelConfig.samplingParams
+                    ? { samplingRequestBody: config.modelConfig.samplingParams }
+                    : {}),
+                  ...(config.modelConfig.maxOutputTokens
+                    ? { maxOutputTokens: config.modelConfig.maxOutputTokens }
+                    : {}),
+                  supportsVision: config.modelConfig.supportsVision,
+                  timingsPerToken: true,
+                },
+                language: config.responseLocale ?? 'en-US',
+              },
+            }
+          : {}),
+        cloudTurn: config.modelConfig.source === 'cloud',
+      })
+    : null
   const translator = createStreamTranslator({
     emit: (chunk: StreamChunk) => emitAgentChunk(sessionId, turnId, chunk),
+    model: config.readiness?.llmModelName ?? config.modelConfig.model,
+    turnId,
+    hostShell,
     onToolProgress: ({ toolCallId, toolName, text }) => {
       emitAgentToolProgress(sessionId, turnId, toolCallId, toolName, text)
     },
@@ -395,7 +558,12 @@ export async function startAgentTurn(
   // Pi swallows a failing `context` handler and makes the request anyway, so a
   // reclaim that fails stops the session itself and the turn reports it.
   let reclaimFailure: unknown = null
-  turn.reclaim = async () => {
+  turn.beforeModelCall = async () => {
+    // Pi drops an abort made before its run starts, so a Stop landing there is repeated here.
+    if (abortController.signal.aborted) {
+      void turn.live?.session.abort()
+      return
+    }
     try {
       await reclaimTurnPlace(turnId, abortController.signal)
     } catch (error) {
@@ -407,8 +575,23 @@ export async function startAgentTurn(
     }
   }
   let failedWith: string | undefined
+  let missingWorkspace = false
   let reply: string | undefined
+  // Set once the rewind took the replaced turn off the branch: from there on,
+  // that turn's answers are gone from the model's memory, whatever happens next.
+  let rewoundTurn: string | undefined
   try {
+    // Before the queue, so an unattended turn fails at once instead of pausing on a download.
+    if (sessionRef) {
+      await (
+        ownWorkspace
+          ? assertAgentWorkspacePresent(ownWorkspace)
+          : assertSessionWorkspacePresent(sessionRef, config.workspaceDir)
+      ).catch((error) => {
+        missingWorkspace = true
+        throw error
+      })
+    }
     await submitTextRequest(
       {
         runId: turnId,
@@ -417,6 +600,9 @@ export async function startAgentTurn(
         joinsTurnQueue: true,
         work: 'agent',
         pause,
+        ...(config.readiness
+          ? { component: config.readiness.serviceName as BackendServiceName }
+          : {}),
       },
       abortController.signal,
     )
@@ -426,8 +612,11 @@ export async function startAgentTurn(
       await reclaimTurnPlace(turnId, abortController.signal)
     }
     await ready()
+    // Model load does not watch the signal, and the session's abort listener is not on yet.
+    abortController.signal.throwIfAborted()
     const current = await ensureSession(config)
     turn.live = current
+    abortController.signal.throwIfAborted()
     // Per turn, not per session: a resumed session keeps its trace context but
     // its game may have been named since, and the preset can differ.
     setAgentRunIdentity(agentRunIdentity(config))
@@ -439,7 +628,49 @@ export async function startAgentTurn(
       lastSample = fingerprint
       translator.update(summary)
     }
+    const rewindId = config.rewindTurnId
+    // A replaced turn that ran with the host shell cannot be rolled back
+    // safely, so the regenerate is refused before anything is touched.
+    if (rewindId && turnJournalHostShell(sessionId, rewindId)) {
+      throw new Error(HARNESS_TURN_REFUSALS.hostShell)
+    }
+    const rewound = rewindId ? rewindHarnessTurn(current.session, rewindId) : undefined
+    // The rewound turn's entries left the branch here: tell the renderer before
+    // anything else can fail, so a failed re-run cannot bring its answers back.
+    if (rewindId) {
+      rewoundTurn = rewindId
+      emitAgentTurnRewound(sessionId, turnId, rewindId)
+    }
+    // The replaced turn's diary is spent here: the workspace goes back as that
+    // turn found it before the re-run writes over it.
+    if (rewindId) {
+      const report = await restoreTurnJournal(sessionId, rewindId)
+      deleteTurnJournal(sessionId, rewindId)
+      if (config.sessionRef) {
+        await removeHistoryEntries(config.sessionRef, sessionId, new Set([rewindId]))
+      }
+      if (report?.unrestorable.length) {
+        translator.notice(
+          'The replaced turn could not be fully rolled back; these files stay as it left them: ' +
+            `${report.unrestorable.join(', ')}.`,
+        )
+      }
+    }
+    // The turn's workspace diary (workspaceJournal.ts): every workspace write
+    // from here on is recorded so a later regenerate/delete of this turn can
+    // restore what it found. Its writable roots are the session's own mounts,
+    // so Session-side copies and app files stay out.
+    beginTurnJournal({
+      sessionId,
+      turnId,
+      workspaceDir: current.workspaceDir,
+      mountedFolders: current.mountedFolders,
+      unsandboxed: hostShell,
+    })
     const planning = watchPlanningPhase(current)
+    markHarnessTurn(current.session, turnId)
+    const calls: LlamaCppTimings[] = []
+    const startedAt = Date.now()
     turn.onEvent = (event) => {
       if (verbose) logEvent(event)
       planning.onEvent(event)
@@ -458,43 +689,65 @@ export async function startAgentTurn(
         const failure = modelCallError(current.session)
         if (failure) throw new Error(failure)
       }
-      await current.session.prompt(prompt)
-      failIfModelErrored()
-      // A session that plans first has only been asked for the plan so far; the
-      // build is a second request, sent from here rather than by the user.
-      if (!abortController.signal.aborted && (await handOffToBuild(current, planning))) {
+      await collectAgentCallTimings(calls, async () => {
+        const note = current.mountedFoldersNote
+        // A plain regenerate replays what the replaced turn was sent, so its request is the
+        // same; an edited one sends the new prompt the renderer shipped instead.
+        const replay = rewound !== undefined && config.editedPrompt !== true ? rewound : null
+        const sent = replay ? replay.text : withAttachmentReferences(prompt, current.attachments)
+        const withUpdate = await withSessionUpdate(sent, config, current)
+        const images = replay
+          ? replay.images
+          : turnAttachments(current.files, prompt, config.modelConfig.supportsVision === true)
+              .images
+        const documents =
+          current.documentSearch && !replay ? documentsLine(current.attachments) : ''
+        const text = [note, withUpdate, documents].filter(Boolean).join('\n\n')
+        abortController.signal.throwIfAborted()
+        await current.session.prompt(text, { images, expandPromptTemplates: !rewound })
+        if (current.mountedFoldersNote === note) current.mountedFoldersNote = undefined
         failIfModelErrored()
-      }
-      const stalled = () =>
-        !abortController.signal.aborted && endedWithoutReplyOrToolCall(current.session)
-      if (stalled()) {
-        logger.warn('turn ended with neither a reply nor a tool call; nudging once', LOG_SOURCE)
-        await current.session.prompt(CONTINUE_AFTER_SILENT_TURN)
-        failIfModelErrored()
-        if (stalled()) {
-          translator.notice(
-            'The model ended its turn without an answer and without running a tool, and did not ' +
-              'pick the task back up when asked to continue. Send a message to carry on.',
-          )
+        // A session that plans first has only been asked for the plan so far; the
+        // build is a second request, sent from here rather than by the user.
+        if (!abortController.signal.aborted && (await handOffToBuild(current, planning))) {
+          failIfModelErrored()
         }
-      }
+        const stalled = () =>
+          !abortController.signal.aborted && endedWithoutReplyOrToolCall(current.session)
+        if (stalled()) {
+          logger.warn('turn ended with neither a reply nor a tool call; nudging once', LOG_SOURCE)
+          await current.session.prompt(CONTINUE_AFTER_SILENT_TURN)
+          failIfModelErrored()
+          if (stalled()) {
+            translator.notice(
+              'The model ended its turn without an answer and without running a tool, and did not ' +
+                'pick the task back up when asked to continue. Send a message to carry on.',
+            )
+          }
+        }
+      })
     } finally {
       abortController.signal.removeEventListener('abort', onAbort)
     }
-    translator.finish(turnSummary(current.session))
+    translator.finish({
+      ...turnSummary(current.session),
+      ...answerMetrics(config, calls, startedAt),
+    })
     reply = finalReplyText(current.session)
     savePointer({
       sessionId: current.sessionId,
       workspaceDir: current.workspaceDir,
       sessionFilePath: current.session.getSessionStats().sessionFile ?? '',
       updatedAt: Date.now(),
+      mountedFolders: current.mountedFolders,
+      workdir: current.workdir,
     })
     return { success: true }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    // Stopped before it took its place (or while readying): nothing to report.
-    if (abortController.signal.aborted && !turn.live) {
-      logger.info(`agent turn cancelled before it ran: ${message}`, LOG_SOURCE)
+    // A stop is never a failure, wherever it caught the turn.
+    if (abortController.signal.aborted) {
+      logger.info(`agent turn stopped: ${message}`, LOG_SOURCE)
       return { success: false, error: message }
     }
     logger.error(`agent turn failed: ${message}`, LOG_SOURCE)
@@ -507,14 +760,50 @@ export async function startAgentTurn(
     if (turnQueueHolder() === turnId) setTurnChatBackendLoad(null)
     finishTextRequest(turnId)
     if (agentTurns.get(sessionId) === turn) agentTurns.delete(sessionId)
+    endTurnJournal(sessionId)
     // Decided by the abort, not the thrown error: a stop or shutdown is never a failure.
-    reportAgentTurnEnd(
+    const end: AgentTurnEnd =
       failedWith !== undefined
-        ? { sessionId, turnId, outcome: 'failed', error: failedWith }
+        ? {
+            sessionId,
+            turnId,
+            outcome: 'failed',
+            error: failedWith,
+            ...(missingWorkspace ? { missingWorkspace: true as const } : {}),
+          }
         : abortController.signal.aborted
           ? { sessionId, turnId, outcome: 'cancelled' }
-          : { sessionId, turnId, outcome: 'completed', reply },
-    )
+          : { sessionId, turnId, outcome: 'completed', reply }
+    reportAgentTurnEnd(end)
+    if (inSession) await inSession.settle(end)
+    // The answers of the turn a regenerate replaced leave the Session's timeline
+    // here too — success or failure, before the renderer's settle writes the file,
+    // so no fire-and-forget from the renderer has to carry them out.
+    if (sessionRef && rewoundTurn) {
+      try {
+        await removeTimelineMessagesOfTurn(sessionRef, sessionId, rewoundTurn)
+      } catch (error) {
+        logger.error(
+          `answers of the rewound turn ${rewoundTurn} stayed in the timeline: ${error}`,
+          LOG_SOURCE,
+        )
+      }
+    }
+    // The agent record can still carry them when the renderer died around the
+    // rewind, so main owns its honesty too — a stale record must not put the
+    // answers back at the renderer's next snapshot. Not only inside a Session:
+    // a standalone Agent panel session keeps its transcript in the record.
+    if (rewoundTurn) {
+      try {
+        await removeAgentSessionMessagesOfTurn(sessionId, rewoundTurn)
+      } catch (error) {
+        logger.error(
+          `answers of the rewound turn ${rewoundTurn} stayed in the agent record: ${error}`,
+          LOG_SOURCE,
+        )
+      }
+    }
+    if (sessionRef) releaseSessionTurn(sessionRef, turnId)
     if (turn.live) await releaseTurnSession(turn.live)
     emitAgentTurnDone(sessionId, turnId)
   }
@@ -550,7 +839,11 @@ export async function resetAgentSession(): Promise<void> {
   const sessionId = active?.sessionId ?? lastSessionId
   if (sessionId) cancelAgentTurn(sessionId)
   await endActiveSession()
-  if (sessionId) clearPointer(sessionId)
+  if (sessionId) {
+    clearPointer(sessionId)
+    // The conversation is gone, so its turns can never be deleted or redone.
+    deleteSessionJournals(sessionId)
+  }
   closeWorkspaceRuntime()
 }
 
@@ -591,6 +884,8 @@ export async function deleteAgentSession(
       clearPointer(sessionId)
     }
     closeBrowserSession(sessionId)
+    forgetHarnessSession(sessionId)
+    deleteSessionJournals(sessionId)
     logger.info(`deleted agent session ${sessionId}`, LOG_SOURCE)
     return { success: true }
   } catch (error) {

@@ -39,6 +39,18 @@ vi.mock('../../persist/mediaItemFiles.ts', () => ({
   saveMediaItems,
 }))
 
+const { recordMediaTurn } = vi.hoisted(() => ({
+  recordMediaTurn: vi.fn(
+    async (turn: { sessionId: string; items: unknown[] }, _settlement?: unknown) =>
+      (turn.items as { id: string }[]).map((item) => ({
+        ...item,
+        imageUrl: `aipg-media://sessions/${turn.sessionId}/files/${item.id}.png`,
+      })),
+  ),
+}))
+
+vi.mock('../../session/sessionMediaTurn.ts', () => ({ recordMediaTurn }))
+
 import {
   artifactRunActive,
   cancelActiveArtifactRun,
@@ -131,6 +143,7 @@ function deps(overrides: Partial<Parameters<typeof setArtifactRunnerDeps>[0]> = 
     readMediaAsDataUri: vi.fn(async () => null),
     getPlatform: () => 'darwin' as NodeJS.Platform,
     devPresetsEnabled: () => false,
+    prepareChatForSettlement: vi.fn(async () => {}),
     ...overrides,
   }
 }
@@ -202,6 +215,17 @@ function phases(): string[] {
     .map((event) => String(event.phase ?? ''))
 }
 
+function deferred(): { promise: Promise<void>; resolve: (value?: unknown) => void } {
+  let resolve!: (value?: unknown) => void
+  const promise = new Promise<void>((done) => {
+    resolve = (value) => {
+      void value
+      done()
+    }
+  })
+  return { promise, resolve }
+}
+
 describe('artifact runner', () => {
   beforeEach(() => {
     resetKernelBusForTest()
@@ -222,6 +246,7 @@ describe('artifact runner', () => {
     socketHandlers = null
     setPresetParameters.mockClear()
     saveMediaItems.mockClear()
+    recordMediaTurn.mockClear()
     vi.mocked(getComfySocket).mockImplementation(
       (
         _baseUrl: string,
@@ -291,10 +316,194 @@ describe('artifact runner', () => {
       ]),
     )
     expect(kernelEvents.filter((event) => event.type === 'artifact-item')).toHaveLength(2 + 1 + 2)
-    expect(saveMediaItems).toHaveBeenCalledTimes(1)
-    const savedItems = saveMediaItems.mock.calls[0]?.[0] as unknown as MediaItem[]
-    expect(savedItems).toHaveLength(2)
-    expect(savedItems[0]).toMatchObject({ state: 'done' })
+    expect(saveMediaItems).not.toHaveBeenCalled()
+  })
+
+  it('settles a panel run in a Session into that Session', async () => {
+    setArtifactRunnerDeps(deps())
+    const request = payload({ sessionId: 'session-1', variant: 'Fast' })
+    const run = submitArtifactRun({ ...request, items: itemsFor(request), origin: 'renderer' })
+
+    await vi.waitFor(() => expect(submittedPrompts).toHaveLength(2))
+    for (const filename of ['out0.png', 'out1.png']) {
+      socketHandlers!.onJson({
+        type: 'executed',
+        data: { node: '2', output: { images: [{ filename, subfolder: '', type: 'output' }] } },
+      })
+    }
+
+    const result = await run
+    expect(recordMediaTurn).toHaveBeenCalledTimes(1)
+    expect(recordMediaTurn.mock.calls[0][0]).toMatchObject({
+      sessionId: 'session-1',
+      runId: 'run-1',
+      mode: 'imageGen',
+      preset: 'Test Image',
+      variant: 'Fast',
+      prompt: 'a cat',
+      status: 'completed',
+      durationMs: expect.any(Number),
+      items: [
+        expect.objectContaining({ imageUrl: 'aipg-media://media/out0.png?v=item-0' }),
+        expect.objectContaining({ imageUrl: 'aipg-media://media/out1.png?v=item-1' }),
+      ],
+    })
+    const moved = 'aipg-media://sessions/session-1/files/item-0.png'
+    expect(result.items[0]).toMatchObject({ imageUrl: moved })
+    const done = kernelEvents.findIndex((event) => event.type === 'artifact-done')
+    const movedEvent = kernelEvents.findIndex(
+      (event) =>
+        event.type === 'artifact-item' &&
+        (event.item as MediaItem & { imageUrl: string }).imageUrl === moved,
+    )
+    expect(movedEvent).toBeGreaterThan(-1)
+    expect(movedEvent).toBeLessThan(done)
+  })
+
+  it('hands the GPU back to chat before settling a panel run with a summariser', async () => {
+    const release = vi.fn(async () => {})
+    const settlementHold = deferred()
+    recordMediaTurn.mockImplementationOnce(async () => {
+      await settlementHold.promise
+      return []
+    })
+    const depsUnderTest = deps({ prepareChatForSettlement: release })
+    setArtifactRunnerDeps(depsUnderTest)
+    const request = payload({
+      sessionId: 'session-1',
+      params: { ...payload().params, batchSize: 1 },
+    })
+    const summariser = {
+      model: {
+        backend: 'llamaCPP' as const,
+        modelId: 'qwen-test',
+        readiness: { serviceName: 'llamacpp-backend', llmModelName: 'qwen-test' },
+      },
+      language: 'de',
+    }
+    const run = submitArtifactRun({
+      ...request,
+      items: itemsFor(request),
+      origin: 'renderer',
+      summariser,
+    } as ArtifactRunPayload)
+
+    await vi.waitFor(() => expect(submittedPrompts).toHaveLength(1))
+    socketHandlers!.onJson({
+      type: 'executed',
+      data: {
+        node: '2',
+        output: { images: [{ filename: 'out0.png', subfolder: '', type: 'output' }] },
+      },
+    })
+
+    await vi.waitFor(() => expect(recordMediaTurn).toHaveBeenCalledTimes(1))
+    // The settlement is not done, so the run is not done: the update runs first.
+    let settled = false
+    void run.then(() => {
+      settled = true
+    })
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    expect(settled).toBe(false)
+    const settlementOptions = recordMediaTurn.mock.calls[0][1] as {
+      summariser: unknown
+      beforeSummary: () => Promise<void>
+    }
+    expect(settlementOptions.summariser).toEqual(summariser)
+    // The settlement receives the GPU handoff; settleTurn runs it before the update's call.
+    await settlementOptions.beforeSummary()
+    expect(depsUnderTest.prepareChatForSettlement).toHaveBeenCalledTimes(1)
+
+    settlementHold.resolve({})
+    await run
+    expect(settled).toBe(true)
+  })
+
+  it('records a failed panel run in its Session too', async () => {
+    setArtifactRunnerDeps(deps())
+    const request = payload({ sessionId: 'session-1' })
+    const run = submitArtifactRun({ ...request, items: itemsFor(request), origin: 'renderer' })
+    await vi.waitFor(() => expect(submittedPrompts).toHaveLength(2))
+    socketHandlers!.onJson({
+      type: 'execution_error',
+      data: { exception_type: 'RuntimeError', exception_message: 'boom', node_id: '2' },
+    })
+
+    expect((await run).state).toBe('failed')
+    expect(recordMediaTurn).toHaveBeenCalledTimes(1)
+    expect(recordMediaTurn.mock.calls[0][0]).toMatchObject({ status: 'failed', items: [] })
+  })
+
+  it('keeps the slots of a run that failed while generating, and none of one that never began', async () => {
+    setArtifactRunnerDeps(deps())
+    const early = payload({ sessionId: 'session-1' })
+    const earlyRun = submitArtifactRun({ ...early, items: itemsFor(early), origin: 'renderer' })
+    await vi.waitFor(() => expect(submittedPrompts).toHaveLength(2))
+    socketHandlers!.onJson({
+      type: 'execution_error',
+      data: { exception_type: 'RuntimeError', exception_message: 'boom', node_id: '2' },
+    })
+    expect((await earlyRun).unfinished).toBeUndefined()
+
+    const late = payload({ runId: 'run-2', sessionId: 'session-1' })
+    const lateRun = submitArtifactRun({ ...late, items: itemsFor(late), origin: 'renderer' })
+    await vi.waitFor(() => expect(submittedPrompts).toHaveLength(4))
+    socketHandlers!.onJson({ type: 'progress', data: { value: 1, max: 8 } })
+    socketHandlers!.onJson({
+      type: 'execution_error',
+      data: { exception_type: 'RuntimeError', exception_message: 'boom', node_id: '2' },
+    })
+    const result = await lateRun
+    expect(result.unfinished?.map((item) => [item.state, item.settings.width])).toEqual(
+      itemsFor(late).map((item) => ['failed', item.settings.width]),
+    )
+    expect(recordMediaTurn.mock.calls[1][0]).toMatchObject({ unfinished: result.unfinished })
+  })
+
+  it('leaves agent runs out of the Session History', async () => {
+    setArtifactRunnerDeps(deps())
+    const request = payload({
+      sessionId: 'session-1',
+      origin: 'agent',
+      params: { ...payload().params, batchSize: 1 },
+    })
+    const run = submitArtifactRun(request)
+    await vi.waitFor(() => expect(submittedPrompts).toHaveLength(1))
+    socketHandlers!.onJson({
+      type: 'executed',
+      data: {
+        node: '2',
+        output: { images: [{ filename: 'a.png', subfolder: '', type: 'output' }] },
+      },
+    })
+    await run
+    expect(recordMediaTurn).not.toHaveBeenCalled()
+  })
+
+  it('gives two outputs distinct URLs when ComfyUI reuses a filename', async () => {
+    setArtifactRunnerDeps(deps())
+    const urls: string[] = []
+    for (const runId of ['chat-run', 'agent-run']) {
+      const run = submitArtifactRun(
+        payload({ runId, origin: 'agent', params: { ...payload().params, batchSize: 1 } }),
+      )
+      await vi.waitFor(() => expect(artifactRunActive()).toBe(true))
+      await vi.waitFor(() => expect(socketHandlers).not.toBeNull())
+      socketHandlers!.onJson({
+        type: 'executed',
+        data: {
+          node: '2',
+          output: { images: [{ filename: 'ComfyUI_00001_.png', subfolder: '', type: 'output' }] },
+        },
+      })
+      const result = await run
+      socketHandlers = null
+      const item = result.items[0]
+      urls.push(isImage(item) ? item.imageUrl : '')
+    }
+    expect(urls[0]).not.toBe(urls[1])
+    expect(urls[0]).toMatch(/^aipg-media:\/\/media\/ComfyUI_00001_\.png\?/)
+    expect(urls[1]).toMatch(/^aipg-media:\/\/media\/ComfyUI_00001_\.png\?/)
   })
 
   it('applies the preset launch flags before starting the backend', async () => {
@@ -511,6 +720,24 @@ describe('artifact runner', () => {
     const result = await submitArtifactRun(payload({ modelsConsented: undefined }))
     expect(consentRequests).toBe(1)
     expect(result.state).toBe('cancelled')
+    expect(result.declined).toBe(true)
+    expect(submittedPrompts).toHaveLength(0)
+  })
+
+  it('fails, rather than calls declined, a run whose model download broke', async () => {
+    missingModels = [
+      { repo_id: 'some/model.gguf', type: 'unet', backend: 'comfyui', model_path: '/models' },
+    ]
+    setArtifactRunnerDeps(
+      deps({
+        requestModelConsent: vi.fn(async () => {
+          throw new Error('disk full')
+        }),
+      }),
+    )
+    const result = await submitArtifactRun(payload({ modelsConsented: undefined }))
+    expect(result).toMatchObject({ state: 'failed', error: expect.stringContaining('disk full') })
+    expect(result.declined).toBeUndefined()
     expect(submittedPrompts).toHaveLength(0)
   })
 
@@ -728,7 +955,7 @@ describe('media from a turn asks for its models before the GPU is taken', () => 
     await vi.waitFor(() => expect(answers).toHaveLength(1))
 
     answers[0].answer(false)
-    expect(await run).toMatchObject({ state: 'cancelled', error: 'Generation cancelled.' })
+    expect(await run).toMatchObject({ state: 'cancelled', declined: true })
     expect(orchestrator.stopChatForMedia).not.toHaveBeenCalled()
     expect(orchestrator.restartChatBackend).not.toHaveBeenCalled()
     expect(submittedPrompts).toHaveLength(0)

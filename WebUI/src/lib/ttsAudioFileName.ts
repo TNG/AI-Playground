@@ -1,7 +1,3 @@
-import {
-  HOME_AGENT_CONVERSATION_TITLE,
-  type ConversationThreadMeta,
-} from '@/assets/js/store/conversations'
 import type { AipgUiMessage } from '@/assets/js/store/openAiCompatibleChat'
 
 function slugifySegment(value: string, maxLen: number): string {
@@ -27,15 +23,11 @@ export function formatTtsAudioTimestamp(date: Date): string {
 export function conversationLabelForTtsFile(args: {
   conversationKey: string
   messages: AipgUiMessage[] | undefined
-  threadMeta: ConversationThreadMeta | undefined
 }): string {
-  const { conversationKey, messages, threadMeta } = args
+  const { conversationKey, messages } = args
   const titled = messages?.[0]?.metadata?.conversationTitle
   if (typeof titled === 'string' && titled.trim()) {
     return titled.trim()
-  }
-  if (threadMeta?.kind === 'homeAgent') {
-    return HOME_AGENT_CONVERSATION_TITLE
   }
   const firstText = messages?.[0]?.parts?.find((p) => p.type === 'text')
   if (firstText && firstText.type === 'text' && firstText.text?.trim()) {

@@ -3,8 +3,10 @@ import type {
   ConversationsInvokeName,
   InvokeHandlerMap,
   MainInvokeChannelName,
+  SessionsInvokeName,
 } from '../../kernel/ipcRegistries'
 import type { buildConversationsRegistry } from '../../kernel/registries/conversations'
+import type { buildSessionsRegistry } from '../../kernel/registries/sessions'
 
 // Compile-time registry proofs (#301 batch A): vue-tsc enforces every
 // assertion here (an expectTypeOf mismatch is a type error), while vitest
@@ -22,9 +24,66 @@ describe('per-owner handler registries', () => {
     >()
   })
 
-  it('keeps homeAgent-owned rows out of the main-side names', () => {
+  it('extracts exactly the sessions channels and builds a registry for them', () => {
+    expectTypeOf<SessionsInvokeName>().toEqualTypeOf<
+      | 'sessions:list'
+      | 'sessions:create'
+      | 'sessions:open'
+      | 'sessions:missingArtifacts'
+      | 'sessions:rename'
+      | 'sessions:setReachable'
+      | 'sessions:migrateHomeAgentThreads'
+      | 'sessions:setRealShellFolders'
+      | 'sessions:addFolder'
+      | 'sessions:removeFolder'
+      | 'sessions:setFolderAccess'
+      | 'sessions:starFolder'
+      | 'sessions:missingWorkspace'
+      | 'sessions:locateWorkspace'
+      | 'sessions:startNewWorkspace'
+      | 'sessions:openFolder'
+      | 'sessions:pin'
+      | 'sessions:setIncludedInOverviews'
+      | 'sessions:refreshOverviewSummary'
+      | 'sessions:retryOverviewUpdate'
+      | 'sessions:resumePendingOverviewUpdates'
+      | 'sessions:overviewUpdates'
+      | 'sessions:pickAgent'
+      | 'sessions:createGroup'
+      | 'sessions:moveToGroup'
+      | 'sessions:renameGroup'
+      | 'sessions:deleteGroup'
+      | 'sessions:setGroupExpanded'
+      | 'sessions:setShowMore'
+      | 'sessions:delete'
+      | 'sessions:deletePreview'
+      | 'sessions:harnessSession'
+      | 'sessions:taskRunHarness'
+      | 'sessions:saveTimelineMessages'
+      | 'sessions:removeTimelineMessages'
+      | 'sessions:addHiddenMessages'
+      | 'sessions:clearHiddenMessages'
+      | 'sessions:clearAllHiddenMessages'
+      | 'sessions:saveChatTranscript'
+      | 'sessions:recordAudioTurn'
+      | 'sessions:listArtifacts'
+      | 'sessions:listCreatedFiles'
+      | 'sessions:deleteArtifact'
+      | 'sessions:openArtifact'
+      | 'sessions:readSettings'
+      | 'sessions:writePresetSettings'
+      | 'sessions:beginTurn'
+      | 'sessions:endTurn'
+      | 'sessions:newestArtifact'
+    >()
     expectTypeOf<
-      Extract<MainInvokeChannelName, `channel:${string}` | `homeAgent:${string}`>
+      keyof ReturnType<typeof buildSessionsRegistry>
+    >().toEqualTypeOf<SessionsInvokeName>()
+  })
+
+  it('keeps channels-owned rows out of the main-side names', () => {
+    expectTypeOf<
+      Extract<MainInvokeChannelName, `channel:${string}` | `channels:${string}`>
     >().toBeNever()
   })
 

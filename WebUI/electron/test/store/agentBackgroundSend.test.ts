@@ -20,8 +20,10 @@ const AGENT: ChatPreset = {
   systemPrompt: 'You are the agent.',
 } as ChatPreset
 
+const GAME_AGENT: ChatPreset = { ...AGENT, name: 'Game Agent', agentWorkspace: 'games' }
+
 vi.mock('@/assets/js/store/presets', () => ({
-  usePresets: () => ({ presets: [AGENT], activePresetWithVariant: AGENT }),
+  usePresets: () => ({ presets: [AGENT, GAME_AGENT], activePresetWithVariant: AGENT }),
 }))
 
 vi.mock('@/assets/js/store/presetSwitching', () => ({
@@ -135,7 +137,27 @@ const openRecord = {
 let pushKernelEvent: (event: KernelEvent) => void = () => {}
 let seq = 10
 
+/** The kernel snapshot a renderer boots from; tests swap in an in-flight turn. */
+const EMPTY_SNAPSHOT: KernelSnapshot = {
+  scope: { kind: 'global' },
+  sequence: 5,
+  state: {
+    services: [],
+    agentTurns: [],
+    activeArtifactRun: null,
+    chatTurns: [],
+    activities: [],
+    inferenceProfile: null,
+  },
+}
+
+const getKernelSnapshot = vi.fn(async (): Promise<KernelSnapshot> => EMPTY_SNAPSHOT)
+
+/** Faithful to main (electron/agent/harnessTurns.ts): a session with a turn in flight refuses deletions. */
+const runningSessions = new Set<string>()
+
 function pushEvent(payload: Record<string, unknown>): void {
+  if (payload.type === 'agent-turn-done') runningSessions.delete(payload.sessionId as string)
   pushKernelEvent({ ...payload, scope: { kind: 'global' }, seq: ++seq } as KernelEvent)
 }
 
@@ -146,14 +168,28 @@ const startTurn = vi.fn(async (_turnId: string, _prompt: string, _config: AgentM
 const cancel = vi.fn(async (_sessionId: string, _turnId?: string) => {})
 const saveSession = vi.fn(async (_record: Record<string, unknown>) => ({ success: true }))
 const existsPath = vi.fn(async (dir: string) => dir !== '/missing')
+const deleteTurns = vi.fn(async (request: { harnessSessionId: string }) =>
+  runningSessions.has(request.harnessSessionId)
+    ? { success: false, error: 'This session already has a turn in flight.' }
+    : { success: true, unrestorable: [] },
+)
 
 beforeEach(() => {
   vi.clearAllMocks()
   setActivePinia(createPinia())
   seq = 10
+  runningSessions.clear()
   inference.live.activeModel = 'Live-9B'
   inference.catalog = []
-  startTurn.mockImplementation(async () => ({ success: true, error: undefined }))
+  startTurn.mockImplementation(
+    async (_turnId: string, _prompt: string, config: AgentModeTurnConfig) => {
+      runningSessions.add(config.sessionId)
+      return { success: true, error: undefined }
+    },
+  )
+  // clearAllMocks keeps implementations, so a test's in-flight snapshot must
+  // not leak into the next one.
+  getKernelSnapshot.mockImplementation(async () => EMPTY_SNAPSHOT)
   const storage = new Map<string, string>()
   const storageShim = {
     getItem: (key: string) => storage.get(key) ?? null,
@@ -168,21 +204,14 @@ beforeEach(() => {
         pushKernelEvent = listener
         return () => {}
       }),
-      getKernelSnapshot: vi.fn(async (): Promise<KernelSnapshot> => ({
-        scope: { kind: 'global' },
-        sequence: 5,
-        state: {
-          services: [],
-          agentTurns: [],
-          activeArtifactRun: null,
-          chatTurns: [],
-          activities: [],
-          inferenceProfile: null,
-        },
-      })),
+      getKernelSnapshot,
       existsPath,
+      isFolderPath: vi.fn(async () => true),
+      sessions: { missingWorkspace: vi.fn(async () => ({ success: true, missing: null })) },
       agentMode: {
+        sessionDocuments: vi.fn(async () => []),
         startTurn,
+        deleteTurns,
         cancel,
         saveSession,
         onExecuteTool: vi.fn(() => () => {}),
@@ -214,6 +243,10 @@ afterEach(async () => {
 })
 
 const { useAgentMode } = await import('@/assets/js/store/agentMode')
+const { useSessions } = await import('@/assets/js/store/sessions')
+const { useChatAware } = await import('@/assets/js/store/chatAware')
+
+const REPLY_LANGUAGE = 'Use English as the default response language.'
 
 async function readyStore() {
   const store = useAgentMode()
@@ -252,6 +285,11 @@ async function finishTurn(sessionId: string, call: number, reply = 'done'): Prom
     pushEvent({ type: 'agent-chunk', sessionId, turnId, chunk })
   }
   pushEvent({ type: 'agent-turn-done', sessionId, turnId })
+}
+
+async function sentInstructions(call: number): Promise<string> {
+  await turnIdOf(call)
+  return sentConfig(call).instructions ?? ''
 }
 
 function recordOutcomes(store: Awaited<ReturnType<typeof readyStore>>) {
@@ -364,6 +402,281 @@ describe('sending to a session that is not open', () => {
   })
 })
 
+describe('regenerating the latest turn', () => {
+  it('sends its prompt again, rewinding past the harness turn it replaces', async () => {
+    const store = await readyStore()
+    const outcomes = recordOutcomes(store)
+    const id = createTaskSession(store)
+    await store.sendToSession(id, 'name a fruit')
+    await finishTurn(id, 0, 'plum')
+    await vi.waitFor(() => expect(outcomes).toHaveLength(1))
+    const [prompt, answer] = lastSaved(id)?.messages as Array<{ id: string }>
+
+    await store.regenerateTurn({
+      harnessSessionId: id,
+      promptId: prompt.id,
+      messageIds: [prompt.id, answer.id],
+      turnIds: ['h1'],
+    })
+    await turnIdOf(1)
+
+    expect(startTurn.mock.calls[1][1]).toBe('name a fruit')
+    expect(sentConfig(1)).toMatchObject({ sessionId: id, rewindTurnId: 'h1' })
+    await finishTurn(id, 1, 'pear')
+    await vi.waitFor(() => expect(outcomes).toHaveLength(2))
+    const messages = JSON.stringify(lastSaved(id)?.messages)
+    expect(messages.match(/name a fruit/g)).toHaveLength(1)
+    expect(messages).toContain('pear')
+    expect(messages).not.toContain('plum')
+  })
+
+  async function answeredInSession(store: Awaited<ReturnType<typeof readyStore>>) {
+    const outcomes = recordOutcomes(store)
+    const id = store.createSession({
+      workspaceDir: '/work/task',
+      sessionRef: 'session-1',
+      settings: { ...STORED },
+      presetName: 'Agent',
+      title: 'Fruit',
+    })
+    await store.sendToSession(id, 'name a fruit')
+    await finishTurn(id, 0, 'plum')
+    await vi.waitFor(() => expect(outcomes).toHaveLength(1))
+    const [prompt, answer] = lastSaved(id)?.messages as Array<{ id: string }>
+    const ref = {
+      harnessSessionId: id,
+      promptId: prompt.id,
+      messageIds: [prompt.id, answer.id],
+      turnIds: ['h1'],
+    }
+    return { id, outcomes, answer, ref }
+  }
+
+  it('keeps the old answer when the turn fails before it rewound', async () => {
+    const store = await readyStore()
+    const sessionsStore = useSessions()
+    const forgetSpy = vi.spyOn(sessionsStore, 'forgetTimelineMessages')
+    const restoreSpy = vi.spyOn(sessionsStore, 'restoreForgottenTimelineMessages')
+    const { id, outcomes, answer, ref } = await answeredInSession(store)
+
+    await store.regenerateTurn(ref)
+    // The replaced answers left the open timeline the moment the turn started.
+    expect(forgetSpy).toHaveBeenCalledWith('session-1', [answer.id])
+    const turnId = await turnIdOf(1)
+    pushEvent({
+      type: 'agent-chunk',
+      sessionId: id,
+      turnId,
+      chunk: { type: 'error', errorText: 'The download was declined.' },
+    })
+    pushEvent({ type: 'agent-turn-done', sessionId: id, turnId })
+    await vi.waitFor(() => expect(outcomes).toHaveLength(2))
+
+    // Nothing streamed, so the premature forget was undone, not committed.
+    expect(restoreSpy).toHaveBeenCalledWith('session-1')
+    expect(deleteTurns).not.toHaveBeenCalled()
+    expect(JSON.stringify(lastSaved(id)?.messages)).toContain('plum')
+  })
+
+  it('keeps the truncated view when the turn was rewound before it failed', async () => {
+    const store = await readyStore()
+    const sessionsStore = useSessions()
+    const forgetSpy = vi.spyOn(sessionsStore, 'forgetTimelineMessages')
+    const restoreSpy = vi.spyOn(sessionsStore, 'restoreForgottenTimelineMessages')
+    const { id, outcomes, answer, ref } = await answeredInSession(store)
+
+    await store.regenerateTurn(ref)
+    // The replaced answers left the open timeline the moment the turn started.
+    expect(forgetSpy).toHaveBeenCalledWith('session-1', [answer.id])
+    const turnId = await turnIdOf(1)
+    // Main announces the rewind before anything else can fail.
+    pushEvent({
+      type: 'agent-turn-rewound',
+      sessionId: id,
+      turnId,
+      rewoundTurnId: ref.turnIds[0],
+    })
+    pushEvent({
+      type: 'agent-chunk',
+      sessionId: id,
+      turnId,
+      chunk: { type: 'error', errorText: 'The download was declined.' },
+    })
+    pushEvent({ type: 'agent-turn-done', sessionId: id, turnId })
+    await vi.waitFor(() => expect(outcomes).toHaveLength(2))
+
+    // The turn was rewound, so its answers are gone from what the model sees:
+    // the failed re-run does not bring them back into the view, and the
+    // renderer sends no delete of its own — main owns the file side.
+    expect(restoreSpy).not.toHaveBeenCalled()
+    expect(deleteTurns).not.toHaveBeenCalled()
+  })
+
+  it('sends no deletion of its own when a regenerate replaces an answer: main owns the file', async () => {
+    const store = await readyStore()
+    const sessionsStore = useSessions()
+    const forgetSpy = vi.spyOn(sessionsStore, 'forgetTimelineMessages')
+    const restoreSpy = vi.spyOn(sessionsStore, 'restoreForgottenTimelineMessages')
+    const { id, outcomes, answer, ref } = await answeredInSession(store)
+
+    await store.regenerateTurn(ref)
+    // The replaced answers left the open timeline the moment the turn started.
+    expect(forgetSpy).toHaveBeenCalledWith('session-1', [answer.id])
+    expect(restoreSpy).not.toHaveBeenCalled()
+    const turnId = await turnIdOf(1)
+    // The new answer is streaming, and the view keeps the truncated state.
+    for (const chunk of [
+      { type: 'start' },
+      { type: 'text-start', id: 't' },
+      { type: 'text-delta', id: 't', delta: 'pear' },
+      { type: 'text-end', id: 't' },
+      { type: 'finish' },
+    ]) {
+      pushEvent({ type: 'agent-chunk', sessionId: id, turnId, chunk })
+    }
+    expect(deleteTurns).not.toHaveBeenCalled()
+    expect(restoreSpy).not.toHaveBeenCalled()
+
+    pushEvent({ type: 'agent-turn-done', sessionId: id, turnId })
+    await vi.waitFor(() => expect(outcomes).toHaveLength(2))
+    // The replaced answer is main's to take out of the Session's file when the
+    // turn settles; the renderer sends no delete of its own, and nothing is
+    // brought back into the view.
+    expect(deleteTurns).not.toHaveBeenCalled()
+    expect(restoreSpy).not.toHaveBeenCalled()
+    expect(JSON.stringify(lastSaved(id)?.messages)).not.toContain('plum')
+  })
+
+  it('sends a plain prompt without a rewind', async () => {
+    const store = await readyStore()
+    const id = createTaskSession(store)
+
+    await store.sendToSession(id, 'name a fruit')
+    await turnIdOf(0)
+
+    expect(sentConfig(0)).not.toHaveProperty('rewindTurnId')
+  })
+})
+
+describe('a renderer that reconnected mid-regenerate', () => {
+  // A record last written before the rewind still holds the answers the
+  // replacing turn owes its branch to; the kernel snapshot carries the rewind.
+  const staleRecord = {
+    id: 'agent-live',
+    workspaceDir: '/work/live',
+    title: 'the replaced answer',
+    createdAt: 1,
+    updatedAt: 2,
+    presetName: 'Agent',
+    sessionRef: 'session-1',
+    messages: [
+      { id: 'u1', role: 'user', parts: [{ type: 'text', text: 'name a fruit' }] },
+      {
+        id: 'a1',
+        role: 'assistant',
+        parts: [{ type: 'text', text: 'plum' }],
+        metadata: { harnessTurnId: 'h1' },
+      },
+    ],
+  }
+
+  /** The bootstrap mock as the vi.fn the window shim installs. */
+  const bootstrapMock = () =>
+    window.electronAPI.agentMode.bootstrapSessions as unknown as ReturnType<typeof vi.fn>
+
+  function bootStaleRecord() {
+    bootstrapMock().mockResolvedValue({
+      status: 'ok',
+      activeSessionId: 'agent-live',
+      sessions: [staleRecord],
+    })
+  }
+
+  /** The kernel snapshot as a reconnected renderer receives it: the replacing turn in flight. */
+  function inFlightSnapshot(): KernelSnapshot {
+    return {
+      scope: { kind: 'global' },
+      sequence: 5,
+      state: {
+        services: [],
+        agentTurns: [
+          {
+            sessionId: 'agent-live',
+            turnId: 't9',
+            state: 'running',
+            chunks: [],
+            toolProgress: {},
+            toolImages: {},
+            rewoundTurnId: 'h1',
+          },
+        ],
+        activeArtifactRun: null,
+        chatTurns: [],
+        activities: [],
+        inferenceProfile: null,
+      },
+    }
+  }
+
+  async function settleAdoptedTurn(store: Awaited<ReturnType<typeof readyStore>>): Promise<void> {
+    const outcomes = recordOutcomes(store)
+    pushEvent({ type: 'agent-turn-done', sessionId: 'agent-live', turnId: 't9' })
+    await vi.waitFor(() => expect(lastSaved('agent-live')).toBeTruthy())
+    expect(outcomes).toHaveLength(1)
+  }
+
+  it('drops the replaced answers out of the chat and the view it adopts', async () => {
+    bootStaleRecord()
+    // The snapshot arrives only after the records hydrated, so the adopted
+    // chat starts from the stale record.
+    let releaseSnapshot: (snapshot: KernelSnapshot) => void = () => {}
+    getKernelSnapshot.mockImplementation(
+      () => new Promise<KernelSnapshot>((resolve) => (releaseSnapshot = resolve)),
+    )
+    const sessionsStore = useSessions()
+    const forgetSpy = vi.spyOn(sessionsStore, 'forgetTimelineMessages')
+    const store = useAgentMode()
+    const initDone = store.init()
+    await vi.waitFor(() => expect(store.sessions['agent-live']).toBeTruthy())
+    releaseSnapshot(inFlightSnapshot())
+    await initDone
+
+    // The rewound turn's answer left the adopted chat; the prompt stayed.
+    await vi.waitFor(() => expect(JSON.stringify(store.messages)).not.toContain('plum'))
+    expect(JSON.stringify(store.messages)).toContain('name a fruit')
+    expect(forgetSpy).toHaveBeenCalledWith('session-1', ['a1'])
+
+    await settleAdoptedTurn(store)
+    // The record the settle rewrote carries no trace of the replaced answer.
+    expect(JSON.stringify(lastSaved('agent-live')?.messages)).not.toContain('plum')
+    expect(JSON.stringify(lastSaved('agent-live')?.messages)).toContain('name a fruit')
+  })
+
+  it('keeps a record hydrated after adoption from putting the answers back', async () => {
+    // The snapshot installs before the records hydrate: adoption commits
+    // against an empty chat, and the hydrated transcript is merged into it.
+    getKernelSnapshot.mockResolvedValue(inFlightSnapshot())
+    let releaseBootstrap: (value: unknown) => void = () => {}
+    bootstrapMock().mockImplementation(() => new Promise((resolve) => (releaseBootstrap = resolve)))
+    const store = useAgentMode()
+    const initDone = store.init()
+    // Adoption runs to its commit before hydration starts; there was nothing
+    // in the chat to drop yet, so the merge is what must keep the answer out.
+    await vi.waitFor(() => expect(store.isSessionProcessing('agent-live')).toBe(true))
+    releaseBootstrap({ status: 'ok', activeSessionId: 'agent-live', sessions: [staleRecord] })
+    await initDone
+
+    // The merge skips the rewound turn's answer — the model's branch does not
+    // have it, so the chat must not take it back from the stale record.
+    await vi.waitFor(() => expect(JSON.stringify(store.messages)).not.toContain('plum'))
+    expect(JSON.stringify(store.messages)).toContain('name a fruit')
+
+    await settleAdoptedTurn(store)
+    expect(JSON.stringify(lastSaved('agent-live')?.messages)).not.toContain('plum')
+    expect(JSON.stringify(lastSaved('agent-live')?.messages)).toContain('name a fruit')
+  })
+})
+
 describe('an Answer from a channel', () => {
   it('is stored with the channel it came from', async () => {
     const store = await readyStore()
@@ -446,6 +759,41 @@ describe('sending to the Open Session', () => {
   })
 })
 
+describe('the reply-language line in the instructions', () => {
+  it('rides a turn on the live controls by default, and not with Chat Aware off', async () => {
+    const store = await readyStore()
+    const outcomes = recordOutcomes(store)
+
+    await store.sendToSession('session-open', 'first')
+    expect(await sentInstructions(0)).toContain(REPLY_LANGUAGE)
+    await finishTurn('session-open', 0)
+    await vi.waitFor(() => expect(outcomes).toHaveLength(1))
+    useChatAware().enabled = false
+
+    await store.sendToSession('session-open', 'second')
+
+    expect(await sentInstructions(1)).toContain('You are the agent.')
+    expect(await sentInstructions(1)).not.toContain(REPLY_LANGUAGE)
+  })
+
+  it('rides a turn on stored settings by default, and not with Chat Aware off', async () => {
+    const store = await readyStore()
+    const outcomes = recordOutcomes(store)
+    const id = createTaskSession(store)
+
+    await store.sendToSession(id, 'first')
+    expect(await sentInstructions(0)).toContain(REPLY_LANGUAGE)
+    await finishTurn(id, 0)
+    await vi.waitFor(() => expect(outcomes).toHaveLength(1))
+    useChatAware().enabled = false
+
+    await store.sendToSession(id, 'second')
+
+    expect(await sentInstructions(1)).toContain('You are the agent.')
+    expect(await sentInstructions(1)).not.toContain(REPLY_LANGUAGE)
+  })
+})
+
 describe('checks before a background turn starts', () => {
   it('reports unusable stored settings without starting a turn', async () => {
     inference.catalog = [{ name: 'Other-9B', type: 'llamaCPP' }]
@@ -472,12 +820,137 @@ describe('checks before a background turn starts', () => {
     expect(startTurn).not.toHaveBeenCalled()
   })
 
+  it('reports a missing folder of a record outside any Session', async () => {
+    const store = await readyStore()
+    const id = createTaskSession(store, '/missing')
+
+    expect(await store.sendToSession(id, 'go')).toMatchObject({ reason: 'missing-folder' })
+  })
+
   it('reports an unknown session', async () => {
     const store = await readyStore()
     expect(await store.sendToSession('nope', 'go')).toMatchObject({
       ok: false,
       reason: 'no-session',
     })
+  })
+})
+
+// A Session's Harness Session stores the Workspace path it was made with; the Workspace is
+// renamed after the first turn, starred elsewhere, or moved by the upgrade.
+describe('a stored Harness Session of a Session whose Workspace moved', () => {
+  function seedSession(hostPath: string, appCreated: boolean) {
+    useSessions().$patch({
+      sessions: {
+        'session-1': {
+          id: 'session-1',
+          title: 'Trip',
+          folderList: {
+            workspaceId: 'folder-ws',
+            folders: [{ id: 'folder-ws', hostPath, access: 'read-write', slug: 'ws', appCreated }],
+          },
+        } as never,
+      },
+    })
+  }
+
+  function sessionRecord(store: Awaited<ReturnType<typeof readyStore>>, presetName = 'Agent') {
+    return store.createSession({
+      sessionRef: 'session-1',
+      workspaceDir: '/missing',
+      settings: { ...STORED },
+      presetName,
+      title: 'Run',
+    })
+  }
+
+  it('sends the turn into the Workspace it was renamed to, and keeps that path', async () => {
+    inference.catalog = [{ name: 'Stored-27B', type: 'llamaCPP' }]
+    const store = await readyStore()
+    seedSession('/work/2026-11-20 Trip', true)
+    const id = sessionRecord(store)
+
+    const result = await store.sendToSession(id, 'and now?', {
+      followUp: { agentId: 'agent-1', agentName: 'Researcher' },
+    })
+
+    expect(result).toMatchObject({ ok: true })
+    expect(sentConfig(0).workspaceDir).toBe('/work/2026-11-20 Trip')
+    expect(store.sessions[id].workspaceDir).toBe('/work/2026-11-20 Trip')
+  })
+
+  it('follows the star to a folder the user chose, though the old one still exists', async () => {
+    inference.catalog = [{ name: 'Stored-27B', type: 'llamaCPP' }]
+    const store = await readyStore()
+    seedSession('/work/project', false)
+    const id = store.createSession({
+      sessionRef: 'session-1',
+      workspaceDir: '/work/old',
+      settings: { ...STORED },
+      presetName: 'Agent',
+      title: 'Run',
+    })
+
+    await store.sendToSession(id, 'go')
+
+    expect(sentConfig(0).workspaceDir).toBe('/work/project')
+  })
+
+  it('sends an unattended Answer into the current Workspace as well', async () => {
+    inference.catalog = [{ name: 'Stored-27B', type: 'llamaCPP' }]
+    const store = await readyStore()
+    seedSession('/work/2026-11-20 Trip', true)
+    const id = sessionRecord(store)
+
+    await store.sendToSession(id, 'yes', {
+      useStoredSettings: true,
+      answer: { channel: 'telegram', messageId: 'm1' } as never,
+    })
+
+    expect(sentConfig(0).workspaceDir).toBe('/work/2026-11-20 Trip')
+  })
+
+  it('leaves an unattended run with a missing Agent Workspace to main to fail', async () => {
+    inference.catalog = [{ name: 'Stored-27B', type: 'llamaCPP' }]
+    const store = await readyStore()
+    seedSession('/work/2026-11-20 Trip', true)
+    const id = sessionRecord(store)
+    const own = { id: 'own', hostPath: '/missing', slug: 'missing' }
+
+    const result = await store.sendToSession(id, 'go', {
+      settings: { ...STORED, folderOverrides: { workspace: own } },
+      taskRun: { taskName: 'Digest', notifiesResult: true },
+    })
+
+    expect(result).toMatchObject({ ok: true })
+    expect(sentConfig(0).workspaceDir).toBe('/missing')
+  })
+
+  it('names the current Workspace as where its next turn works, for a channel attachment', async () => {
+    const store = await readyStore()
+    seedSession('/work/2026-11-20 Trip', true)
+    const id = sessionRecord(store)
+    const outside = createTaskSession(store, '/work/task')
+
+    expect(store.turnWorkspaceOf(id)).toBe('/work/2026-11-20 Trip')
+    expect(store.turnWorkspaceOf(outside)).toBe('/work/task')
+  })
+
+  it('leaves a games preset in its own game folder', async () => {
+    inference.catalog = [{ name: 'Stored-27B', type: 'llamaCPP' }]
+    const store = await readyStore()
+    seedSession('/work/2026-11-20 Trip', true)
+    const id = store.createSession({
+      sessionRef: 'session-1',
+      workspaceDir: '/games/asteroids',
+      settings: { ...STORED },
+      presetName: 'Game Agent',
+      title: 'Asteroids',
+    })
+
+    await store.sendToSession(id, 'faster ships')
+
+    expect(sentConfig(0).workspaceDir).toBe('/games/asteroids')
   })
 })
 
@@ -587,53 +1060,5 @@ describe('how a turn settled', () => {
     await finishTurn(id, 0)
     await vi.waitFor(() => expect(store.anyTurnOpen).toBe(false))
     expect(seen).toEqual([])
-  })
-})
-
-describe('what decides a Held Answer', () => {
-  function recordHeldEnds(store: Awaited<ReturnType<typeof readyStore>>) {
-    const ends: Array<{ sessionId: string; end: string }> = []
-    store.onHeldAnswerSettled((sessionId, end) => ends.push({ sessionId, end }))
-    return ends
-  }
-
-  it('is the turn completing', async () => {
-    const store = await readyStore()
-    const ends = recordHeldEnds(store)
-    const id = createTaskSession(store)
-    await store.sendToSession(id, 'go')
-    await finishTurn(id, 0)
-    await vi.waitFor(() => expect(ends).toEqual([{ sessionId: id, end: 'completed' }]))
-  })
-
-  it('is a stop on the desktop', async () => {
-    const store = await readyStore()
-    const ends = recordHeldEnds(store)
-    const id = createTaskSession(store)
-    await store.sendToSession(id, 'go')
-    await turnIdOf(0)
-    await store.stopSession(id)
-    await vi.waitFor(() => expect(ends).toEqual([{ sessionId: id, end: 'stopped' }]))
-  })
-
-  it('is the session being deleted, even though deleting stops its turn first', async () => {
-    const store = await readyStore()
-    const ends = recordHeldEnds(store)
-    const id = createTaskSession(store)
-    await store.sendToSession(id, 'go')
-    await turnIdOf(0)
-    await store.deleteSession(id)
-    await vi.waitFor(() => expect(ends).toEqual([{ sessionId: id, end: 'deleted' }]))
-  })
-
-  it('is a discard on the desktop, which clears the Held Answer shown', async () => {
-    const store = await readyStore()
-    const ends = recordHeldEnds(store)
-    const id = createTaskSession(store)
-    store.setHeldAnswer(id, { text: 'make it faster', channel: 'telegram' })
-    expect(store.heldAnswers[id]).toEqual({ text: 'make it faster', channel: 'telegram' })
-    store.discardHeldAnswer(id)
-    expect(ends).toEqual([{ sessionId: id, end: 'discarded' }])
-    expect(store.heldAnswers[id]).toBeUndefined()
   })
 })

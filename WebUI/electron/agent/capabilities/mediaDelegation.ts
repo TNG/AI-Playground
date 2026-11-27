@@ -7,7 +7,11 @@ import {
 } from '../piCustomTools.ts'
 import { loadPi } from '../piRuntime.ts'
 import type { AgentToolSpec, CapabilityHost } from './types.ts'
-import { condenseMediaAgentRun, slimCondensedMedia } from '@/lib/mediaAgentResult'
+import {
+  condenseMediaAgentRun,
+  slimCondensedMedia,
+  type CondensedMediaAgentResult,
+} from '@/lib/mediaAgentResult'
 import type { ChatModelConfig } from '@/types/chatIpc'
 
 // ── media delegation tool ────────────────────────────────────────────────────
@@ -59,6 +63,7 @@ export async function buildDelegatedMediaTool(
 ): Promise<ToolDefinition> {
   const pi = await loadPi()
   const { workspaceDir } = host
+  const declinedWorkflows = new Set<string>()
   return pi.defineTool({
     name: spec.name,
     label: spec.name,
@@ -69,7 +74,7 @@ export async function buildDelegatedMediaTool(
       for (const key of spec.workspacePathInputs ?? []) {
         const value = dispatchInput[key]
         if (typeof value === 'string' && value !== '') {
-          dispatchInput[key] = workspaceFileToDataUri(workspaceDir, value)
+          dispatchInput[key] = workspaceFileToDataUri(host, value)
         }
       }
       const specialist = resolveSpecialist(host)
@@ -92,12 +97,33 @@ export async function buildDelegatedMediaTool(
           toolSpecs: specialist.mediaAgent.toolSpecs,
           repairData: specialist.mediaAgent.repairData,
           keepModelsLoaded: specialist.keepModelsLoaded,
+          declinedWorkflows,
         },
         signal ?? undefined,
       )
       const condensed = condenseMediaAgentRun(raw)
-      const saved = await saveGeneratedMediaToWorkspace(slimCondensedMedia(condensed), workspaceDir)
-      return mediaToolResult(saved, condensed.steps)
+      // The workspace save runs on the FULL record, so the savedFiles and
+      // workspace-path annotations land on entries that still carry every
+      // generation setting. The slim copy below is for the parent model's
+      // context only; the transcript's items come from the full one.
+      const saved = (await saveGeneratedMediaToWorkspace(
+        condensed,
+        workspaceDir,
+        host.sessionMedia,
+        host.sessionId,
+      )) as CondensedMediaAgentResult
+      // The model's copy also drops the folder-served URLs — the model would
+      // otherwise quote their Session and folder ids to the user; the files it
+      // may name by their `savedFiles` paths, the transcript's items keep the URLs.
+      const slim = slimCondensedMedia(saved)
+      const forModel = {
+        ...slim,
+        images: (slim.images as Record<string, unknown>[]).map((item) => {
+          const { imageUrl: _image, videoUrl: _video, model3dUrl: _model, ...rest } = item
+          return rest
+        }),
+      }
+      return mediaToolResult(forModel, condensed.steps, saved)
     },
   }) as ToolDefinition
 }

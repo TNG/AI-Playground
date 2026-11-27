@@ -1,3 +1,4 @@
+import type { ComfyDynamicInputWithCurrent } from '@/types/mediaItem'
 import type { MediaAgentRunResult } from '@/types/chatIpc'
 
 /** Comfy-shaped media entry produced by an inner specialist tool. */
@@ -9,6 +10,8 @@ export type CondensedMediaEntry = {
   model3dUrl?: string
   mode: string
   settings: Record<string, unknown>
+  /** The per-workflow inputs the run used; UI-only, never enters the parent model context. */
+  dynamicSettings?: ComfyDynamicInputWithCurrent[]
 }
 
 export type CondensedMediaAgentResult = {
@@ -17,6 +20,11 @@ export type CondensedMediaAgentResult = {
   summary: string
   success?: boolean
   message?: string
+  /** A step's model download was declined by the user; the message says not to retry. */
+  declined?: true
+  /** The workspace-relative paths a save put the finished items at (see piCustomTools). */
+  savedFiles?: string[]
+  savedFilesNote?: string
 }
 
 const MEDIA_TYPES = new Set(['image', 'video', 'model3d'])
@@ -55,43 +63,98 @@ export function describeMediaAgentStep(step: {
   }
   const produced = mediaEntriesOf(step.output)
   const kinds = produced.map((item) => item.type).join(', ')
-  return `${step.toolName} (${workflow}): produced ${produced.length || 'no'} ${kinds || 'media'}`
+  const usedSize =
+    typeof output.size === 'string'
+      ? output.size
+      : produced.length > 0 && typeof produced[0].settings?.resolution === 'string'
+        ? produced[0].settings.resolution
+        : undefined
+  const usedResolution = usedSize ? ` (${usedSize})` : ''
+  return `${step.toolName} (${workflow}): produced ${produced.length || 'no'} ${kinds || 'media'}${usedResolution}`
 }
 
 /** Condenses the nested loop's raw steps into the parent tool's result shape. */
 export function condenseMediaAgentRun(result: MediaAgentRunResult): CondensedMediaAgentResult {
-  const images = result.steps.flatMap((step) => mediaEntriesOf(step.output))
+  const images = result.steps.flatMap((step) => {
+    const prompt = (step.input as { prompt?: unknown } | null)?.prompt
+    return mediaEntriesOf(step.output).map((entry) =>
+      typeof prompt === 'string' && prompt
+        ? { ...entry, settings: { ...entry.settings, prompt } }
+        : entry,
+    )
+  })
   const failures = result.steps
-    .map((step) => (step.output as { success?: boolean; message?: string } | null) ?? {})
+    .map(
+      (step) =>
+        (step.output as { success?: boolean; message?: string; declined?: boolean } | null) ?? {},
+    )
     .filter((output) => output.success === false)
+  const declined = failures.find((output) => output.declined === true)
   const summary =
     result.text.trim() || (images.length > 0 ? 'Media generated.' : 'No media generated.')
+  const steps = result.steps.map(describeMediaAgentStep)
+  const declinedFields = declined ? { declined: true as const, message: declined.message } : {}
   if (images.length === 0) {
     return {
       images: [],
-      steps: result.steps.map(describeMediaAgentStep),
+      steps,
       summary,
       success: false,
       message: failures.at(-1)?.message ?? summary,
+      ...declinedFields,
     }
   }
-  return { images, steps: result.steps.map(describeMediaAgentStep), summary }
+  return { images, steps, summary, ...declinedFields }
 }
 
-/** Drop bulky per-item settings before the result enters the parent model context. */
+/**
+ * Per-item settings the slim shape keeps: the prompt, the workflow names the
+ * turn header shows, and the width/height the artifact frames agree on.
+ */
+const SLIM_SETTINGS_KEYS = ['prompt', 'preset', 'variant', 'width', 'height'] as const
+
+/**
+ * The settings worth keeping wherever a media item is slimmed for a model
+ * context. Used by both slimming passes — the specialist's inner Comfy results
+ * and the parent tool's condensed result — so the UI can still name the
+ * workflow a settled image came from and lay mixed-size batches out uniformly.
+ */
+export function slimItemSettings(
+  settings: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  const slim: Record<string, unknown> = {}
+  for (const key of SLIM_SETTINGS_KEYS) {
+    const value = settings?.[key]
+    if (typeof value === 'string' || typeof value === 'number') slim[key] = value
+  }
+  return slim
+}
+
+/**
+ * Drop what the parent model does not need before the result enters its context: the bulky
+ * per-item settings, and for an agent turn the folder-served URLs, which the model would
+ * otherwise quote to the user instead of the file's name (the delegated media tool strips
+ * those at its call site). The friendly `savedFiles` paths stay, so the model can tell the
+ * user where each file landed; the transcript's items come from the full record.
+ */
 export function slimCondensedMedia(result: CondensedMediaAgentResult): Record<string, unknown> {
   const slim: Record<string, unknown> = {
     summary: result.summary,
     steps: result.steps,
     images: result.images.map((item) => {
-      const entry: Record<string, string> = { id: item.id, type: item.type }
+      const entry: Record<string, unknown> = { id: item.id, type: item.type }
       if (item.imageUrl) entry.imageUrl = item.imageUrl
       if (item.videoUrl) entry.videoUrl = item.videoUrl
       if (item.model3dUrl) entry.model3dUrl = item.model3dUrl
+      const settings = slimItemSettings(item.settings)
+      if (Object.keys(settings).length > 0) entry.settings = settings
       return entry
     }),
   }
   if (result.success !== undefined) slim.success = result.success
   if (result.message !== undefined) slim.message = result.message
+  if (result.declined) slim.declined = true
+  if (result.savedFiles) slim.savedFiles = result.savedFiles
+  if (result.savedFilesNote) slim.savedFilesNote = result.savedFilesNote
   return slim
 }

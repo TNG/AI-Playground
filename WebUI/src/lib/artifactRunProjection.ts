@@ -19,6 +19,8 @@ export type ArtifactRunView = {
   progress?: { current: number; max: number }
   error?: string
   items: MediaItem[]
+  /** An item began generating; a run that settles without it failed before generating anything. */
+  started?: boolean
   /** Order the projection first saw the run in — keeps a tool's media in call order. */
   order: number
 }
@@ -101,6 +103,7 @@ export function applyArtifactEvent(
       return upsert(state, event.runId, event.owner, (run) => ({
         ...run,
         items: upsertItem(run.items, event.item),
+        ...(run.started || hasStarted(event.item) ? { started: true } : {}),
       }))
     case 'artifact-done': {
       const phase: ArtifactPhase = event.state
@@ -128,7 +131,12 @@ export function applyArtifactSnapshot(
     progress: snapshot.progress,
     error: snapshot.error ?? undefined,
     items: snapshot.items.reduce(upsertItem, run.items),
+    ...(run.started || snapshot.items.some(hasStarted) ? { started: true } : {}),
   }))
+}
+
+function hasStarted(item: MediaItem): boolean {
+  return item.state === 'generating' || item.state === 'done'
 }
 
 /** Runs a tool call submitted itself, or that a specialist ran on its behalf. */

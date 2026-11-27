@@ -78,7 +78,7 @@ export function chatTraceContext(): ChatTraceContext {
  * The renderer-resolved half of a chat turn: everything the main-side model
  * factory (`electron/chat/chatModelMain.ts`) needs, captured at submit time
  * from the same store reads `createChatModel` performs — backend selection,
- * the encoded model id, cloud/Home-Agent proxy routing, recommended sampling,
+ * the encoded model id, cloud routing, recommended sampling,
  * thinking kwargs, and the local-backend readiness facts so main can load
  * (and relaunch) without another Pinia read. Chat turns ship this over
  * `chat:submitTurn`; the media specialist (electron/chat/mediaAgentRunner.ts)
@@ -115,7 +115,6 @@ export function buildChatModelConfig(): ChatModelConfig {
           },
         }
       : {}),
-    homeAgentUpstreamUrl: textInference.homeAgentUpstreamUrl || undefined,
     ...(isLocal
       ? {
           readiness: {

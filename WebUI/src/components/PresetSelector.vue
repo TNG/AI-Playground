@@ -1,13 +1,11 @@
 <template>
   <div v-if="selectedPreset" class="flex flex-col gap-6">
-    <!-- Informational card: thumbnail, name, description and tags. The extra
-         right padding keeps the sidebar's floating close arrow (rendered by
-         SideModalBase with hide-header) off the card content. -->
+    <!-- Informational card: thumbnail, name, description and tags. -->
     <section
       role="group"
       :aria-label="`${displayName} preset information`"
       :data-aipg-preset-name="selectedPreset.name"
-      class="flex flex-col gap-3 rounded-lg border border-border bg-muted/40 p-3 pr-8"
+      class="flex flex-col gap-3 rounded-lg border border-border bg-muted/40 p-3"
     >
       <div class="flex flex-row items-start gap-3">
         <div
@@ -49,30 +47,14 @@
         </span>
       </div>
     </section>
-
-    <!-- Variant picker, aligned with the label/control grid used by the other settings. -->
-    <div
-      v-if="variantSelectorOptions.length > 1"
-      class="grid grid-cols-[120px_1fr] items-center gap-4"
-    >
-      <Label class="whitespace-nowrap">Variant</Label>
-      <VariantSelector
-        v-model="selectedVariantValue"
-        :options="variantSelectorOptions"
-        :columns="Math.min(variantSelectorOptions.length, 3)"
-      />
-    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, watch, onMounted } from 'vue'
 import { usePresets } from '@/assets/js/store/presets'
-import { useBackendServices } from '@/assets/js/store/backendServices'
 import { useOemBranding } from '@/assets/js/store/oemBranding'
 import { extendedDescriptionText } from '@/assets/js/help/presetHelp'
-import { Label } from '@/components/ui/label'
-import VariantSelector, { type VariantOption } from '@/components/VariantSelector.vue'
 interface Props {
   categories?: string[]
   type?: string
@@ -87,11 +69,9 @@ const props = withDefaults(defineProps<Props>(), {
 
 const emits = defineEmits<{
   (e: 'update:modelValue', value: string): void
-  (e: 'update:variant', presetName: string, variantName: string | null): void
 }>()
 
 const presetsStore = usePresets()
-const backendServices = useBackendServices()
 const oemBranding = useOemBranding()
 
 const filteredPresets = computed(() => {
@@ -117,71 +97,6 @@ const activeVariantName = computed(() => {
   if (!selectedPresetName.value) return null
   return presetsStore.activeVariantName[selectedPresetName.value] || null
 })
-
-function isVariantAvailable(variant: { requiresService?: string }): boolean {
-  if (!variant.requiresService) return true
-  const info = backendServices.info.find((s) => s.serviceName === variant.requiresService)
-  if (!info) return false
-  return info.status !== 'notInstalled'
-}
-
-// Variants are now grouped by `backend` (defaulting to 'comfyui'). The Backend dropdown
-// in SettingsWorkflow.vue picks which group is active; the quality radio here only shows
-// variants belonging to that group, then further filters by `requiresService` availability.
-const availableVariants = computed(() => {
-  if (!selectedPreset.value?.variants) return []
-  const presetName = selectedPreset.value.name
-  const activeBackend = presetsStore.getActiveBackend(presetName) ?? 'comfyui'
-  return selectedPreset.value.variants
-    .filter((v) => (v.backend ?? 'comfyui') === activeBackend)
-    .filter(isVariantAvailable)
-})
-
-const variantSelectorOptions = computed<VariantOption[]>(() => {
-  const presetName = selectedPreset.value?.name ?? ''
-  return availableVariants.value.map((variant, index) => ({
-    id: `variant-${index}`,
-    name: variant.displayName ?? variant.name,
-    value: variant.name,
-    presetName,
-  }))
-})
-
-const selectedVariantValue = computed({
-  get: () => {
-    const variant = activeVariantName.value
-    const available = availableVariants.value
-    // If currently selected variant is unavailable, fall back to first available one
-    if (variant && !available.some((v) => v.name === variant)) {
-      return available[0]?.name ?? ''
-    }
-    // If no variant selected but preset has available variants, return the first one
-    if (!variant && available.length > 0) {
-      return available[0].name
-    }
-    return variant || ''
-  },
-  set: (value: string) => {
-    if (!selectedPresetName.value) return
-    // Emit variant change for parent to handle via orchestrator
-    emits('update:variant', selectedPresetName.value, value)
-  },
-})
-
-// When the previously-active variant becomes unavailable (service uninstalled, or
-// persisted state from another machine), reconcile it to the first available variant.
-watch(
-  [selectedPresetName, availableVariants],
-  ([presetName, available]) => {
-    if (!presetName) return
-    const current = presetsStore.activeVariantName[presetName]
-    if (!current) return
-    if (available.some((v) => v.name === current)) return
-    if (available.length === 0) return
-    emits('update:variant', presetName, available[0].name)
-  },
-  { immediate: true },
-)
 
 const extendedDescription = computed(() =>
   extendedDescriptionText(selectedPreset.value, activeVariantName.value),

@@ -12,7 +12,7 @@ import { takeLegacyPlanningThinkingOnly } from '@/assets/js/store/agentModeSessi
 const AGENT: ChatPreset = {
   type: 'chat',
   category: 'chat',
-  name: 'Agent',
+  name: 'Assistant',
   backends: ['llamaCPP'],
   agentPreset: true,
   agentWorkspace: 'pick',
@@ -98,6 +98,7 @@ const gamesList = vi.fn(async () => [{ dir: '/games/space-dodger' }])
 globalThis.window = {
   electronAPI: {
     agentMode: {
+      sessionDocuments: vi.fn(async () => []),
       cancel: vi.fn(async () => {}),
       deleteSession: vi.fn(async () => ({ success: true })),
       // Agent notifications ride the kernel stream; only the executeTool
@@ -122,7 +123,7 @@ function seedSessions(store: Store): void {
       messages: [],
       createdAt: 1,
       updatedAt: 3,
-      presetName: 'Agent',
+      presetName: 'Assistant',
     },
     'game-1': {
       id: 'game-1',
@@ -207,7 +208,7 @@ describe('agentMode sessions', () => {
         messages: [],
         createdAt: 9,
         updatedAt: 9,
-        presetName: 'Agent',
+        presetName: 'Assistant',
       },
     }
 
@@ -243,7 +244,7 @@ describe('agentMode sessions', () => {
     await store.migrateSessionPresets()
 
     expect(store.sessions.game.presetName).toBe('Game Agent')
-    expect(store.sessions.code.presetName).toBe('Agent')
+    expect(store.sessions.code.presetName).toBe('Assistant')
     expect(store.presetSessions.map((session) => session.id)).toEqual(['code'])
   })
 

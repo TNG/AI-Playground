@@ -16,7 +16,7 @@ export type CloudProviderDeps = {
 export function buildCloudProviderRegistry(deps: CloudProviderDeps) {
   // Cloud Mode provider API keys: encrypted at rest via safeStorage and never
   // persisted in the renderer. Each provider's key lives in its own file keyed
-  // by provider id, mirroring the Home Agent channel-secret layout.
+  // by provider id, mirroring the Channel secret layout.
   // Reading/decryption happens in main only (readCloudProviderKey). Chat, agent
   // turns, and the model list attach that key when they call the provider.
   return {

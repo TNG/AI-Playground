@@ -1,18 +1,18 @@
 <template>
-  <div v-if="theme.active === 'lnl'" class="lnl-grid lnl-top-grid"></div>
-  <div v-if="theme.active === 'lnl'" class="lnl-grid lnl-bottom-grid"></div>
-  <div v-if="theme.active === 'lnl'" class="lnl-gradient"></div>
+  <div v-if="theme.baseTheme === 'lnl'" class="lnl-grid lnl-top-grid"></div>
+  <div v-if="theme.baseTheme === 'lnl'" class="lnl-grid lnl-bottom-grid"></div>
+  <div v-if="theme.baseTheme === 'lnl'" class="lnl-gradient"></div>
   <div
-    v-if="theme.active === 'bmg'"
+    v-if="theme.baseTheme === 'bmg'"
     class="absolute -z-50 w-screen h-screen bg-cover bg-center bg-bmg"
   ></div>
   <div
-    v-if="theme.active === 'light'"
+    v-if="theme.baseTheme === 'light'"
     class="absolute -z-50 w-screen h-screen bg-cover bg-center bg-light"
   ></div>
   <header
     class="main-title text-2xl font-bold flex justify-between items-center px-4 border-b border-border/20 text-foreground bg-background/20"
-    :class="{ 'bg-muted/50': theme.active === 'light' }"
+    :class="{ 'bg-muted/50': theme.baseTheme === 'light' }"
   >
     <div class="flex items-center gap-4">
       <h1 class="select-none flex gap-2 items-baseline">
@@ -28,35 +28,80 @@
       <DemoModeIndicator />
     </div>
     <div class="flex justify-between items-center gap-5">
-      <HomeAgentToggle
-        v-if="globalSetup.loadingState === 'running' && showHomeAgentToggle"
+      <ChannelsToggle
+        v-if="globalSetup.loadingState === 'running' && showChannelsToggle"
         class="self-center"
       />
-      <button
-        v-if="showDebugSettings && !demoMode.enabled"
-        :title="languages.COM_SETTINGS"
-        @click="
-          () => {
-            const curState = globalSetup.loadingState
-            if (curState === 'running') {
-              setupWizardStore.openWizard()
-            } else if (curState === 'setupWizard') {
-              setupWizardStore.dismiss()
-            }
-          }
-        "
-        ref="showSettingBtn"
-      >
-        <ServerStackIcon class="size-6 text-foreground"></ServerStackIcon>
-      </button>
-      <button
-        v-if="globalSetup.loadingState === 'running'"
-        :title="languages.MODEL_MANAGER_TITLE"
-        :aria-label="languages.MODEL_MANAGER_OPEN"
-        @click="uiStore.openModelManager()"
-      >
-        <CircleStackIcon class="size-6 text-foreground"></CircleStackIcon>
-      </button>
+      <TrialRunIndicator v-if="globalSetup.loadingState === 'running'" />
+      <TooltipProvider :delay-duration="200">
+        <Tooltip v-if="globalSetup.loadingState === 'running' && !demoMode.enabled">
+          <TooltipTrigger as-child>
+            <button
+              type="button"
+              :aria-label="languages.SETTINGS_TAB_COMPONENT_MANAGER"
+              :aria-pressed="uiStore.componentManagerShowing"
+              class="-m-1 rounded-md p-1 transition-colors"
+              :class="{ 'bg-primary/20': uiStore.componentManagerShowing }"
+              @click="uiStore.toggleComponentManager()"
+            >
+              <ServerStackIcon class="size-6 text-foreground"></ServerStackIcon>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">{{
+            languages.SETTINGS_TAB_COMPONENT_MANAGER
+          }}</TooltipContent>
+        </Tooltip>
+        <Tooltip v-if="globalSetup.loadingState === 'running'">
+          <TooltipTrigger as-child>
+            <button
+              type="button"
+              :aria-label="languages.MODEL_MANAGER_OPEN"
+              :aria-pressed="uiStore.frontmost === 'models'"
+              class="-m-1 rounded-md p-1 transition-colors"
+              :class="{ 'bg-primary/20': uiStore.frontmost === 'models' }"
+              @click="uiStore.toggleModelLibrary()"
+            >
+              <CircleStackIcon class="size-6 text-foreground"></CircleStackIcon>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">{{ languages.SETTINGS_TAB_MODEL_LIBRARY }}</TooltipContent>
+        </Tooltip>
+        <Tooltip v-if="globalSetup.loadingState === 'running'">
+          <TooltipTrigger as-child>
+            <button
+              type="button"
+              :aria-label="languages.AGENT_LIBRARY_OPEN"
+              :aria-pressed="uiStore.frontmost === 'agent'"
+              class="-m-1 rounded-md p-1 transition-colors"
+              :class="{ 'bg-primary/20': uiStore.frontmost === 'agent' }"
+              @click="uiStore.toggleAgentLibrary()"
+            >
+              <Bot class="size-6 text-foreground" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">{{ languages.AGENT_LIBRARY_TITLE }}</TooltipContent>
+        </Tooltip>
+        <Tooltip v-if="globalSetup.loadingState === 'running'">
+          <TooltipTrigger as-child>
+            <button
+              id="app-settings-button"
+              type="button"
+              :aria-label="languages.COM_APP_SETTINGS"
+              :aria-pressed="uiStore.frontmost === 'settings'"
+              class="-m-1 rounded-md p-1 transition-colors"
+              :class="{ 'bg-primary/20': uiStore.frontmost === 'settings' }"
+              @click="toggleAppSettings()"
+            >
+              <Cog6ToothIcon class="size-6 text-foreground"></Cog6ToothIcon>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">{{ languages.COM_APP_SETTINGS }}</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+      <ThemeMenu
+        :can-customize="globalSetup.loadingState === 'running'"
+        @customize="uiStore.openThemePanel()"
+      />
       <button
         v-if="globalSetup.loadingState === 'running'"
         id="contextual-help-toggle"
@@ -156,184 +201,101 @@
     </div>
   </main>
 
-  <main
-    v-if="globalSetup.loadingState === 'running'"
-    class="flex-1 flex relative min-h-0"
-    :class="{
-      'bg-black/50': theme.active === 'lnl',
-      'bg-black/80': theme.active === 'bmg',
-      'border-t border-border': theme.active === 'dark',
-    }"
-  >
-    <SideModalHistory
-      id="history-panel"
-      :isVisible="uiStore.showHistory"
-      @close="uiStore.closeHistory()"
-      @conversation-selected="chatRef?.scrollToBottom"
-    />
+  <div v-if="globalSetup.loadingState === 'running'" class="flex-1 flex min-h-0">
+    <main
+      class="flex-1 flex relative min-h-0 min-w-0"
+      :class="{
+        'bg-black/50': theme.baseTheme === 'lnl',
+        'bg-black/80': theme.baseTheme === 'bmg',
+        'border-t border-border': theme.baseTheme === 'dark',
+      }"
+    >
+      <SessionsPanel />
 
-    <SideModalAppSettings :isVisible="showAppSettings" @close="showAppSettings = false" />
+      <SessionTabView>
+        <template #viewport>
+          <Chat v-if="showsThreadView" ref="threadView" />
+          <SessionTimeline v-else ref="timelineView" />
+          <PromptArea />
+        </template>
+        <template #inferencing>
+          <ModeSettingsTab :mode="promptStore.getCurrentMode()" tab="inferencing" />
+        </template>
+        <template #attributes>
+          <ModeSettingsTab :mode="promptStore.getCurrentMode()" tab="attributes" />
+        </template>
+        <template #artifacts>
+          <SessionArtifacts v-if="sessionTabs.shown === 'artifacts'" />
+        </template>
+        <template #schedules>
+          <SessionAgentSchedules v-if="sessionTabs.shown === 'schedules'" />
+        </template>
+      </SessionTabView>
 
-    <div class="flex-1 flex flex-col relative justify-center-safe min-h-0 overflow-y-auto">
-      <div class="fixed top-18 left-4 z-5 flex flex-col gap-2">
-        <button
-          id="show-history-button"
-          v-show="!uiStore.leftPanel"
-          @click="openHistory"
-          class="text-foreground px-3 py-1.5 bg-card border border-border shadow-sm hover:bg-muted rounded-lg text-sm"
-        >
-          {{
-            promptStore.getCurrentMode() === 'agent'
-              ? languages.COM_SHOW_SESSIONS
-              : languages.COM_SHOW_HISTORY
-          }}
-        </button>
-      </div>
-      <div
-        class="fixed left-4 z-5 flex items-center gap-3"
-        :class="{
-          'bottom-4': !footerExpanded,
-          'bottom-27': footerExpanded,
-        }"
-      >
-        <div id="app-settings-button" class="relative">
-          <button
-            @click="openAppSettings"
-            class="svg-icon i-setup w-6 h-6 text-foreground hover:text-foreground/80 transition-colors"
-            title="App Settings"
-          ></button>
-        </div>
-        <DemoModeBlocker>
-          <button
-            @click="openDevTools"
-            class="svg-icon i-code w-6 h-6 text-foreground hover:text-foreground/80 transition-colors"
-            title="Developer Tools"
-          ></button>
-        </DemoModeBlocker>
-      </div>
-      <!-- The Audio mode renders its turns (synthesized audio, transcripts) as chat
-           messages, so it shares this view with the Chat mode. -->
-      <Chat
-        v-if="promptStore.getCurrentMode() === 'chat' || promptStore.getCurrentMode() === 'audio'"
-        ref="chatRef"
+      <!-- Before the dialog layer on purpose: these share a z-index, so DOM order
+         decides, and the download dialog the Model Library opens must be able to
+         appear on top of App Settings. -->
+      <AgentLibrary v-if="uiStore.agentLibrary" @close="uiStore.closeAgentLibrary()" />
+      <AppSettingsDialog
+        :is-visible="uiStore.appSettingsOpen"
+        @close="uiStore.closeAppSettings()"
       />
-      <AgentMode v-if="promptStore.getCurrentMode() === 'agent'" />
-      <WorkflowResult
-        v-if="promptStore.getCurrentMode() === 'imageGen'"
-        ref="imageGenRef"
-        mode="imageGen"
-      />
-      <WorkflowResult
-        v-if="promptStore.getCurrentMode() === 'imageEdit'"
-        ref="imageEditRef"
-        mode="imageEdit"
-      />
-      <WorkflowResult v-if="promptStore.getCurrentMode() === 'video'" ref="videoRef" mode="video" />
-      <PromptArea @auto-hide-footer="handleAutoHideFooter" @open-settings="openSpecificSettings" />
-      <div v-if="!footerExpanded" class="fixed bottom-4 right-4 z-5 flex items-center gap-3">
-        <button
-          @click="footerExpanded = !footerExpanded"
-          class="text-foreground/30 hover:text-foreground/80 text-xs uppercase tracking-wider transition-colors"
-        >
-          SHOW FOOTER
-        </button>
-      </div>
-    </div>
+      <download-dialog v-show="dialogStore.downloadDialogVisible"></download-dialog>
+      <preset-requirements-dialog
+        v-show="dialogStore.presetRequirementsDialogVisible"
+      ></preset-requirements-dialog>
+      <installation-progress-dialog
+        v-show="dialogStore.installationProgressDialogVisible"
+      ></installation-progress-dialog>
+      <MaskEditorDialog />
+      <CameraCaptureDialog />
 
-    <SideModalSpecificSettings
-      :isVisible="uiStore.showSettings"
-      :mode="promptStore.getCurrentMode()"
-      @close="closeSpecificSettings"
-    />
-    <!-- Before the dialog layer on purpose: these share a z-index, so DOM order
-         decides, and the download / delete dialogs this view opens must be able
-         to appear on top of it. -->
-    <ModelManager v-if="uiStore.showModelManager" @close="uiStore.closeModelManager()" />
-    <download-dialog v-show="dialogStore.downloadDialogVisible"></download-dialog>
-    <preset-requirements-dialog
-      v-show="dialogStore.presetRequirementsDialogVisible"
-    ></preset-requirements-dialog>
-    <installation-progress-dialog
-      v-show="dialogStore.installationProgressDialogVisible"
-    ></installation-progress-dialog>
-    <MaskEditorDialog />
-
-    <!-- Demo Mode Overlay -->
-    <DemoModeOverlayDriverJsRef ref="demoModeOverlayDriverJs" />
-    <DemoModeNotificationDots />
-    <DemoModeAutoresetDialog v-if="demoMode.showResetDialog" />
-    <ContextualHelpLayer />
-  </main>
+      <!-- Demo Mode Overlay -->
+      <DemoModeOverlayDriverJsRef ref="demoModeOverlayDriverJs" />
+      <DemoModeNotificationDots />
+      <DemoModeAutoresetDialog v-if="demoMode.showResetDialog" />
+      <ContextualHelpLayer />
+    </main>
+    <ThemePanel v-if="uiStore.themePanelOpen && !demoMode.enabled" />
+  </div>
 
   <footer
-    class="flex-none px-4 flex flex-col justify-between items-center select-none transition-all duration-300"
+    class="flex-none px-4 py-1 flex justify-end items-center gap-4 text-xs text-muted-foreground select-none"
     :class="{
-      'bg-black/50': theme.active === 'lnl',
-      'bg-black/80': theme.active === 'bmg',
-      'border-t border-border': theme.active === 'dark',
+      'bg-black/50': theme.baseTheme === 'lnl',
+      'bg-black/80': theme.baseTheme === 'bmg',
+      'border-t border-border': theme.baseTheme === 'dark',
     }"
   >
-    <div v-if="footerExpanded" class="w-full relative flex items-center justify-center pb-1">
-      <button
-        @click="footerExpanded = !footerExpanded"
-        class="text-foreground/30 hover:text-foreground/80 text-xs uppercase tracking-wider transition-colors"
-      >
-        HIDE FOOTER
-      </button>
-    </div>
-    <div v-show="footerExpanded" class="w-full flex justify-between items-center pb-2">
-      <div>
-        <p>
-          Al Playground from Intel Corporation
-          <a href="https://github.com/intel/ai-playground" target="_blank" class="text-primary"
-            >https://github.com/intel/ai-playground</a
+    <a :href="userGuideUrl" target="_blank" class="hover:text-foreground">{{
+      languages.FOOTER_USER_GUIDE
+    }}</a>
+    <a :href="noticesUrl" target="_blank" class="hover:text-foreground">{{
+      languages.FOOTER_NOTICES
+    }}</a>
+    <a :href="licenseUrl" target="_blank" class="hover:text-foreground">{{
+      languages.FOOTER_LICENSES
+    }}</a>
+    <TooltipProvider v-if="buildIdentity.length > 0" :delay-duration="200">
+      <Tooltip>
+        <TooltipTrigger as-child>
+          <span class="underline decoration-dotted underline-offset-2 cursor-help"
+            >v{{ productVersion }}</span
           >
-        </p>
-        <p>
-          AI Playground version:
-          <TooltipProvider v-if="buildIdentity.length > 0" :delay-duration="200">
-            <Tooltip>
-              <TooltipTrigger as-child>
-                <span class="underline decoration-dotted underline-offset-2 cursor-help"
-                  >v{{ productVersion }}</span
-                >
-              </TooltipTrigger>
-              <TooltipContent side="top" class="text-xs">
-                <span
-                  v-for="line in buildIdentity"
-                  :key="line.label"
-                  class="block whitespace-nowrap"
-                  >{{ line.label }}: {{ line.value }}</span
-                >
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-          <span v-else>v{{ productVersion }}</span>
-          <a :href="userGuideUrl" target="_blank" class="text-primary"> User Guide</a>
-
-          <a :href="noticesUrl" target="_blank" class="text-primary">
-            | Important Notices and Disclaimers</a
+        </TooltipTrigger>
+        <TooltipContent side="top" class="text-xs">
+          <span v-for="line in buildIdentity" :key="line.label" class="block whitespace-nowrap"
+            >{{ line.label }}: {{ line.value }}</span
           >
-
-          <a :href="licenseUrl" target="_blank" class="text-primary"> | Licenses</a>
-        </p>
-      </div>
-      <div v-if="theme.active === 'lnl'" class="flex gap-2 items-center">
-        <p class="text-muted-foreground text-lg mr-2">Powered by</p>
-        <img class="size-20" src="@/assets/image/core_ultra_badge.png" />
-        <img class="size-20" src="@/assets/image/arc_graphics_badge.png" />
-      </div>
-      <div v-if="theme.active === 'bmg'" class="flex gap-2 items-center">
-        <p class="text-muted-foreground text-lg mr-2">Powered by</p>
-        <img class="size-20" src="@/assets/image/arc_graphics_badge.png" />
-      </div>
-      <img v-if="theme.active === 'light'" class="h-8" src="@/assets/svg/intel-dark.svg" />
-      <img v-else-if="theme.active === 'dark'" class="h-8" src="@/assets/svg/intel.svg" />
-    </div>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+    <span v-else>v{{ productVersion }}</span>
   </footer>
-  <!-- Outside the running-only main: Home Agent setup lives in the wizard. -->
+  <!-- Outside the running-only main: Channels setup lives in the wizard. -->
   <warning-dialog v-show="dialogStore.warningDialogVisible"></warning-dialog>
   <close-dialog v-if="dialogStore.closeQuestion"></close-dialog>
+  <missing-workspace-dialog v-if="dialogStore.missingWorkspaceQuestion"></missing-workspace-dialog>
 </template>
 
 <script setup lang="ts">
@@ -349,40 +311,63 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { useTheme } from './assets/js/store/theme.ts'
 import WarningDialog from '@/components/WarningDialog.vue'
 import CloseDialog from '@/components/CloseDialog.vue'
+import MissingWorkspaceDialog from '@/components/MissingWorkspaceDialog.vue'
 import PresetRequirementsDialog from '@/components/PresetRequirementsDialog.vue'
 import InstallationProgressDialog from '@/components/InstallationProgressDialog.vue'
 import MaskEditorDialog from '@/components/MaskEditorDialog.vue'
+import CameraCaptureDialog from '@/components/CameraCaptureDialog.vue'
 import DemoModeIndicator from '@/components/DemoModeIndicator.vue'
-import { CircleStackIcon, ServerStackIcon } from '@heroicons/vue/24/solid'
-import ModelManager from '@/views/ModelManager.vue'
+import { CircleStackIcon, Cog6ToothIcon, ServerStackIcon } from '@heroicons/vue/24/solid'
+import { Bot } from 'lucide-vue-next'
+import AgentLibrary from '@/views/AgentLibrary.vue'
+import TrialRunIndicator from '@/components/TrialRunIndicator.vue'
 import { useColorMode } from '@vueuse/core'
 import { useDemoMode } from './assets/js/store/demoMode.ts'
-import { debugSettingsVisible } from './assets/js/store/debugSettings.ts'
-import WorkflowResult from '@/views/WorkflowResult.vue'
+import SessionTimeline from '@/views/SessionTimeline.vue'
 import Chat from '@/views/Chat.vue'
-import AgentMode from '@/views/AgentMode.vue'
 import { computed, ref, watch } from 'vue'
-import SideModalHistory from '@/components/SideModalHistory.vue'
-import SideModalAppSettings from '@/components/SideModalAppSettings.vue'
+import SessionsPanel from '@/components/SessionsPanel.vue'
+import SessionTabView from '@/components/SessionTabView.vue'
+import ModeSettingsTab from '@/components/ModeSettingsTab.vue'
+import SessionArtifacts from '@/components/SessionArtifacts.vue'
+import SessionAgentSchedules from '@/components/SessionAgentSchedules.vue'
+import AppSettingsDialog from '@/components/AppSettingsDialog.vue'
+import ThemeMenu from '@/components/ThemeMenu.vue'
+import ThemePanel from '@/components/ThemePanel.vue'
 import { useDialogStore } from '@/assets/js/store/dialogs.ts'
 import { usePromptStore } from '@/assets/js/store/promptArea.ts'
-import SideModalSpecificSettings from '@/components/SideModalSpecificSettings.vue'
 import { useUIStore } from '@/assets/js/store/ui.ts'
 import { useSetupWizard } from '@/assets/js/store/setupWizard'
 import * as toast from '@/assets/js/toast'
 import DemoModeOverlayDriverJsRef from './components/DemoModeOverlayDriverJs.vue'
-import DemoModeBlocker from '@/components/DemoModeBlocker.vue'
 import DemoModeNotificationDots from '@/components/DemoModeNotificationDots.vue'
 import DemoModeAutoresetDialog from '@/components/DemoModeAutoresetDialog.vue'
-import HomeAgentToggle from '@/components/HomeAgentToggle.vue'
+import ChannelsToggle from '@/components/ChannelsToggle.vue'
 import ContextualHelpLayer from '@/components/ContextualHelpLayer.vue'
 import { useContextualHelp } from '@/assets/js/store/contextualHelp'
 import { usePresetSwitching } from '@/assets/js/store/presetSwitching'
 import { useOemBranding } from '@/assets/js/store/oemBranding'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { usesSessionSettings } from '@/lib/agentSessionSettings'
+import { useModePromptHandlers } from '@/lib/useModePromptHandlers'
+import { useSessions } from '@/assets/js/store/sessions'
+import { useSessionTabs } from '@/assets/js/store/sessionTabs'
+import { useSessionOverviews } from '@/lib/useSessionOverviews'
 
 const theme = useTheme()
+
+// Built-in Theme colours come from the stylesheet; anything else the store applies overrides them.
+watch(
+  () => theme.appliedColors,
+  (colors) => {
+    const root = document.documentElement
+    for (const token of theme.colorTokens)
+      if (colors) root.style.setProperty(`--${token}`, colors[token])
+      else root.style.removeProperty(`--${token}`)
+  },
+  { immediate: true },
+)
+
 const globalSetup = useGlobalSetup()
 const productModeStore = useProductMode()
 const demoMode = useDemoMode()
@@ -394,32 +379,59 @@ const setupWizardStore = useSetupWizard()
 const presetSwitching = usePresetSwitching()
 const oemBranding = useOemBranding()
 const agentMode = useAgentMode()
+const sessions = useSessions()
+const sessionTabs = useSessionTabs()
+const sessionOverviews = useSessionOverviews()
 
-// Agent Maker sessions can notify over Home Agent; the games presets cannot.
-const showHomeAgentToggle = computed(() => {
+// Once the app is actually running, pick up the pending Overview Summary markers an
+// interrupted run left behind. Waiting for `running` keeps a half-installed app from
+// failing a summary whose backend is not set up yet.
+let resumedOverviewUpdates = false
+watch(
+  () => globalSetup.loadingState,
+  (state) => {
+    if (state !== 'running' || resumedOverviewUpdates) return
+    resumedOverviewUpdates = true
+    void sessionOverviews.resumePending()
+  },
+  { immediate: true },
+)
+
+// A kiosk never keeps an editor open, nor a half-made theme applied.
+watch(
+  () => demoMode.enabled,
+  (enabled) => {
+    if (!enabled) return
+    theme.discardDraft()
+    uiStore.closeThemePanel()
+  },
+)
+
+// Assistant sessions can notify over Channels; the games presets cannot.
+const showChannelsToggle = computed(() => {
   const mode = promptStore.getCurrentMode()
   if (mode === 'chat' || mode === 'imageGen') return true
   return mode === 'agent' && usesSessionSettings(agentMode.activeAgentPreset)
 })
 
 const demoModeOverlayDriverJs = ref<InstanceType<typeof DemoModeOverlayDriverJsRef>>()
-const showSettingBtn = ref<HTMLButtonElement>()
-const chatRef = ref<{
-  handleSubmitPromptClick: (prompt: string) => void
-  scrollToBottom: () => void
-}>()
-const imageGenRef = ref<{ handleSubmitPromptClick: (prompt: string) => void }>()
-const imageEditRef = ref<{ handleSubmitPromptClick: (prompt: string) => void }>()
-const videoRef = ref<{ handleSubmitPromptClick: (prompt: string) => void }>()
+const threadView = ref<InstanceType<typeof Chat> | null>(null)
+const timelineView = ref<InstanceType<typeof SessionTimeline> | null>(null)
+
+// A chat with no Session open is no Session's, so it keeps a view of its own.
+const showsThreadView = computed(
+  () => promptStore.getCurrentMode() === 'chat' && !sessions.openSessionId,
+)
+
+useModePromptHandlers({
+  scrollToBottom: () => (timelineView.value ?? threadView.value)?.scrollToBottom(),
+})
 
 const isOpen = ref(false)
-const footerExpanded = ref(true)
-const showAppSettings = ref(false)
 const fullscreen = ref(false)
 
 const platformTitle = window.envVars.platformTitle
 const productVersion = window.envVars.productVersion
-const showDebugSettings = debugSettingsVisible()
 
 // Which build this is, for telling test builds apart. Both parts are absent in a
 // build made from a tree without git history, and then the version gets no hover.
@@ -484,17 +496,13 @@ onMounted(async () => {
   // Which OEM's machine this is decides co-branded labels (e.g. Acer Game Agent).
   void oemBranding.initialize()
 
-  // Apply theme class to document root for CSS variables
+  // After useColorMode's own mount hook, which would otherwise leave its `dark` class behind.
   watch(
-    () => theme.active,
-    (newTheme) => {
+    () => theme.baseTheme,
+    (baseTheme) => {
       const root = document.documentElement
-      // Remove all theme classes
       root.classList.remove('dark', 'lnl', 'bmg', 'light')
-      // Add current theme class (light theme is default via :root, so no class needed)
-      if (newTheme !== 'light') {
-        root.classList.add(newTheme)
-      }
+      if (baseTheme && baseTheme !== 'light') root.classList.add(baseTheme)
     },
     { immediate: true },
   )
@@ -530,26 +538,10 @@ function openDevTools() {
   window.electronAPI.openDevTools()
 }
 
-function handleAutoHideFooter() {
-  footerExpanded.value = false
-}
-
-function openHistory() {
-  uiStore.openHistory()
-}
-
-function openSpecificSettings() {
-  if (uiStore.showSettings) closeSpecificSettings()
-  else uiStore.openSettings()
-}
-
-function closeSpecificSettings() {
-  uiStore.closeSettings()
-}
-
-function openAppSettings() {
-  if (demoMode.triggerFirstTimeHelp('app-settings-button')) return
-  showAppSettings.value = true
+function toggleAppSettings() {
+  if (uiStore.frontmost !== 'settings' && demoMode.triggerFirstTimeHelp('app-settings-button'))
+    return
+  uiStore.toggleAppSettings()
 }
 
 function startTour() {

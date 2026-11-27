@@ -3,9 +3,6 @@
 // so a tool reads the same on every surface.
 
 const FRIENDLY_LABELS: Record<string, string> = {
-  getHomeAgentSettings: 'Read settings',
-  listHomeAgentModels: 'List models',
-  configureHomeAgent: 'Change settings',
   captureScreenshot: 'Capture screenshot',
   synthesizeTextToSpeech: 'Synthesize speech',
   comfyUI: 'Generate media',
@@ -18,7 +15,7 @@ const FRIENDLY_LABELS: Record<string, string> = {
  * `mcp__<server>__<tool>` dynamic name) into a concise human-readable label.
  */
 export function toolDisplayLabel(rawName: string): string {
-  // Tolerate being handed a part type like `tool-getHomeAgentSettings`.
+  // Tolerate being handed a part type like `tool-comfyUI`.
   const name = rawName.startsWith('tool-') ? rawName.slice('tool-'.length) : rawName
 
   if (name.startsWith('mcp__')) {

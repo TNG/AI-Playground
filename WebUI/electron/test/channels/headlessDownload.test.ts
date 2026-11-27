@@ -18,7 +18,6 @@ type Message = { id: number; text: string; buttons?: KeyboardButton[][] }
 /** A channel that keeps what the user would see: one entry per message, edited in place. */
 function fakeChannel() {
   const messages: Message[] = []
-  let drafts = 0
   const adapter = {
     kind: 'local-web',
     formatMarkdown: (md: string) => md,
@@ -41,12 +40,8 @@ function fakeChannel() {
       messages.push({ id: messages.length + 1, text })
       return { success: true }
     },
-    createDraftStream: () => {
-      drafts++
-      return { update: () => {}, finalize: async () => {}, cancel: () => {} }
-    },
   } as unknown as ChannelAdapter
-  return { adapter, messages, drafts: () => drafts }
+  return { adapter, messages }
 }
 
 /** The ai-backend's downloader, driven by the test. */
@@ -121,7 +116,6 @@ describe('a Home Agent chat turn’s download', () => {
     await run
     await flush()
     expect(ch.messages.map((m) => m.text)).toEqual(['✅ Downloaded.'])
-    expect(ch.drafts()).toBe(0)
   })
 
   it('reports a failure in the same message and throws a silent download error', async () => {

@@ -13,6 +13,8 @@ import type { ChatTransport, UIMessage, UIMessageChunk } from 'ai'
 import { chatTemplateKwargs } from '@/lib/samplingDefaults'
 import { openAiApiBase } from '@/lib/inferenceApiBase'
 import { HYBRID_CLOUD_NAME } from '@/lib/cloudModeName'
+import type { AgentFolderOverrides } from '@/types/agentSessionIpc'
+import { catalogModelToolUse } from '@/lib/modelToolUse'
 import type { ReasoningEffort } from '@/types/shared'
 import { extractMessage } from '../errors/appError'
 import { getAgentToolSpecs } from '../tools/agentBridge'
@@ -20,7 +22,9 @@ import { useDeveloperSettings } from './developerSettings'
 import { registerAgentModeIpc } from './agentModeIpc'
 import { CLOUD_DEFAULT_MODEL } from './cloudMode'
 import type { AgentAnswerOrigin, AgentModeTurnConfig } from '@/types/agentIpc'
+import type { OverviewChrome } from '@/types/overviewChrome'
 import type { CloudForTurn, InferenceForTurn, ToolsForTurn } from '@/lib/storedSessionInference'
+import { turnMediaToolSettings } from '@/lib/mediaToolSettings'
 import type { AgentTurnSnapshot, AgentTurnState, PauseReason } from '@/types/kernelEvents'
 
 type ActiveTurn = {
@@ -77,25 +81,50 @@ function embeddingConfigOf(textInference: InferenceForTurn) {
   return embeddingModel ? { embeddingModel, embeddingBackend: textInference.embeddingBackend } : {}
 }
 
+function folderOverridesOf(overrides: AgentFolderOverrides | undefined) {
+  return overrides ? { folderOverrides: overrides } : {}
+}
+
 export async function buildTurnConfig(options: {
   sessionId: string
+  /** The Session a Harness Session belongs to. */
+  sessionRef?: string
+  /** A Task Run's Step: main gives it no Session Update and no `session_history`. */
+  taskRun?: AgentModeTurnConfig['taskRun']
   workspaceDir: string
+  followUp?: AgentModeTurnConfig['followUp']
+  followedRun?: AgentModeTurnConfig['followedRun']
   presetName: string
   instructions: string
+  /** The preset's `agentOwnsPrompt`. */
+  ownsPrompt?: boolean
   capabilities: string[]
   unsandboxed: boolean
+  /** An Agent Run's folder overrides; absent inherits the Session's folders. */
+  folderOverrides?: AgentFolderOverrides
   planningThinkingOnly: boolean
   textInference: InferenceForTurn
   cloudMode: CloudForTurn
-  /** Tool toggles stored on the session; the live ones when absent. */
+  /** The Session's frozen language, for the reply language instruction. */
+  responseLocale?: string
+  /** The Overview chrome, resolved for its own locale. */
+  overviewChrome?: OverviewChrome
+  /** Tool settings stored on the session; the live ones when absent. */
   tools?: ToolsForTurn
   answer?: AgentAnswerOrigin
+  /** The preset shows max tokens and temperature, so they bound every request. */
+  userSampling?: boolean
 }): Promise<AgentModeTurnConfig> {
   const toolSpecs = getAgentToolSpecs(options.tools)
   const mediaAgent = toolSpecs.some((spec) => spec.name === 'media')
-    ? (await import('../agents/mediaAgent')).serializeMediaAgentInner()
+    ? (await import('../agents/mediaAgent')).serializeMediaAgentInner(
+        options.tools && turnMediaToolSettings(options.tools),
+      )
     : undefined
   const { textInference, cloudMode } = options
+  const userMaxTokens = Math.floor(textInference.effectiveMaxTokens ?? 0)
+  const maxOutputTokens =
+    options.userSampling && userMaxTokens > 0 ? { maxOutputTokens: userMaxTokens } : {}
   if (textInference.backend === 'cloud') {
     const upstreamBaseUrl = cloudMode.activeProviderBaseUrl
     if (!upstreamBaseUrl) {
@@ -106,6 +135,10 @@ export async function buildTurnConfig(options: {
     const model = textInference.activeModel ?? CLOUD_DEFAULT_MODEL
     return {
       sessionId: options.sessionId,
+      ...(options.sessionRef ? { sessionRef: options.sessionRef } : {}),
+      ...(options.taskRun ? { taskRun: options.taskRun } : {}),
+      ...(options.followUp ? { followUp: options.followUp } : {}),
+      ...(options.followedRun ? { followedRun: options.followedRun } : {}),
       workspaceDir: options.workspaceDir,
       modelConfig: {
         source: 'cloud',
@@ -118,14 +151,20 @@ export async function buildTurnConfig(options: {
         contextWindow: textInference.maxContextSizeFromModel
           ? textInference.effectiveContextWindow
           : undefined,
+        ...(options.userSampling ? { temperature: textInference.temperature } : {}),
+        ...maxOutputTokens,
       },
       toolSpecs,
       mediaAgent,
       presetName: options.presetName,
       instructions: options.instructions,
+      ...(options.ownsPrompt ? { ownsPrompt: true } : {}),
       capabilities: options.capabilities,
       unsandboxed: options.unsandboxed,
+      ...folderOverridesOf(options.folderOverrides),
       keepModelsLoaded: useDeveloperSettings().keepModelsLoaded,
+      ...(options.responseLocale ? { responseLocale: options.responseLocale } : {}),
+      ...(options.overviewChrome ? { overviewChrome: options.overviewChrome } : {}),
       ...(options.answer ? { answer: options.answer } : {}),
       ...embeddingConfigOf(textInference),
     }
@@ -134,13 +173,18 @@ export async function buildTurnConfig(options: {
   const baseUrl = textInference.localBackendUrl
   if (!baseUrl) {
     throw new Error(
-      'No local inference backend is available. Pick a local backend and model in the settings sidebar.',
+      'No local inference backend is available. Pick a local backend and model in the Inferencing tab.',
     )
   }
   const activeModel = textInference.activeModel
+  const toolUse = catalogModelToolUse(textInference.backend, textInference.activeLlmModel)
   const embeddingModelName = readinessEmbeddingModel(textInference, options.capabilities)
   return {
     sessionId: options.sessionId,
+    ...(options.sessionRef ? { sessionRef: options.sessionRef } : {}),
+    ...(options.taskRun ? { taskRun: options.taskRun } : {}),
+    ...(options.followUp ? { followUp: options.followUp } : {}),
+    ...(options.followedRun ? { followedRun: options.followedRun } : {}),
     workspaceDir: options.workspaceDir,
     modelConfig: {
       source: 'local',
@@ -151,15 +195,22 @@ export async function buildTurnConfig(options: {
       baseUrl: openAiApiBase(baseUrl),
       contextWindow: textInference.effectiveContextWindow,
       supportsVision: textInference.modelSupportsVision,
+      supportsToolCalling: toolUse.toolCalling,
+      supportsAgentic: toolUse.agentic,
       samplingParams: buildSamplingParams(textInference),
+      ...maxOutputTokens,
     },
     toolSpecs,
     mediaAgent,
     presetName: options.presetName,
     instructions: options.instructions,
+    ...(options.ownsPrompt ? { ownsPrompt: true } : {}),
     capabilities: options.capabilities,
     unsandboxed: options.unsandboxed,
+    ...folderOverridesOf(options.folderOverrides),
     keepModelsLoaded: useDeveloperSettings().keepModelsLoaded,
+    ...(options.responseLocale ? { responseLocale: options.responseLocale } : {}),
+    ...(options.overviewChrome ? { overviewChrome: options.overviewChrome } : {}),
     ...(options.answer ? { answer: options.answer } : {}),
     planningThinkingOnly:
       textInference.modelSupportsThinkingToggle &&
@@ -206,6 +257,9 @@ export function latestTurnMetadata<K extends keyof TurnMetadata>(
   return (latest?.metadata as TurnMetadata | undefined)?.[key]
 }
 
+/** Sent as `chat.regenerate`'s body: the harness turn main rewinds to just before. */
+export type RegenerateBody = { rewindTurnId: string; editedPrompt?: boolean }
+
 type StoreTool = (input: Record<string, unknown>, sessionId: string) => Promise<unknown>
 
 type ErrorSink = { report: (error: unknown, overrides: Record<string, unknown>) => void }
@@ -225,6 +279,11 @@ export type AgentSessionRuntime = {
   toolImages: Ref<Record<string, AgentToolImage[]>>
   /** A turn streams into this runtime, or waits to be adopted from the kernel snapshot. */
   hasTurn: () => boolean
+  /**
+   * Turns a regenerate rewound off the branch: their answers are gone from
+   * what the model sees, so a failed re-run leaves the view without them too.
+   */
+  rewoundTurnIds: ReadonlySet<string>
   /** Cancel the turn this runtime streams, or whatever main holds open for the session. */
   cancel: () => Promise<void>
 }
@@ -234,6 +293,8 @@ type SessionRuntime = AgentSessionRuntime & {
   onToolProgress: (turnId: string, toolCallId: string, text: string) => void
   onToolImage: (image: AgentToolImage) => void
   onTurnState: (turnId: string, state: AgentTurnState, pauseReason?: PauseReason) => void
+  /** Records that the turn with this id left the branch to make room for a regenerate. */
+  onTurnRewound: (rewoundTurnId: string) => void
   onTurnDone: (turnId: string) => void
   onQueuePosition: (turnId: string, position: number | undefined) => void
   resume: (turn: AgentTurnSnapshot) => void
@@ -243,11 +304,14 @@ type SessionRuntime = AgentSessionRuntime & {
 function createSessionRuntime(options: {
   sessionId: string
   errors: ErrorSink
+  describeTurnError?: (message: string) => string | undefined
   initialMessages: UIMessage[]
   finishedTurns: Set<string>
   buildTurnConfig: (sessionId: string) => Promise<AgentModeTurnConfig>
   onTurnSubmitted?: (sessionId: string) => void
   onTurnAdopted?: (sessionId: string) => void
+  /** An adopted turn rewound another off the branch; its answers left the chat and the view. */
+  onAdoptedRewound?: (sessionId: string, messageIds: string[]) => void
   onTurnSettled?: (sessionId: string) => void
   onAdoptedTurnDone?: (sessionId: string) => void
   onTurnPaused?: (sessionId: string) => void
@@ -273,13 +337,17 @@ function createSessionRuntime(options: {
   let adoptedTurnId: string | null = null
 
   const transport: ChatTransport<UIMessage> = {
-    sendMessages: async ({ messages, abortSignal }) => {
+    sendMessages: async ({ messages, abortSignal, body }) => {
       const lastUserMessage = [...messages].reverse().find((m) => m.role === 'user')
       const prompt = userMessagePrompt(lastUserMessage)
 
       const turnId = crypto.randomUUID()
       // Frozen here: settings edited after Send apply to the next turn.
-      const config = await options.buildTurnConfig(sessionId)
+      const built = await options.buildTurnConfig(sessionId)
+      const rewindBody = body as RegenerateBody | undefined
+      const rewindTurnId = rewindBody?.rewindTurnId
+      const editedPrompt = rewindBody?.editedPrompt === true ? { editedPrompt: true } : {}
+      const config = rewindTurnId ? { ...built, rewindTurnId, ...editedPrompt } : built
 
       return new ReadableStream<UIMessageChunk>({
         start: (controller) => {
@@ -345,6 +413,22 @@ function createSessionRuntime(options: {
         restoredImages[toolCallId] = [...images]
       }
       toolImages.value = restoredImages
+      // The adopted turn replaced a rewound one: its answers leave this chat before streaming.
+      if (turn.rewoundTurnId) {
+        rewoundTurnIds.add(turn.rewoundTurnId)
+        const rewoundAnswers = chat.messages.filter(
+          (message) =>
+            (message.metadata as { harnessTurnId?: unknown } | undefined)?.harnessTurnId ===
+            turn.rewoundTurnId,
+        )
+        if (rewoundAnswers.length > 0) {
+          chat.messages = chat.messages.filter((message) => !rewoundAnswers.includes(message))
+          options.onAdoptedRewound?.(
+            sessionId,
+            rewoundAnswers.map((message) => message.id),
+          )
+        }
+      }
       return new ReadableStream<UIMessageChunk>({
         start: (controller) => {
           activeTurn = { sessionId, turnId: turn.turnId, controller, closed: false }
@@ -376,7 +460,9 @@ function createSessionRuntime(options: {
         options.errors.report(error, {
           category: 'inference',
           code: 'agent/turn-failed',
-          userMessage: `Agent turn failed: ${extractMessage(error)}`,
+          userMessage:
+            options.describeTurnError?.(extractMessage(error)) ??
+            `Agent turn failed: ${extractMessage(error)}`,
           surface: options.quietTurnErrors?.(sessionId) ? 'silent' : 'toast',
         })
       },
@@ -463,6 +549,14 @@ function createSessionRuntime(options: {
     activeTurn = null
   }
 
+  // Turn ids are unique per session, so entries just accumulate: a stale one
+  // can only mean a turn that really did leave the branch.
+  const rewoundTurnIds = new Set<string>()
+
+  function onTurnRewound(rewoundTurnId: string): void {
+    rewoundTurnIds.add(rewoundTurnId)
+  }
+
   function resume(turn: AgentTurnSnapshot): void {
     // Only a runtime with no turn of its own resumes — a turn started here
     // since boot must not be displaced by a snapshot that predates it.
@@ -514,11 +608,13 @@ function createSessionRuntime(options: {
     toolProgress,
     toolImages,
     hasTurn: () => processing.value || activeTurn !== null || pendingResume !== null,
+    rewoundTurnIds,
     cancel,
     onChunk,
     onToolProgress,
     onToolImage,
     onTurnState,
+    onTurnRewound,
     onTurnDone,
     onQueuePosition,
     resume,
@@ -533,6 +629,8 @@ function createSessionRuntime(options: {
  */
 export function createAgentTurnRuntimes(options: {
   errors: ErrorSink
+  /** The user's wording for a turn error main sent as a known reason. */
+  describeTurnError?: (message: string) => string | undefined
   buildTurnConfig: (sessionId: string) => Promise<AgentModeTurnConfig>
   /** Tools the store implements itself (e.g. offer_game_agent); media tools execute in main. */
   storeTools?: Record<string, StoreTool>
@@ -540,6 +638,8 @@ export function createAgentTurnRuntimes(options: {
   onTurnSubmitted?: (sessionId: string) => void
   /** A turn main still holds was adopted from the kernel snapshot. */
   onTurnAdopted?: (sessionId: string) => void
+  /** An adopted turn rewound another off the branch; its answers left the chat and the view. */
+  onAdoptedRewound?: (sessionId: string, messageIds: string[]) => void
   /** The transcript a newly created runtime starts from (the session record's). */
   initialMessages?: (sessionId: string) => UIMessage[]
   /** A session's turn has ended — completed, failed, stopped or adopted-and-done. */
@@ -568,11 +668,13 @@ export function createAgentTurnRuntimes(options: {
       createSessionRuntime({
         sessionId,
         errors: options.errors,
+        describeTurnError: options.describeTurnError,
         initialMessages: options.initialMessages?.(sessionId) ?? [],
         finishedTurns,
         buildTurnConfig: options.buildTurnConfig,
         onTurnSubmitted: options.onTurnSubmitted,
         onTurnAdopted: options.onTurnAdopted,
+        onAdoptedRewound: options.onAdoptedRewound,
         onTurnSettled: options.onTurnSettled,
         onAdoptedTurnDone: options.onAdoptedTurnDone,
         onTurnPaused: options.onTurnPaused,
@@ -617,6 +719,9 @@ export function createAgentTurnRuntimes(options: {
     },
     onTurnState: ({ sessionId, turnId, state, pauseReason }) => {
       runtimes.value[sessionId]?.onTurnState(turnId, state, pauseReason)
+    },
+    onTurnRewound: ({ sessionId, rewoundTurnId }) => {
+      runtimes.value[sessionId]?.onTurnRewound(rewoundTurnId)
     },
     onTurnDone: ({ sessionId, turnId }) => {
       finishedTurns.add(turnId)

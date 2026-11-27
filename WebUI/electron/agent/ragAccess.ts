@@ -1,5 +1,5 @@
 import type { Document } from '@langchain/classic/document'
-import type { EmbedInquiry, IndexedDocument } from '@/types/rag'
+import type { EmbedInquiry, EmbeddingBackend, IndexedDocument } from '@/types/rag'
 
 // ── Main-process RAG plumbing for the agent's `rag` tool ─────────────────────
 //
@@ -19,7 +19,7 @@ export type RagAccess = {
    * Start the embedding sub-server of the given backend if needed and return
    * its base URL (no `/v1` suffix). Throws when the model or backend is not up.
    */
-  ensureEmbeddingServer(backend: 'llamaCPP' | 'openVINO', model: string): Promise<string>
+  ensureEmbeddingServer(backend: EmbeddingBackend, model: string): Promise<string>
 }
 
 let access: RagAccess | null = null

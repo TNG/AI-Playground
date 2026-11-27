@@ -1,3 +1,7 @@
+import { isToolEnabled } from '@/lib/builtinToolEnablement'
+import type { AgentSessionSettings } from '@/types/agentSessionIpc'
+import type { ToolsForTurn } from '@/lib/storedSessionInference'
+
 /**
  * The media tools' settings — delegation, built-in tool enablement, per-workflow
  * enablement and default workflows — behind one interface, so the media tools panel
@@ -13,6 +17,8 @@ export type MediaToolSettings = {
   /** The default for a "<toolName>:<mediaType>" slot among the enabled `available` workflows. */
   defaultWorkflow(slot: string, available: string[]): string | null
   setDefaultWorkflow(slot: string, presetName: string): void
+  speakReplies(): boolean
+  setSpeakReplies(enabled: boolean): void
 }
 
 // The workflows the tool descriptions used to hard-code, kept as the out-of-the-box default.
@@ -49,6 +55,7 @@ type MediaToolStore = {
   setWorkflowPresetEnabled(presetName: string, enabled: boolean): void
   getDefaultWorkflow(slot: string, available: string[]): string | null
   setDefaultWorkflow(slot: string, presetName: string): void
+  speakReplies: boolean
 }
 
 /** Reads and writes the chat store's live values: the active preset's, or the Open Session's. */
@@ -65,5 +72,60 @@ export function storeMediaToolSettings(store: MediaToolStore): MediaToolSettings
       store.setWorkflowPresetEnabled(presetName, enabled),
     defaultWorkflow: (slot, available) => store.getDefaultWorkflow(slot, available),
     setDefaultWorkflow: (slot, presetName) => store.setDefaultWorkflow(slot, presetName),
+    speakReplies: () => store.speakReplies,
+    setSpeakReplies: (enabled) => {
+      store.speakReplies = enabled
+    },
+  }
+}
+
+/** Reads and writes an Agent's Settings Template instead of the chat store's live values. */
+export function templateMediaToolSettings(
+  read: () => AgentSessionSettings,
+  edit: (change: AgentSessionSettings) => void,
+): MediaToolSettings {
+  return {
+    delegationEnabled: () => read().toolDelegationEnabled ?? true,
+    setDelegationEnabled: (enabled) => edit({ toolDelegationEnabled: enabled }),
+    isToolEnabled: (toolName) => isToolEnabled(read().builtinToolEnablement ?? {}, toolName),
+    setToolEnabled: (toolName, enabled) =>
+      edit({ builtinToolEnablement: { ...read().builtinToolEnablement, [toolName]: enabled } }),
+    isWorkflowEnabled: (presetName) =>
+      isWorkflowEnabled(read().builtinToolPresetEnablement ?? {}, presetName),
+    setWorkflowEnabled: (presetName, enabled) =>
+      edit({
+        builtinToolPresetEnablement: {
+          ...read().builtinToolPresetEnablement,
+          [presetName]: enabled,
+        },
+      }),
+    defaultWorkflow: (slot, available) =>
+      resolveDefaultWorkflow(read().builtinToolDefaultPresets ?? {}, slot, available),
+    setDefaultWorkflow: (slot, presetName) =>
+      edit({
+        builtinToolDefaultPresets: { ...read().builtinToolDefaultPresets, [slot]: presetName },
+      }),
+    speakReplies: () => read().speakReplies ?? false,
+    setSpeakReplies: (enabled) => edit({ speakReplies: enabled }),
+  }
+}
+
+/** A stored turn's own settings, read-only: the turn never writes to the Session it runs in. */
+export function turnMediaToolSettings(tools: ToolsForTurn): MediaToolSettings {
+  const settings = templateMediaToolSettings(
+    () => ({
+      toolDelegationEnabled: tools.toolDelegationEnabled,
+      builtinToolEnablement: tools.builtinToolEnablement,
+      builtinToolPresetEnablement: tools.builtinToolPresetEnablement,
+      builtinToolDefaultPresets: tools.builtinToolDefaultPresets,
+    }),
+    () => {
+      throw new Error("A stored turn's media tool settings are read-only")
+    },
+  )
+  return {
+    ...settings,
+    isToolEnabled: (toolName) =>
+      isToolEnabled(tools.builtinToolEnablement, toolName, { onNpu: tools.onNpu === true }),
   }
 }

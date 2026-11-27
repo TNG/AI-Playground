@@ -14,7 +14,7 @@ import type { ChatPreset } from '@/assets/js/store/presets'
 const AGENT: ChatPreset = {
   type: 'chat',
   category: 'chat',
-  name: 'Agent',
+  name: 'Assistant',
   backends: ['llamaCPP'],
   agentPreset: true,
   agentWorkspace: 'pick',
@@ -75,6 +75,7 @@ vi.mock('@ai-sdk/vue', () => ({
 }))
 
 const agentModeApi = {
+  sessionDocuments: vi.fn(async () => []),
   cancel: vi.fn(async () => {}),
   deleteSession: vi.fn(async (): Promise<{ success: boolean; error?: string }> => ({
     success: true,

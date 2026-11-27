@@ -1,7 +1,5 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
-  darkMode: ['class'],
-  safelist: ['dark'],
   prefix: '',
 
   content: [
@@ -45,6 +43,8 @@ module.exports = {
           DEFAULT: 'hsl(var(--muted))',
           foreground: 'hsl(var(--muted-foreground))',
         },
+        warning: 'hsl(var(--warning))',
+        success: 'hsl(var(--success))',
         demo: {
           accent: 'var(--demo-accent)',
           button: 'var(--demo-button-color)',

@@ -2,18 +2,20 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AgentTask } from '@/types/agentTaskIpc'
+import type { AgentDraft, AgentTask } from '@/types/agentTaskIpc'
 
 // The kernel-owned Tasks file, driven against a real file in a temp dir: the
 // read/upsert/delete round trip, rejection of a corrupt file or an invalid
 // payload, and demo routing + wipe.
 
-const files = vi.hoisted(() => ({ real: '', demo: '' }))
+const files = vi.hoisted(() => ({ real: '', demo: '', drafts: '', draftsDemo: '' }))
 let tmpRoot = ''
 
 vi.mock('../../persist/userDataPaths.ts', () => ({
   getAgentTasksFile: () => files.real,
   getAgentTasksDemoFile: () => files.demo,
+  getAgentDraftsFile: () => files.drafts,
+  getAgentDraftsDemoFile: () => files.draftsDemo,
 }))
 
 vi.mock('../../observability/logger', () => ({
@@ -21,19 +23,25 @@ vi.mock('../../observability/logger', () => ({
 }))
 
 const {
+  deleteAgentDraft,
   deleteAgentTask,
+  readAgentDrafts,
+  saveAgentDraft,
+  forgetSessionInAgentTasks,
   readAgentTasks,
   resetAgentTaskFilesForTest,
   saveAgentTask,
   setAgentTaskFilesDeps,
   wipeDemoAgentTasks,
+  dropAgentMountedFolders,
+  adoptWebScreenshotInAgents,
 } = await import('../../persist/agentTaskFiles')
 
 function task(id: string, overrides: Partial<AgentTask> = {}): AgentTask {
   return {
     id,
     name: `Task ${id}`,
-    workspaceDir: '/work/project',
+    sessionRef: 'session-1',
     settingsTemplate: { backend: 'llamaCPP', model: 'Qwen-9B', capabilities: ['files'] },
     steps: [
       { id: 's1', prompt: 'first' },
@@ -41,6 +49,19 @@ function task(id: string, overrides: Partial<AgentTask> = {}): AgentTask {
     ],
     createdAt: 1,
     updatedAt: 2,
+    ...overrides,
+  }
+}
+
+function draft(agentId: string, overrides: Partial<AgentDraft> = {}): AgentDraft {
+  return {
+    agentId,
+    name: `Draft ${agentId}`,
+    description: 'Checks the news',
+    image: 'data:image/png;base64,AAAA',
+    settingsTemplate: { backend: 'llamaCPP', model: 'Qwen-9B', capabilities: ['files'] },
+    steps: [{ id: 's1', prompt: 'edited' }],
+    updatedAt: 3,
     ...overrides,
   }
 }
@@ -58,7 +79,10 @@ beforeEach(async () => {
   if (!tmpRoot) tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'aipg-agent-tasks-'))
   files.real = path.join(tmpRoot, 'agent-tasks.json')
   files.demo = path.join(tmpRoot, 'agent-tasks-demo.json')
-  for (const file of [files.real, files.demo]) await fs.rm(file, { force: true })
+  files.drafts = path.join(tmpRoot, 'agent-drafts.json')
+  files.draftsDemo = path.join(tmpRoot, 'agent-drafts-demo.json')
+  for (const file of [files.real, files.demo, files.drafts, files.draftsDemo])
+    await fs.rm(file, { force: true })
   setAgentTaskFilesDeps({ isDemoMode: () => false })
 })
 
@@ -76,7 +100,7 @@ describe('the kernel Tasks file', () => {
     await saveAgentTask(task('b'))
 
     expect(await readAgentTasks()).toEqual([task('a'), task('b')])
-    expect((await readRaw(files.real))?.schemaVersion).toBe(1)
+    expect((await readRaw(files.real))?.schemaVersion).toBe(4)
   })
 
   it('replaces a Task with the same id in place', async () => {
@@ -86,7 +110,6 @@ describe('the kernel Tasks file', () => {
       kind: 'completed' as const,
       at: 5,
       sessionId: 'aipg-agent-1',
-      stepCount: 2,
     }
 
     await saveAgentTask(task('a', { name: 'Renamed', lastOutcome: outcome }))
@@ -97,29 +120,47 @@ describe('the kernel Tasks file', () => {
     ])
   })
 
-  it('round-trips a run marker and an app-closed outcome', async () => {
-    const activeRun = { sessionId: 'aipg-agent-1', stepIndex: 2, stepCount: 3 }
+  it('round-trips run markers and an app-closed outcome', async () => {
+    const activeRuns = [
+      { sessionId: 'aipg-agent-1', sessionRef: 'session-1' },
+      { sessionId: 'aipg-agent-2', sessionRef: 'session-2' },
+    ]
     const outcome = {
       kind: 'failed' as const,
       at: 9,
       sessionId: 'aipg-agent-1',
-      stepIndex: 2,
-      stepCount: 3,
       reason: 'app-closed' as const,
     }
 
-    await saveAgentTask(task('a', { activeRun }))
-    expect(await readAgentTasks()).toEqual([task('a', { activeRun })])
+    await saveAgentTask(task('a', { activeRuns }))
+    expect(await readAgentTasks()).toEqual([task('a', { activeRuns })])
 
     await saveAgentTask(task('a', { lastOutcome: outcome }))
     expect(await readAgentTasks()).toEqual([task('a', { lastOutcome: outcome })])
+  })
+
+  it('reads run markers and outcomes written when runs counted Steps, without the Steps', async () => {
+    const marker = { sessionId: 'aipg-agent-1', sessionRef: 'session-1' }
+    const outcome = { kind: 'completed' as const, at: 9, sessionId: 'aipg-agent-0' }
+    const old = {
+      ...task('a'),
+      activeRuns: [{ ...marker, stepIndex: 2, stepCount: 3 }],
+      lastOutcome: { ...outcome, stepIndex: 3, stepCount: 3 },
+    }
+    await fs.writeFile(files.real, JSON.stringify({ schemaVersion: 3, tasks: [old] }), 'utf8')
+
+    expect(await readAgentTasks()).toEqual([
+      task('a', { activeRuns: [marker], lastOutcome: outcome }),
+    ])
+    await saveAgentTask(task('b'))
+    const raw = (await readRaw(files.real)) as { tasks: Record<string, unknown>[] }
+    expect(JSON.stringify(raw.tasks[0])).not.toMatch(/step(Index|Count)/)
   })
 
   it('round-trips the outcome of a Scheduled Run that could not start, which has no session', async () => {
     const outcome = {
       kind: 'failed' as const,
       at: 9,
-      stepCount: 3,
       message: 'The workspace folder is missing: /work',
       reason: 'not-started' as const,
     }
@@ -129,12 +170,22 @@ describe('the kernel Tasks file', () => {
     expect(await readAgentTasks()).toEqual([task('a', { lastOutcome: outcome })])
   })
 
-  it('round-trips a Schedule and its Next Run', async () => {
-    const schedule = { every: 2, unit: 'hours' as const, startAt: 1_000, enabled: true }
+  it('round-trips one Agent scheduled in two Sessions, each with its own Next Run', async () => {
+    const schedules = [
+      {
+        sessionRef: 'session-1',
+        every: 1,
+        unit: 'days' as const,
+        startAt: 1_000,
+        enabled: true,
+        nextRunAt: 86_401_000,
+      },
+      { sessionRef: 'session-2', every: 2, unit: 'hours' as const, startAt: 1_000, enabled: false },
+    ]
 
-    await saveAgentTask(task('a', { schedule, nextRunAt: 7_201_000 }))
+    await saveAgentTask(task('a', { schedules }))
 
-    expect(await readAgentTasks()).toEqual([task('a', { schedule, nextRunAt: 7_201_000 })])
+    expect(await readAgentTasks()).toEqual([task('a', { schedules })])
   })
 
   it('reads a file written before Schedules existed', async () => {
@@ -143,8 +194,86 @@ describe('the kernel Tasks file', () => {
     const [read] = await readAgentTasks()
 
     expect(read).toEqual(task('a'))
-    expect(read).not.toHaveProperty('schedule')
-    expect(read).not.toHaveProperty('nextRunAt')
+    expect(read).not.toHaveProperty('schedules')
+  })
+
+  it("moves an Agent's old Schedule into a Schedule in the Agent's Session", async () => {
+    const schedule = { every: 2, unit: 'hours', startAt: 1_000, enabled: true }
+    const old = { ...task('a'), schedule, nextRunAt: 7_201_000 }
+    await fs.writeFile(files.real, JSON.stringify({ schemaVersion: 1, tasks: [old] }), 'utf8')
+
+    const [read] = await readAgentTasks()
+
+    expect(read).toEqual(
+      task('a', {
+        schedules: [{ sessionRef: 'session-1', ...schedule, nextRunAt: 7_201_000 } as never],
+      }),
+    )
+  })
+
+  it('drops an old Schedule that has no Session to run in', async () => {
+    const { sessionRef: _none, ...legacy } = task('old')
+    const schedule = { every: 10, unit: 'minutes', startAt: 1, enabled: true }
+    const old = { ...legacy, schedule, nextRunAt: 601 }
+    await fs.writeFile(files.real, JSON.stringify({ schemaVersion: 1, tasks: [old] }), 'utf8')
+
+    const [read] = await readAgentTasks()
+
+    expect(read).toEqual(legacy)
+  })
+
+  it("moves an old run marker into the Agent's run markers, in the Session it ran in", async () => {
+    const activeRun = { sessionId: 'aipg-agent-1', stepIndex: 2, stepCount: 3 }
+    const old = { ...task('a'), activeRun }
+    await fs.writeFile(files.real, JSON.stringify({ schemaVersion: 1, tasks: [old] }), 'utf8')
+
+    const [read] = await readAgentTasks()
+
+    expect(read).toEqual(
+      task('a', { activeRuns: [{ sessionId: 'aipg-agent-1', sessionRef: 'session-1' }] }),
+    )
+  })
+
+  it('writes the migrated shape back on the next upsert', async () => {
+    const schedule = { every: 2, unit: 'hours', startAt: 1_000, enabled: true }
+    const old = { ...task('a'), schedule, nextRunAt: 7_201_000 }
+    await fs.writeFile(files.real, JSON.stringify({ schemaVersion: 1, tasks: [old] }), 'utf8')
+
+    await saveAgentTask(task('b'))
+
+    const raw = (await readRaw(files.real)) as { tasks: Record<string, unknown>[] }
+    expect(raw.tasks[0]).not.toHaveProperty('schedule')
+    expect(raw.tasks[0]).toMatchObject({ schedules: [{ sessionRef: 'session-1', every: 2 }] })
+  })
+
+  it('reads a Task saved before Tasks belonged to a Session, and keeps it on an upsert', async () => {
+    const { sessionRef: _none, ...legacy } = task('old')
+    const old = { ...legacy, workspaceDir: '/work/project' }
+    await fs.writeFile(files.real, JSON.stringify({ schemaVersion: 1, tasks: [old] }), 'utf8')
+
+    await saveAgentTask(task('new'))
+
+    expect(await readAgentTasks()).toEqual([old, task('new')])
+  })
+
+  it("keeps a deleted Session's Agents and their Schedules in other Sessions", async () => {
+    const { sessionRef: _none, ...legacy } = task('old')
+    const daily = { every: 1, unit: 'days' as const, startAt: 100, enabled: true, nextRunAt: 200 }
+    const here = { sessionRef: 'session-1', ...daily }
+    const there = { sessionRef: 'session-2', ...daily }
+    const outcome = { kind: 'completed' as const, at: 5 }
+    await saveAgentTask(task('a', { schedules: [here, there], lastOutcome: outcome }))
+    await saveAgentTask(task('b', { sessionRef: 'session-2', schedules: [there] }))
+    await saveAgentTask({ ...legacy, schedules: [here] })
+
+    await forgetSessionInAgentTasks('session-1')
+
+    const { sessionRef: _gone, ...keptA } = task('a', { schedules: [there], lastOutcome: outcome })
+    expect(await readAgentTasks()).toEqual([
+      keptA,
+      task('b', { sessionRef: 'session-2', schedules: [there] }),
+      legacy,
+    ])
   })
 
   it('deletes one Task and keeps the others', async () => {
@@ -208,5 +337,194 @@ describe('the kernel Tasks file', () => {
     expect(await readRaw(files.demo)).toBeNull()
     setAgentTaskFilesDeps({ isDemoMode: () => false })
     expect(await readAgentTasks()).toEqual([task('real')])
+  })
+})
+
+describe('the kernel Drafts file', () => {
+  it('round-trips an Agent with a description and an image', async () => {
+    const described = task('a', { description: 'Morning digest', image: 'data:image/png;base64,B' })
+    await saveAgentTask(described)
+
+    expect(await readAgentTasks()).toEqual([described])
+  })
+
+  it('reads an absent file as no Drafts', async () => {
+    expect(await readAgentDrafts()).toEqual([])
+  })
+
+  it('keeps Drafts across a restart, one per Agent', async () => {
+    await saveAgentDraft(draft('a'))
+    await saveAgentDraft(draft('b'))
+    await saveAgentDraft(draft('a', { name: 'Renamed' }))
+
+    resetAgentTaskFilesForTest()
+    setAgentTaskFilesDeps({ isDemoMode: () => false })
+
+    expect(await readAgentDrafts()).toEqual([draft('a', { name: 'Renamed' }), draft('b')])
+  })
+
+  it('keeps a Draft apart from the saved Agent', async () => {
+    await saveAgentTask(task('a'))
+    await saveAgentDraft(draft('a'))
+
+    expect(await readAgentTasks()).toEqual([task('a')])
+  })
+
+  it('discards one Draft and keeps the others', async () => {
+    await saveAgentDraft(draft('a'))
+    await saveAgentDraft(draft('b'))
+
+    await deleteAgentDraft('a')
+
+    expect(await readAgentDrafts()).toEqual([draft('b')])
+  })
+
+  it("removes an Agent's Draft when the Agent is deleted", async () => {
+    await saveAgentTask(task('a'))
+    await saveAgentDraft(draft('a'))
+    await saveAgentDraft(draft('b'))
+
+    await deleteAgentTask('a')
+
+    expect(await readAgentDrafts()).toEqual([draft('b')])
+  })
+
+  it('removes the Draft of an Agent that was never saved', async () => {
+    await saveAgentDraft(draft('new'))
+
+    await deleteAgentTask('new')
+
+    expect(await readAgentDrafts()).toEqual([])
+  })
+
+  it('rejects a payload that is not a Draft', async () => {
+    await expect(saveAgentDraft({ agentId: 'a' })).rejects.toThrow(/invalid draft/)
+    expect(await readRaw(files.drafts)).toBeNull()
+  })
+
+  it('keeps no host folder on a demo Agent or Draft', async () => {
+    setAgentTaskFilesDeps({ isDemoMode: () => true })
+    const settingsTemplate = {
+      backend: 'llamaCPP' as const,
+      folderOverrides: {
+        folders: [
+          { id: 'f1', hostPath: '/Users/host/notes', slug: 'notes', access: 'read-only' as const },
+        ],
+      },
+    }
+
+    await saveAgentTask(task('a', { settingsTemplate }))
+    await saveAgentDraft(draft('a', { settingsTemplate }))
+
+    expect((await readAgentTasks())[0].settingsTemplate).toEqual({ backend: 'llamaCPP' })
+    expect((await readAgentDrafts())[0].settingsTemplate).toEqual({ backend: 'llamaCPP' })
+  })
+
+  it('routes Drafts through the demo file and wipes it with the demo Agents', async () => {
+    await saveAgentDraft(draft('real'))
+    setAgentTaskFilesDeps({ isDemoMode: () => true })
+    await saveAgentDraft(draft('demo'))
+    expect(await readAgentDrafts()).toEqual([draft('demo')])
+
+    await wipeDemoAgentTasks()
+
+    expect(await readRaw(files.draftsDemo)).toBeNull()
+    setAgentTaskFilesDeps({ isDemoMode: () => false })
+    expect(await readAgentDrafts()).toEqual([draft('real')])
+  })
+})
+
+describe("the upgrade that drops Agents' additional folders", () => {
+  const withFolders = { backend: 'llamaCPP', mountedFolders: [{ hostPath: '/Users/me/Papers' }] }
+
+  async function writeOldFiles(): Promise<void> {
+    await fs.writeFile(
+      files.real,
+      JSON.stringify({
+        schemaVersion: 3,
+        tasks: [
+          { ...task('a'), settingsTemplate: withFolders },
+          { ...task('b'), settingsTemplate: { backend: 'llamaCPP' } },
+        ],
+      }),
+    )
+    await fs.writeFile(
+      files.drafts,
+      JSON.stringify({
+        schemaVersion: 1,
+        drafts: [{ ...draft('a'), settingsTemplate: withFolders }],
+      }),
+    )
+  }
+
+  it('leaves every Agent and Draft with no additional folders and no overrides', async () => {
+    await writeOldFiles()
+
+    await dropAgentMountedFolders()
+
+    const tasks = (await readRaw(files.real)) as { tasks: { settingsTemplate: object }[] }
+    const drafts = (await readRaw(files.drafts)) as { drafts: { settingsTemplate: object }[] }
+    expect(tasks.tasks.map((entry) => entry.settingsTemplate)).toEqual([
+      { backend: 'llamaCPP' },
+      { backend: 'llamaCPP' },
+    ])
+    expect(drafts.drafts[0].settingsTemplate).toEqual({ backend: 'llamaCPP' })
+    expect((await readRaw(files.real))?.schemaVersion).toBe(3)
+  })
+
+  it('changes nothing when run a second time', async () => {
+    await writeOldFiles()
+    await dropAgentMountedFolders()
+    const once = [await fs.readFile(files.real, 'utf8'), await fs.readFile(files.drafts, 'utf8')]
+    const stamps = [(await fs.stat(files.real)).mtimeMs, (await fs.stat(files.drafts)).mtimeMs]
+
+    await dropAgentMountedFolders()
+
+    expect([
+      await fs.readFile(files.real, 'utf8'),
+      await fs.readFile(files.drafts, 'utf8'),
+    ]).toEqual(once)
+    expect([(await fs.stat(files.real)).mtimeMs, (await fs.stat(files.drafts)).mtimeMs]).toEqual(
+      stamps,
+    )
+  })
+
+  it('writes nothing when there are no Agents', async () => {
+    await dropAgentMountedFolders()
+
+    expect(await readRaw(files.real)).toBeNull()
+    expect(await readRaw(files.drafts)).toBeNull()
+  })
+})
+
+describe('the upgrade that adds Website screenshots to Agents', () => {
+  async function writeTasksFile(schemaVersion: number, tasks: AgentTask[]): Promise<void> {
+    await fs.writeFile(files.real, JSON.stringify({ schemaVersion, tasks }), 'utf8')
+  }
+
+  it("adds it to every Agent's and Draft's own tool list, once", async () => {
+    await writeTasksFile(3, [task('a'), task('b', { settingsTemplate: { model: 'Qwen-9B' } })])
+    await saveAgentDraft(draft('a'))
+
+    await adoptWebScreenshotInAgents()
+
+    const [a, b] = await readAgentTasks()
+    expect(a.settingsTemplate.capabilities).toEqual(['files', 'web-screenshot'])
+    expect(b.settingsTemplate.capabilities).toBeUndefined()
+    expect((await readAgentDrafts())[0].settingsTemplate.capabilities).toEqual([
+      'files',
+      'web-screenshot',
+    ])
+    expect((await readRaw(files.real))?.schemaVersion).toBe(4)
+  })
+
+  it('leaves an Agent the user took it off afterwards without it', async () => {
+    await writeTasksFile(3, [task('a')])
+    await adoptWebScreenshotInAgents()
+    await saveAgentTask(task('a'))
+
+    await adoptWebScreenshotInAgents()
+
+    expect((await readAgentTasks())[0].settingsTemplate.capabilities).toEqual(['files'])
   })
 })

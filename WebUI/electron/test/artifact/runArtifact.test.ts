@@ -38,9 +38,7 @@ vi.mock('@/assets/js/store/imageGenerationPresets', () => ({
     set generatedImages(value: MediaItem[]) {
       generatedImages.value = value
     },
-    get comfyInputsPerPreset() {
-      return comfyInputsPerPreset.value
-    },
+    savedInputsFor: (settingsKey: string) => comfyInputsPerPreset.value[settingsKey],
     get lastError() {
       return lastError.value
     },
@@ -99,6 +97,16 @@ vi.mock('@/lib/utils', () => ({
   imageUrlToDataUri: imageUrlToDataUriMock,
 }))
 
+const summariser = {
+  model: {
+    backend: 'llamaCPP',
+    modelId: 'qwen-test',
+    readiness: { serviceName: 'llamacpp-backend', llmModelName: 'qwen-test' },
+  },
+  language: 'de',
+}
+vi.mock('@/lib/turnSummariser', () => ({ turnSummariser: () => summariser }))
+
 // The IPC seam. window does not exist in the node test environment; the client
 // reads it lazily at submit time, never at import time.
 vi.stubGlobal('window', {
@@ -124,6 +132,7 @@ type RunPayload = {
   origin?: 'renderer' | 'agent'
   modelsConsented: boolean
   keepModelsLoaded: boolean
+  summariser?: unknown
 }
 
 type IpcResult = { state: 'completed' | 'failed' | 'cancelled'; items: MediaItem[]; error?: string }
@@ -403,7 +412,7 @@ describe('runArtifact', () => {
       }),
     ]
     comfyInputsPerPreset.value = {
-      // Keyed with the variant applied, like the real settings sidebar does.
+      // Keyed with the variant applied, like the real settings tabs do.
       'Draft Image:Fast': { 'LoraLoader.lora_name': 'my-lora.safetensors' },
     }
 
@@ -485,6 +494,26 @@ describe('runArtifact', () => {
     const payload = runIpcMock.mock.calls[0][0] as RunPayload
     expect(payload.modelsConsented).toBe(false)
     expect(payload.keepModelsLoaded).toBe(false)
+  })
+
+  it('ships the renderer-resolved summariser only for a panel run in a Session', async () => {
+    presetsFixture.value = [comfyPreset({ name: 'Draft Image' })]
+
+    const panel = runArtifact(
+      { kind: 'create-image', workflow: 'Draft Image', prompt: 'a castle' },
+      { sessionId: 'session-1' },
+    )
+    await vi.waitFor(() => expect(runIpcMock).toHaveBeenCalledTimes(1))
+    expect((runIpcMock.mock.calls[0][0] as RunPayload).summariser).toEqual(summariser)
+    await panel
+
+    const tool = runArtifact(
+      { kind: 'create-image', workflow: 'Draft Image', prompt: 'a castle' },
+      { queueMode: 'queue' },
+    )
+    await vi.waitFor(() => expect(runIpcMock).toHaveBeenCalledTimes(2))
+    expect((runIpcMock.mock.calls[1][0] as RunPayload).summariser).toBeUndefined()
+    await tool
   })
 
   it('drops the queued stubs when main fails the run before anything generated', async () => {

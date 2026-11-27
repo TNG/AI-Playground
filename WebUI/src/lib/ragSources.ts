@@ -1,4 +1,31 @@
+import type { UIMessage } from 'ai'
 import { PHISON_KM_RAG_PREFIX } from '@/types/phisonKmRag'
+import type { RagPassageSource } from '@/types/rag'
+
+type ToolPartLike = { type?: string; toolName?: string; state?: string; output?: unknown }
+
+function isRagResult(part: ToolPartLike): boolean {
+  const name = part.type === 'dynamic-tool' ? part.toolName : part.type?.replace(/^tool-/, '')
+  return name === 'rag' && part.state === 'output-available'
+}
+
+/** The Source Docs text of an agent answer: where the passages its `rag` calls returned came from. */
+export function agentRagSource(message: UIMessage): string | undefined {
+  const sources = (message.parts as ToolPartLike[]).filter(isRagResult).flatMap((part) => {
+    const details = (part.output as { details?: { sources?: RagPassageSource[] } } | undefined)
+      ?.details
+    return Array.isArray(details?.sources) ? details.sources : []
+  })
+  if (sources.length === 0) return undefined
+  return formatRagSources(
+    sources.map((source) => ({
+      metadata: {
+        source: source.file,
+        loc: { pageNumber: source.page, ...(source.lines ? { lines: source.lines } : {}) },
+      },
+    })),
+  )
+}
 
 export type RagSourceDocument = {
   pageContent?: string

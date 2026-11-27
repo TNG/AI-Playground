@@ -2,7 +2,13 @@ import path from 'node:path'
 import fs from 'node:fs'
 import type { Document } from '@langchain/classic/document'
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent'
-import type { EmbedInquiry, IndexedDocument, ValidFileExtension } from '@/types/rag'
+import type {
+  EmbedInquiry,
+  IndexedDocument,
+  RagPassageSource,
+  RagToolDetails,
+  ValidFileExtension,
+} from '@/types/rag'
 import { RAG_PREPARE_EMBEDDING_MODEL } from '@/types/agentCapabilities'
 import {
   executeToolInRenderer,
@@ -12,6 +18,10 @@ import {
 } from '../piCustomTools.ts'
 import { loadPi } from '../piRuntime.ts'
 import { ragAccess } from '../ragAccess.ts'
+import { documentExtension, indexedDocument } from '../documentIndex.ts'
+import { mountedFolderSandboxPath } from '@/lib/mountedFolders'
+import { realFileInside } from '../hostPathContainment.ts'
+import { ATTACHMENTS_DIR, SANDBOX_ATTACHMENTS_DIR } from '../workspaceAttachments.ts'
 import type { AgentCapability, CapabilityHost } from './types.ts'
 
 // ── rag capability ───────────────────────────────────────────────────────────
@@ -20,20 +30,18 @@ import type { AgentCapability, CapabilityHost } from './types.ts'
 // use (langchain worker), then return the k best-matching passages as the tool
 // result. The agent's alternative — `read` — pulls the
 // whole file into context, which is exactly what this avoids. Chunks are never
-// injected into the system prompt (that is the chat pipeline's shape) and the
-// index is session-scoped: it lives in the buildTools closure, so it dies with
-// the session and a fresh session re-pays only the split — chunk embeddings are
+// injected into the system prompt (that is the chat pipeline's shape). Splits are
+// shared with indexing on attach (documentIndex.ts); chunk embeddings are
 // disk-cached by the langchain worker, namespaced per embedding model.
 
 const RAG_TOOL_DESCRIPTION =
   'Semantic search over one or more large documents in the workspace (pdf, docx, doc, md, txt). ' +
   "Pass a list of file paths and a question; it returns the k best-matching passages across the merged documents, each labelled with its source file and page or line numbers. Use it to answer questions about documents too large to read into context in full. Prefer 'read' for small files. " +
-  'The first call on a file indexes it and can take a while; later calls are fast.'
+  'The first call on a file indexes it and can take a while; later calls are fast. ' +
+  "For documents in a Mounted Folder, 'find' them there first, then pass their paths; it takes files, not folders."
 
-// Mirrors piToolOperations.SANDBOX_WORKDIR — the path Pi's sandbox mounts the
-// workspace at, so the model (which lives there) addresses files as
-// /workspace/<name>. Defined here rather than imported so the capability module
-// stays free of the Electron/service imports piToolOperations pulls in.
+// Mirrors piToolOperations.SANDBOX_WORKDIR, where a game's workspace is mounted when the host
+// names no other mount. Defined here so this module stays free of piToolOperations' imports.
 const SANDBOX_WORKDIR = '/workspace'
 
 const RAG_SKILL: SkillSource = {
@@ -43,9 +51,9 @@ const RAG_SKILL: SkillSource = {
   body: [
     '`read` loads a whole file into context — fine for code, wrong for a 300-page PDF.',
     'For questions about big documents, call `rag` with a list of file paths',
-    '(workspace-relative like "report.pdf", or the "/workspace/report.pdf" form',
-    'other tools show) and the question; it returns the best-matching passages,',
-    'each labelled with the file it came from.',
+    '(workspace-relative like "report.pdf", the absolute form other tools show, or a',
+    'file in a Mounted Folder) and the question; it returns the best-matching',
+    'passages, each labelled with the file it came from.',
     '',
     '- Pass multiple files to search across them at once; the top-k passages are',
     '  ranked over the merged document set.',
@@ -66,7 +74,7 @@ const RAG_INPUT_SCHEMA: Record<string, unknown> = {
       type: 'array',
       items: { type: 'string' },
       description:
-        'Paths of the documents to search — workspace-relative ("report.pdf") or the /workspace/report.pdf form other tools show. Pass one or more; they are searched as a merged set.',
+        'Paths of the documents to search — workspace-relative ("report.pdf"), the absolute form other tools show, or a file in a Mounted Folder. Pass one or more files (not folders); they are searched as a merged set.',
     },
     query: {
       type: 'string',
@@ -80,18 +88,6 @@ const RAG_INPUT_SCHEMA: Record<string, unknown> = {
   required: ['files', 'query'],
 }
 
-/** Exactly what the langchain worker's loadDocument can index. */
-const SUPPORTED_EXTENSIONS = [
-  'txt',
-  'md',
-  'doc',
-  'docx',
-  'pdf',
-] as const satisfies readonly ValidFileExtension[]
-type _RagExtensionsCovered =
-  Exclude<ValidFileExtension, (typeof SUPPORTED_EXTENSIONS)[number]> extends never ? true : never
-const _ragExtensionsCovered: _RagExtensionsCovered = true
-
 const DEFAULT_K = 5
 const MAX_K = 20
 /** Chunks are model context; a runaway k must not eat the window. */
@@ -103,46 +99,57 @@ type RagToolParams = {
   k?: unknown
 }
 
-type IndexedCacheEntry = {
-  mtimeMs: number
-  doc: IndexedDocument
+type DocumentRoot = { sandboxPath: string; hostPath: string }
+
+function documentRoots(host: CapabilityHost): DocumentRoot[] {
+  return [
+    { sandboxPath: host.workspaceMount ?? SANDBOX_WORKDIR, hostPath: host.workspaceDir },
+    ...(host.attachmentsDir
+      ? [{ sandboxPath: SANDBOX_ATTACHMENTS_DIR, hostPath: host.attachmentsDir }]
+      : []),
+    ...(host.mountedFolders ?? []).map((folder) => ({
+      sandboxPath: mountedFolderSandboxPath(folder),
+      hostPath: folder.hostPath,
+    })),
+  ]
 }
 
 /**
- * Resolve a model-provided path against the (realpathed) workspace dir.
- *
- * The agent lives in Pi's sandbox, where the workspace is mounted at
- * /workspace: bash's cwd is /workspace and every built-in tool (read, ls, find)
- * reports /workspace/<name> paths. `ls`/`find`/`grep` return relative names, but
- * the model usually reconstructs the absolute form on a first attempt, so
- * accept that prefix and treat the rest as workspace-relative. In host-shell
- * mode the same happens with the real workspace dir. Either way the unchanged
- * realpath containment check below is the sole authority for what is inside:
- * symlinks pointing out, `..` traversals and absolute outside paths all stay
- * rejected. Returns null when the path is not a workspace file.
+ * Resolve a model-provided path to a host file inside the workspace or a Mounted Folder.
+ * A sandbox path (the workspace mount or `/mnt/<name>/…`) must stay inside that one root (by realpath);
+ * relative paths are workspace-relative; a real host path may sit in any root.
  */
-function resolveWorkspaceFile(workspaceDir: string, inputPath: string): string | null {
+function resolveDocumentFile(roots: readonly DocumentRoot[], inputPath: string): string | null {
+  const found = resolveInRoots(roots, inputPath)
+  // A Session attachment named the way it was before it left the Workspace.
+  const legacy = inputPath.startsWith(`${ATTACHMENTS_DIR}/`)
+  if (found || !legacy || !roots.some((root) => root.sandboxPath === SANDBOX_ATTACHMENTS_DIR)) {
+    return found
+  }
+  return resolveInRoots(roots, `/${inputPath}`)
+}
+
+function resolveInRoots(roots: readonly DocumentRoot[], inputPath: string): string | null {
   if (!inputPath) return null
-  let candidate = inputPath
-  if (candidate.startsWith(SANDBOX_WORKDIR + '/')) {
-    candidate = candidate.slice(SANDBOX_WORKDIR.length + 1)
+  const [workspace] = roots
+  const sandboxPath = path.isAbsolute(inputPath)
+    ? inputPath
+    : `${workspace.sandboxPath}/${inputPath}`
+  const sandboxRoot = roots
+    .filter((root) => sandboxPath.startsWith(root.sandboxPath + '/'))
+    .sort((a, b) => b.sandboxPath.length - a.sandboxPath.length)[0]
+  if (sandboxRoot) {
+    return realFileInside(
+      sandboxRoot.hostPath,
+      sandboxPath.slice(sandboxRoot.sandboxPath.length + 1),
+    )
   }
-  let root: string
-  try {
-    root = fs.realpathSync(workspaceDir)
-  } catch {
-    return null
+  if (!path.isAbsolute(inputPath)) return null
+  for (const root of roots) {
+    const real = realFileInside(root.hostPath, inputPath)
+    if (real) return real
   }
-  const resolved = path.isAbsolute(candidate) ? candidate : path.resolve(root, candidate)
-  let real: string
-  try {
-    real = fs.realpathSync(resolved)
-  } catch {
-    return null
-  }
-  const relative = path.relative(root, real)
-  if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) return null
-  return real
+  return null
 }
 
 function chunkLocation(metadata: Document['metadata']): string | undefined {
@@ -158,13 +165,9 @@ function chunkLocation(metadata: Document['metadata']): string | undefined {
   return where || undefined
 }
 
-function userFileLabel(input: string): string {
-  if (input.startsWith(SANDBOX_WORKDIR + '/')) return input.slice(SANDBOX_WORKDIR.length + 1)
+function userFileLabel(input: string, workspaceMount: string): string {
+  if (input.startsWith(workspaceMount + '/')) return input.slice(workspaceMount.length + 1)
   return input
-}
-
-function isSupportedExtension(extension: string): extension is ValidFileExtension {
-  return (SUPPORTED_EXTENSIONS as readonly string[]).includes(extension)
 }
 
 const DECLINED_TEXT =
@@ -216,6 +219,51 @@ function coerceFileList(raw: unknown): string[] {
     .filter((s) => s.length > 0)
 }
 
+/** The passages that fit the result, in rank order. */
+function shownChunks(chunks: Document[]): Document[] {
+  const shown: Document[] = []
+  let used = 0
+  for (const chunk of chunks) {
+    const content = chunk.pageContent.trim()
+    if (!content) continue
+    if (used > 0 && used + content.length > MAX_RESULT_CHARS) break
+    used += content.length
+    shown.push(chunk)
+  }
+  return shown
+}
+
+function chunkFileLabel(chunk: Document, labelForSource: Map<string, string>): string | undefined {
+  const source = (chunk.metadata as Record<string, unknown> | undefined)?.source
+  return typeof source === 'string'
+    ? (labelForSource.get(source) ?? path.basename(source))
+    : undefined
+}
+
+function passageSources(
+  chunks: Document[],
+  labelForSource: Map<string, string>,
+): RagPassageSource[] {
+  return shownChunks(chunks).flatMap((chunk) => {
+    const file = chunkFileLabel(chunk, labelForSource)
+    if (!file) return []
+    const loc = (chunk.metadata as Record<string, unknown> | undefined)?.loc as
+      Record<string, unknown> | undefined
+    const lines = loc?.lines as { from?: number; to?: number } | undefined
+    return [
+      {
+        file,
+        ...(typeof loc?.pageNumber === 'number' ? { page: loc.pageNumber } : {}),
+        ...(lines && typeof lines.from === 'number'
+          ? {
+              lines: { from: lines.from, to: typeof lines.to === 'number' ? lines.to : lines.from },
+            }
+          : {}),
+      },
+    ]
+  })
+}
+
 function formatChunks(
   chunks: Document[],
   labelForSource: Map<string, string>,
@@ -223,18 +271,12 @@ function formatChunks(
   documentCount: number,
 ): string {
   const blocks: string[] = []
-  let used = 0
   let shown = 0
-  for (const chunk of chunks) {
+  for (const chunk of shownChunks(chunks)) {
     const content = chunk.pageContent.trim()
-    if (!content) continue
-    if (used > 0 && used + content.length > MAX_RESULT_CHARS) break
-    used += content.length
     shown += 1
     const where = chunkLocation(chunk.metadata)
-    const source = (chunk.metadata as Record<string, unknown> | undefined)?.source
-    const fileLabel =
-      typeof source === 'string' ? (labelForSource.get(source) ?? path.basename(source)) : undefined
+    const fileLabel = chunkFileLabel(chunk, labelForSource)
     let detail: string
     if (fileLabel && where) detail = ` — ${fileLabel} (${where})`
     else if (fileLabel) detail = ` — ${fileLabel}`
@@ -251,10 +293,9 @@ function formatChunks(
 
 async function buildRagTool(host: CapabilityHost): Promise<ToolDefinition[]> {
   const pi = await loadPi()
-  const { workspaceDir } = host
+  const roots = documentRoots(host)
 
   // Session-scoped: built once per session, dies with its tools.
-  const indexedFiles = new Map<string, IndexedCacheEntry>()
   const preparedDownloads = new Set<string>()
   const declinedDownloads = new Set<string>()
 
@@ -294,15 +335,15 @@ async function buildRagTool(host: CapabilityHost): Promise<ToolDefinition[]> {
         }[] = []
         const seenPaths = new Set<string>()
         for (const input of fileList) {
-          const realPath = resolveWorkspaceFile(workspaceDir, input)
+          const realPath = resolveDocumentFile(roots, input)
           if (!realPath) {
-            skipped.push(`"${input}" — not a file in the workspace folder`)
+            skipped.push(`"${input}" — not a file in the workspace folder or a Mounted Folder`)
             continue
           }
           if (seenPaths.has(realPath)) continue
           seenPaths.add(realPath)
-          const extension = path.extname(realPath).slice(1).toLowerCase()
-          if (!isSupportedExtension(extension)) {
+          const extension = documentExtension(realPath)
+          if (!extension) {
             skipped.push(`"${input}" — not an indexable document (pdf, docx, doc, md, txt)`)
             continue
           }
@@ -358,35 +399,22 @@ async function buildRagTool(host: CapabilityHost): Promise<ToolDefinition[]> {
           const ragList: IndexedDocument[] = []
           const labelForSource = new Map<string, string>()
           for (const { input, realPath, extension, mtimeMs } of valid) {
-            const cached = indexedFiles.get(realPath)
-            if (!cached || cached.mtimeMs !== mtimeMs) {
-              try {
-                const stub: IndexedDocument = {
-                  filename: path.basename(realPath),
-                  filepath: realPath,
-                  type: extension,
-                  splitDB: [],
-                  hash: '',
-                  isChecked: true,
-                }
-                const doc = await untilAbort(ragAccess().ingest(stub), signal)
-                indexedFiles.set(realPath, { mtimeMs, doc })
-              } catch (error) {
-                if (isAbort(error)) throw error
-                skipped.push(
-                  `"${input}" — ingest failed: ${error instanceof Error ? error.message : String(error)}`,
-                )
-                continue
-              }
+            let doc: IndexedDocument
+            try {
+              doc = await untilAbort(indexedDocument(realPath, extension, mtimeMs), signal)
+            } catch (error) {
+              if (isAbort(error)) throw error
+              skipped.push(
+                `"${input}" — ingest failed: ${error instanceof Error ? error.message : String(error)}`,
+              )
+              continue
             }
-
-            const indexed = indexedFiles.get(realPath) as IndexedCacheEntry
-            if (!indexed.doc.splitDB || indexed.doc.splitDB.length === 0) {
+            if (!doc.splitDB || doc.splitDB.length === 0) {
               skipped.push(`"${input}" — no indexable text content`)
               continue
             }
-            ragList.push({ ...indexed.doc, isChecked: true })
-            labelForSource.set(realPath, userFileLabel(input))
+            ragList.push({ ...doc, isChecked: true })
+            labelForSource.set(realPath, userFileLabel(input, roots[0].sandboxPath))
           }
 
           if (ragList.length === 0) {
@@ -429,7 +457,8 @@ async function buildRagTool(host: CapabilityHost): Promise<ToolDefinition[]> {
           const body = formatChunks(chunks, labelForSource, k, ragList.length)
           const tail =
             skipped.length > 0 ? `\n\nSkipped:\n${skipped.map((s) => `  - ${s}`).join('\n')}` : ''
-          return textResult(`${body}${tail}`)
+          const details: RagToolDetails = { sources: passageSources(chunks, labelForSource) }
+          return { content: [{ type: 'text' as const, text: `${body}${tail}` }], details }
         } catch (error) {
           if (isAbort(error)) return textResult(CANCELLED_TEXT)
           return textResult(
@@ -451,7 +480,7 @@ export const ragCapability: AgentCapability = {
   unavailableReason: (host) =>
     host.embeddingModel
       ? undefined
-      : 'No embedding model selected — pick one in the settings sidebar to enable it.',
+      : 'No embedding model selected — pick one in the Attributes tab to enable it.',
   lazyEligible: true,
 }
 
@@ -459,8 +488,7 @@ export const testables = {
   DEFAULT_K,
   MAX_K,
   MAX_RESULT_CHARS,
-  SUPPORTED_EXTENSIONS,
-  resolveWorkspaceFile,
+  resolveDocumentFile,
   coerceFileList,
   userFileLabel,
   formatChunks,

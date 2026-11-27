@@ -22,8 +22,13 @@ vi.mock('../../agent/agentBrowser.ts', () => ({
   closeBrowserSession: vi.fn(),
 }))
 
-const { ensureWorkspaceRuntime, closeWorkspaceRuntime, buildWorkspaceInstructions } =
-  await import('../../agent/piWorkspaceRuntime.ts')
+const {
+  ensureWorkspaceRuntime,
+  closeWorkspaceRuntime,
+  buildWorkspaceInstructions,
+  workspacePreviewRoot,
+} = await import('../../agent/piWorkspaceRuntime.ts')
+const { emitWorkspaceRenamed } = await import('../../session/workspaceRenames.ts')
 
 let workspace: string
 
@@ -114,6 +119,59 @@ describe('workspace preview server', () => {
   )
 })
 
+describe('workspace preview root', () => {
+  it('follows a Workspace folder rename, keeping its address', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aipg-preview-move-'))
+    const from = path.join(root, '2026-11-23 New session')
+    const to = path.join(root, '2026-11-23 Cat poster')
+    fs.mkdirSync(from)
+    fs.writeFileSync(path.join(from, 'cat.png'), 'png bytes')
+    try {
+      // The runtime is built from the realpath, the Session record keeps the path as typed.
+      const runtime = await ensureWorkspaceRuntime('session-move', fs.realpathSync(from))
+      const baseUrl = runtime.baseUrl
+
+      fs.renameSync(from, to)
+      emitWorkspaceRenamed(from, to)
+
+      expect(workspacePreviewRoot()).toBe(fs.realpathSync(to))
+      expect(fs.readFileSync(path.join(workspacePreviewRoot()!, 'cat.png'), 'utf8')).toBe(
+        'png bytes',
+      )
+      expect(runtime.baseUrl).toBe(baseUrl)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('ignores a rename of a folder it does not serve', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aipg-preview-move-'))
+    const served = path.join(root, 'served')
+    const other = path.join(root, 'other')
+    fs.mkdirSync(served)
+    fs.mkdirSync(other)
+    fs.writeFileSync(path.join(served, 'game.js'), 'console.log("hi")')
+    try {
+      await ensureWorkspaceRuntime('session-other', served)
+
+      fs.renameSync(other, `${other}-moved`)
+      emitWorkspaceRenamed(other, `${other}-moved`)
+
+      expect(workspacePreviewRoot()).toBe(served)
+      expect(fs.existsSync(path.join(workspacePreviewRoot()!, 'game.js'))).toBe(true)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('does nothing when no preview server is running', () => {
+    closeWorkspaceRuntime()
+
+    expect(workspacePreviewRoot()).toBeNull()
+    expect(() => emitWorkspaceRenamed('/a/one', '/a/two')).not.toThrow()
+  })
+})
+
 describe('workspace instructions', () => {
   const options = {
     cwd: '/workspace',
@@ -134,5 +192,50 @@ describe('workspace instructions', () => {
 
     expect(instructions).toContain('python3')
     expect(instructions).not.toContain('no script interpreter')
+  })
+
+  it('lists each Mounted Folder with its access mode and host folder', () => {
+    const instructions = buildWorkspaceInstructions({
+      ...options,
+      mountedFolders: [
+        { hostPath: '/Users/ada/notes', name: 'notes', access: 'read-only' },
+        { hostPath: '/Volumes/usb/notes', name: 'notes-2', access: 'read-write' },
+      ],
+    })
+
+    expect(instructions).toContain('/mnt/notes (read-only) is /Users/ada/notes on the host')
+    expect(instructions).toContain('/mnt/notes-2 (read-write) is /Volumes/usb/notes on the host')
+    expect(instructions).toMatch(/new files belong in your working directory/i)
+  })
+
+  it('names Mounted Folders by their real path under the real shell', () => {
+    const instructions = buildWorkspaceInstructions({
+      ...options,
+      unsandboxed: true,
+      mountedFolders: [
+        { hostPath: '/Users/ada/notes', name: 'notes', access: 'read-only' },
+        { hostPath: '/Volumes/usb/project', name: 'project', access: 'read-write' },
+      ],
+    })
+
+    expect(instructions).toContain('/Users/ada/notes (read-only)')
+    expect(instructions).toContain('/Volumes/usb/project (read-write)')
+    expect(instructions).not.toContain('/mnt/')
+    expect(instructions).toMatch(/do not change files in a read-only folder, from bash either/i)
+  })
+
+  it('asks the agent to report what it changed in a Mounted Folder', () => {
+    const instructions = buildWorkspaceInstructions({
+      ...options,
+      mountedFolders: [{ hostPath: '/Users/ada/notes', name: 'notes', access: 'read-write' }],
+    })
+
+    expect(instructions).toMatch(
+      /tell the user which files you created, changed or deleted in a Mounted Folder/i,
+    )
+  })
+
+  it('says nothing about Mounted Folders when there are none', () => {
+    expect(buildWorkspaceInstructions(options)).not.toContain('/mnt/')
   })
 })

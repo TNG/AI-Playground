@@ -46,6 +46,23 @@ const turnStart = { type: 'turn_start' } as unknown as AgentSessionEvent
 const messageStart = { type: 'message_start' } as unknown as AgentSessionEvent
 const messageEnd = { type: 'message_end' } as unknown as AgentSessionEvent
 
+describe('the model an agent answer was written by', () => {
+  it('rides on the start of the answer, so the Session timeline can name it', () => {
+    const chunks: StreamChunk[] = []
+    const translator = createStreamTranslator({
+      emit: (chunk) => chunks.push(chunk),
+      model: 'Qwen3.8-27B-Q4_K_M.gguf',
+    })
+    translator.handle(turnStart)
+    translator.handle(message({ type: 'text_start', contentIndex: 0 }))
+
+    expect(chunks[0]).toEqual({
+      type: 'start',
+      messageMetadata: { model: 'Qwen3.8-27B-Q4_K_M.gguf' },
+    })
+  })
+})
+
 describe('createStreamTranslator', () => {
   it('translates a text-only turn into a well-formed chunk sequence', () => {
     const { chunks } = run([

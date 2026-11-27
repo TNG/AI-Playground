@@ -7,7 +7,7 @@ export type AgentTurnOutcome = 'completed' | 'failed' | 'cancelled'
 export type AgentTurnEnd = { sessionId: string; turnId: string } & (
   | { outcome: 'completed'; reply?: string }
   | { outcome: 'cancelled' }
-  | { outcome: 'failed'; error: string }
+  | { outcome: 'failed'; error: string; missingWorkspace?: true }
 )
 
 type AgentTurnEndListener = (end: AgentTurnEnd) => void

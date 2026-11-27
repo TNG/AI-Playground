@@ -10,23 +10,35 @@ export type InFlightWorkSources = {
   textRequests: OpenTextRequest[]
   artifactRuns: OpenArtifactRun[]
   /** An enabled Schedule is not In-flight Work; only a Task Run's marker is. */
-  tasks: Pick<AgentTask, 'id' | 'name' | 'activeRun'>[]
-  /** What only the window knows: Prompt Runs, and Task Runs whose marker is not on disk yet. */
+  tasks: Pick<AgentTask, 'id' | 'name' | 'activeRuns'>[]
+  /** What only the window knows: Trial Runs, Agent Runs whose marker is not on disk yet, queued Channel messages. */
   rendererWork: InFlightWorkItem[]
 }
 
 /** The window's Task Runs win over their markers: a marker lags the run by a write. */
-function stepRuns(sources: InFlightWorkSources): InFlightWorkItem[] {
+function runItems(sources: InFlightWorkSources): InFlightWorkItem[] {
   const reported = sources.rendererWork.filter(
-    (item) => item.kind === 'task-run' || item.kind === 'prompt-run',
+    (item) => item.kind === 'task-run' || item.kind === 'trial-run',
   )
-  const reportedTaskIds = new Set(
-    reported.flatMap((item) => (item.kind === 'task-run' ? [item.taskId] : [])),
+  const reportedRuns = new Set(
+    reported.flatMap((item) =>
+      item.kind === 'task-run' && item.sessionId ? [item.sessionId] : [],
+    ),
   )
   const markers = sources.tasks.flatMap((task) =>
-    task.activeRun && !reportedTaskIds.has(task.id) ? [taskRunWorkItem(task, task.activeRun)] : [],
+    (task.activeRuns ?? [])
+      .filter((run) => !reportedRuns.has(run.sessionId))
+      .map((run) => taskRunWorkItem(task, run)),
   )
   return [...markers, ...reported]
+}
+
+/** The window's queued Channel messages, one item per Channel. */
+export function queuedChannelMessages(work: InFlightWorkItem[]) {
+  return work.filter(
+    (item): item is Extract<InFlightWorkItem, { kind: 'channel-queue' }> =>
+      item.kind === 'channel-queue',
+  )
 }
 
 /** In-flight Work, one item per turn or run; queued media runs are counted per mode. */
@@ -35,8 +47,8 @@ export function collectInFlightWork(sources: InFlightWorkSources): InFlightWorkI
     sources.textRequests.find(
       (request) => request.conversationKey === conversationKey && request.work !== 'summary',
     )?.state ?? fallback
-  const items = stepRuns(sources)
-  // A Step of a Task Run or Prompt Run is an agent turn; the run already names it.
+  const items = runItems(sources)
+  // An Agent Run's or Trial Run's turn, a Follow-up's included, is an agent turn the run names.
   const runSessions = new Set(
     items.flatMap((item) => ('sessionId' in item && item.sessionId ? [item.sessionId] : [])),
   )
@@ -50,11 +62,7 @@ export function collectInFlightWork(sources: InFlightWorkSources): InFlightWorkI
   }
   for (const turn of sources.chatTurns) {
     const state = { status: stateOf(turn.conversationKey, 'running') }
-    items.push(
-      turn.homeAgent
-        ? { kind: 'home-agent-turn', state }
-        : { kind: 'chat-turn', ...(turn.title ? { name: turn.title } : {}), state },
-    )
+    items.push({ kind: 'chat-turn', ...(turn.title ? { name: turn.title } : {}), state })
   }
   const queued = new Map<ArtifactRunMode, number>()
   for (const run of sources.artifactRuns) {
@@ -65,7 +73,7 @@ export function collectInFlightWork(sources: InFlightWorkSources): InFlightWorkI
   for (const [mode, count] of queued) {
     items.push({ kind: 'media-run', mode, state: { status: 'queued', count } })
   }
-  return items
+  return [...items, ...queuedChannelMessages(sources.rendererWork)]
 }
 
 export type InFlightWorkDeps = {
@@ -85,6 +93,8 @@ export function createInFlightWork(deps: InFlightWorkDeps) {
     setRendererWork(work: InFlightWorkItem[]): void {
       rendererWork = work
     },
+    /** The window's last report, as main last heard it. */
+    rendererWork: (): InFlightWorkItem[] => rendererWork,
     async list(): Promise<InFlightWorkItem[]> {
       const sessionIds = deps.openAgentTurnSessionIds()
       const names = await Promise.all(

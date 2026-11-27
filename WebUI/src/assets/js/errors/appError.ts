@@ -56,6 +56,14 @@ export function isCancellation(value: unknown): boolean {
   return isAppError(value) && value.code === CANCELLED_CODE
 }
 
+/** Rethrows a cancellation under `userMessage`, still a cancellation; anything else as it was. */
+export function rethrowCancellationAs(userMessage: string): (error: unknown) => never {
+  return (error) => {
+    if (isCancellation(error)) throw createCancellation({ userMessage, cause: error })
+    throw error
+  }
+}
+
 export function createAppError(input: CreateAppErrorInput): AppError {
   const severity = input.severity ?? 'error'
   return {

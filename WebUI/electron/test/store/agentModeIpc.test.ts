@@ -10,6 +10,7 @@ const handlers = {
   onToolProgress: vi.fn(),
   onToolImage: vi.fn(),
   onTurnState: vi.fn(),
+  onTurnRewound: vi.fn(),
   onTurnDone: vi.fn(),
   onQueuePosition: vi.fn(),
   onExecuteTool: vi.fn(),
@@ -121,11 +122,24 @@ describe('registerAgentModeIpc', () => {
       label: 'cover.png',
     })
     push?.({
+      type: 'agent-turn-rewound',
+      sessionId: 'aipg-agent-1',
+      turnId: 'turn-2',
+      rewoundTurnId: 'turn-1',
+      scope: { kind: 'run', runId: 'turn-2' },
+      seq: 5,
+    })
+    expect(handlers.onTurnRewound).toHaveBeenCalledWith({
+      sessionId: 'aipg-agent-1',
+      turnId: 'turn-2',
+      rewoundTurnId: 'turn-1',
+    })
+    push?.({
       type: 'agent-turn-done',
       sessionId: 'aipg-agent-1',
       turnId: 'turn-1',
       scope: { kind: 'run', runId: 'turn-1' },
-      seq: 5,
+      seq: 6,
     })
     expect(handlers.onTurnDone).toHaveBeenCalledWith({
       sessionId: 'aipg-agent-1',
@@ -140,7 +154,7 @@ describe('registerAgentModeIpc', () => {
       queueDepth: 0,
       position: 2,
       scope: { kind: 'chat', conversationKey: 'aipg-agent-1' },
-      seq: 6,
+      seq: 7,
     })
     expect(handlers.onQueuePosition).toHaveBeenCalledWith({
       sessionId: 'aipg-agent-1',
@@ -155,7 +169,7 @@ describe('registerAgentModeIpc', () => {
       runKey: 'run-1',
       queueDepth: 0,
       scope: { kind: 'global' },
-      seq: 7,
+      seq: 8,
     })
     expect(handlers.onQueuePosition).toHaveBeenCalledTimes(1)
     // A service event is not an agent event — no handler fires for it.

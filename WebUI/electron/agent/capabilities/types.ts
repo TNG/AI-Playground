@@ -1,8 +1,11 @@
 import type { ExtensionAPI, ToolDefinition } from '@earendil-works/pi-coding-agent'
-import type { SkillSource } from '../piCustomTools.ts'
+import type { SessionMediaTarget, SkillSource } from '../piCustomTools.ts'
 import type { PlanningEnd } from '../planningPhase.ts'
 import type { AgentToolSpec } from '@/types/agentIpc'
 import type { ChatModelConfig, ChatToolSpec, WorkflowRepairData } from '@/types/chatIpc'
+import type { ResolvedMountedFolder } from '@/lib/mountedFolders'
+import type { ModelToolUse } from '@/lib/modelToolUse'
+import type { OverviewChrome } from '@/types/overviewChrome'
 
 export type { AgentToolSpec }
 
@@ -19,8 +22,16 @@ export type { AgentToolSpec }
 
 export type CapabilityHost = {
   sessionId: string
+  /** The Session the turn runs in; absent for a Trial Run. */
+  sessionRef?: string
   /** Resolved workspace folder (host path). */
   workspaceDir: string
+  /** Where `attachments/…` references point when not inside the workspace: a Session's internal storage. */
+  attachmentsDir?: string
+  /** The session's Mounted Folders, host paths realpathed. */
+  mountedFolders?: ResolvedMountedFolder[]
+  /** Where the sandbox mounts the workspace (`/mnt/<slug>`); `/workspace` when absent. */
+  workspaceMount?: string
   /** Bridged renderer tool contracts shipped with the turn. */
   toolSpecs: AgentToolSpec[]
   /**
@@ -39,6 +50,8 @@ export type CapabilityHost = {
   chatModel?: ChatModelConfig
   /** Where app-owned agent state lives ({userData}/pi/agent). */
   agentDir: string
+  /** Whether the session's model takes images; the screenshot tool is offered only then. */
+  supportsVision?: boolean
   /** The model's context window, for the activation policy. */
   contextWindow?: number
   /** Downloaded embedding model for the `rag` capability; absent disables it. */
@@ -47,6 +60,14 @@ export type CapabilityHost = {
   embeddingBackend?: 'llamaCPP' | 'openVINO'
   /** Developer setting: skip the GPU swap around in-process media calls. */
   keepModelsLoaded: boolean
+  /** Set for a turn in a Session: where its media is saved (see `SessionMediaTarget`). */
+  sessionMedia?: SessionMediaTarget
+  /** What the model may be given; absent grants everything. */
+  modelToolUse?: ModelToolUse
+  /** The Session's frozen language; an Overview's chrome follows the reader, not the reply. */
+  responseLocale?: string
+  /** The Overview chrome, resolved by the renderer for its own locale. */
+  overviewChrome?: OverviewChrome
 }
 
 /** A slash command a capability offers, runnable as a prompt of its own. */
@@ -90,6 +111,13 @@ export type AgentCapability = {
    * carry no tools at all.
    */
   lazyEligible?: boolean
+  /**
+   * Set by a capability that belongs to the preset that names it in
+   * `agentCapabilities` rather than to a checkbox next to another preset's
+   * agent: the settings checklist offers it only under such a preset. A
+   * session still gets it whenever its own capability list names it.
+   */
+  presetOwned?: boolean
   /**
    * Set by a capability that *is* the session rather than an addition to it: the
    * preset's instructions replace Pi's coding-agent prompt (and the workspace,

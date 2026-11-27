@@ -8,6 +8,8 @@ import type { UIMessageChunk } from 'ai'
 import type { MediaItem } from './mediaItem'
 import type { ActivityCategory, ActivityScope, ActivityState } from '@/assets/js/activities/types'
 import type { SerializedAppError } from '@/assets/js/errors/types'
+import type { SessionDocument, SessionGroupsState, SessionTurns } from './sessionIpc'
+import type { HeldComponent } from './componentChange'
 
 export type KernelEventScope =
   { kind: 'global' } | { kind: 'chat'; conversationKey: string } | { kind: 'run'; runId: string }
@@ -69,6 +71,19 @@ export type KernelAgentTurnDoneEvent = {
   turnId: string
 }
 
+/**
+ * A regenerate took the turn's place in the model's memory: everything the rewound
+ * turn contributed is gone from the branch, so its answers must not come back
+ * into the view when the re-run that replaced it fails.
+ */
+export type KernelAgentTurnRewoundEvent = {
+  type: 'agent-turn-rewound'
+  sessionId: string
+  turnId: string
+  /** The harness turn the regenerate rewound to just before. */
+  rewoundTurnId: string
+}
+
 // ── Artifact (media generation) events, docs/architecture-target.md §4.1 ──────
 //
 // The artifact runner in main owns the run lifecycle; the renderer's
@@ -92,7 +107,7 @@ export type ArtifactPhase =
 
 /**
  * Who a run's progress belongs to. `panel` is the Image Gen / Edit / Video
- * panel (and Home Agent `/imgGen`); `tool` is the tool call that submitted it,
+ * panel; `tool` is the tool call that submitted it,
  * with `parentToolCallId` naming the delegating `media` call for specialist runs.
  */
 export type ArtifactRunOwner =
@@ -179,11 +194,12 @@ export type KernelMediaAgentEvent = {
     | { type: 'narration-delta'; kind: 'reasoning' | 'text'; text: string }
     | { type: 'tool-start'; toolCallId: string; toolName: string; input: unknown }
     | { type: 'tool-finish'; toolCallId: string; output: unknown; error?: string }
+    | { type: 'run-end'; state: 'done' | 'failed' }
 }
 
 /**
- * What a Turn Queue member is: an agent turn, a Chat / Home Agent turn, a title
- * summary, or a panel / Home Agent media run.
+ * What a Turn Queue member is: an agent turn, a Chat turn, a title
+ * summary, or a panel media run.
  */
 export type TurnWork = 'agent' | 'chat' | 'summary' | 'generation'
 
@@ -252,6 +268,31 @@ export type KernelStoredEvent = {
   inferenceProfile?: KernelInferenceProfile | null
 }
 
+/** A Session's `session.json` changed in main (a turn settled into it): its row and timeline. */
+export type KernelSessionChangedEvent = {
+  type: 'session-changed'
+  session: SessionDocument
+}
+
+/** The Session Groups file changed in main: every Group and Pinned "show more". */
+export type KernelSessionGroupsChangedEvent = {
+  type: 'session-groups-changed'
+  state: SessionGroupsState
+}
+
+/** Which Sessions have a turn in flight: the whole ledger on every change. */
+export type KernelSessionTurnsEvent = {
+  type: 'session-turns'
+  turns: SessionTurns
+}
+
+/** Components held by Work in flight, and whether any In-flight Work exists at all. */
+export type KernelComponentHoldsEvent = {
+  type: 'component-holds'
+  holds: HeldComponent[]
+  anyInFlightWork: boolean
+}
+
 /** Last successful local chat load — kernel memory, not the settings dropdown. */
 export type KernelInferenceProfile = {
   serviceName: string
@@ -269,6 +310,7 @@ export type KernelEventPayload =
   | KernelAgentToolImageEvent
   | KernelAgentTurnStateEvent
   | KernelAgentTurnDoneEvent
+  | KernelAgentTurnRewoundEvent
   | KernelArtifactPhaseEvent
   | KernelArtifactItemEvent
   | KernelArtifactDoneEvent
@@ -280,6 +322,10 @@ export type KernelEventPayload =
   | KernelActivityEvent
   | KernelErrorEvent
   | KernelStoredEvent
+  | KernelSessionChangedEvent
+  | KernelSessionGroupsChangedEvent
+  | KernelSessionTurnsEvent
+  | KernelComponentHoldsEvent
 
 export type KernelEvent = KernelEventPayload & KernelEventEnvelope
 
@@ -307,6 +353,12 @@ export type AgentTurnSnapshot = {
   pauseReason?: PauseReason
   /** Its place in the Turn Queue while queued (1 = next to start). */
   queuePosition?: number
+  /**
+   * The turn this one replaced by rewinding it off the branch: a renderer that
+   * (re)connects mid-turn must drop that turn's answers instead of letting a
+   * stale record put them back. Only while this turn is in flight.
+   */
+  rewoundTurnId?: string
   chunks: unknown[]
   toolProgress: Record<string, string>
   toolImages: Record<string, KernelAgentToolImageEvent[]>
@@ -357,6 +409,12 @@ export type KernelSnapshotState = {
   activities: KernelActivity[]
   /** Live loaded local chat model; null when none has been loaded this session. */
   inferenceProfile: KernelInferenceProfile | null
+  /** Sessions with a turn in flight, one turn each. */
+  sessionTurns?: SessionTurns
+  /** Components held by Work in flight, for the Component Manager's in-use guard. */
+  componentHolds?: HeldComponent[]
+  /** Whether any In-flight Work exists; a Hardware Mode change waits for it. */
+  anyInFlightWork?: boolean
 }
 
 export type KernelSnapshot = {

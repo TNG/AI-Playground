@@ -1,6 +1,6 @@
 import { test } from './fixtures'
 import { MainPage } from './pages/MainPage'
-import type { ChatMode } from './pages/MainPage'
+import type { PromptBarMode } from './pages/MainPage'
 import type { ComfyOutput } from './appDriver'
 
 // One smoke test per image preset (create-images → Image Gen, edit-images → Image
@@ -11,7 +11,7 @@ import type { ComfyOutput } from './appDriver'
 
 type ImageCase = {
   preset: string
-  mode: ChatMode
+  mode: PromptBarMode
   needsImage?: boolean
   output?: ComfyOutput // defaults to 'image'
 }

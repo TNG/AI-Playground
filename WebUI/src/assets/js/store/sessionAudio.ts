@@ -1,0 +1,340 @@
+import { acceptHMRUpdate, defineStore } from 'pinia'
+import { computed, ref } from 'vue'
+import { useErrors } from '@/assets/js/store/errors'
+import { useGallery } from '@/assets/js/store/gallery'
+import { useI18N } from '@/assets/js/store/i18n'
+import { usePresets } from '@/assets/js/store/presets'
+import { useSessions } from '@/assets/js/store/sessions'
+import { createCancellation, isCancellation } from '@/assets/js/errors/appError'
+import {
+  readyTranscriptionForInput,
+  synthesizeClip,
+  transcribe,
+  type SpeechClipResult,
+} from '@/assets/js/speech/speechIO'
+import { base64ToBytes, bytesToBase64 } from '@/lib/synthesizeSpeech'
+import { formatTtsAudioTimestamp } from '@/lib/ttsAudioFileName'
+import { turnSummariser } from '@/lib/turnSummariser'
+import { sessionMediaPathOf } from '@/lib/comfyWorkflow'
+import { cloneForIpc } from '@/lib/cloneForIpc'
+import type { AudioTurnRequest } from '@/types/sessionIpc'
+import type { AudioPhase, AudioRerun, TurnDeletion } from '@/lib/turnTypes'
+
+/** A Text-to-Speech / Speech-to-Text turn still running in a Session. */
+export type PendingAudioTurn = {
+  kind: AudioTurnRequest['kind']
+  preset: string
+  prompt: string
+  createdAt: number
+  phase: AudioPhase
+}
+
+const NO_SPEECH = "Couldn't make out any speech in that audio."
+
+const ENGINE_LABEL: Record<SpeechClipResult['engine'], string> = {
+  qwen3: 'Qwen TTS',
+  kokoro: 'Kokoro',
+  external: 'External TTS',
+}
+
+function extensionOf(mediaType: string | undefined): string {
+  const subtype = mediaType?.split('/')[1]?.split(';')[0]?.trim()
+  if (!subtype || ['wav', 'x-wav', 'wave', 'vnd.wave'].includes(subtype)) return 'wav'
+  return subtype === 'mpeg' ? 'mp3' : subtype
+}
+
+/** The MIME type of a stored clip's URL, for reading one back to transcribe again. */
+function clipMimeOf(url: string): string {
+  const ext = url.toLowerCase().split(/[?#]/)[0].split('.').at(-1) ?? ''
+  const mimes: Record<string, string> = {
+    wav: 'audio/wav',
+    mp3: 'audio/mpeg',
+    webm: 'audio/webm',
+    ogg: 'audio/ogg',
+    m4a: 'audio/mp4',
+    flac: 'audio/flac',
+  }
+  return mimes[ext] ?? 'audio/wav'
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+// The speech engines take no abort signal, so Stop abandons the call rather than ending it.
+function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(createCancellation())
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(createCancellation())
+    signal.addEventListener('abort', onAbort, { once: true })
+    work.then(resolve, reject).finally(() => signal.removeEventListener('abort', onAbort))
+  })
+}
+
+async function base64Of(blob: Blob): Promise<string> {
+  return bytesToBase64(new Uint8Array(await blob.arrayBuffer()))
+}
+
+/** Runs the Audio presets' turns inside the open Session and settles each one into it. */
+export const useSessionAudio = defineStore('sessionAudio', () => {
+  const sessions = useSessions()
+  const presets = usePresets()
+  const errors = useErrors()
+  const gallery = useGallery()
+  const i18nState = useI18N().state
+
+  const pendingTurns = ref<Record<string, PendingAudioTurn>>({})
+
+  const pendingTurn = computed(() =>
+    sessions.openSessionId ? (pendingTurns.value[sessions.openSessionId] ?? null) : null,
+  )
+  const processing = computed(() => pendingTurn.value !== null)
+
+  function setPhase(sessionId: string, phase: AudioPhase): void {
+    const turn = pendingTurns.value[sessionId]
+    if (turn) pendingTurns.value = { ...pendingTurns.value, [sessionId]: { ...turn, phase } }
+  }
+
+  /** Opens the turn in the open Session; null when there is none or it is already busy. */
+  async function begin(
+    turn: Omit<PendingAudioTurn, 'preset' | 'createdAt'>,
+    presetOverride?: string,
+  ): Promise<{ sessionId: string; preset: string } | null> {
+    const sessionId = await sessions.ensureOpenSession()
+    if (!sessionId || pendingTurns.value[sessionId]) return null
+    if (!(await sessions.readyWorkspaceForTurn(sessionId))) return null
+    // A regenerate records under the preset the replaced turn ran, whichever mode is active.
+    const preset = presetOverride ?? presets.activePresetName ?? ''
+    const turnId = crypto.randomUUID()
+    try {
+      const claimed = await window.electronAPI.sessions.beginTurn(sessionId, {
+        turnId,
+        kind: 'audio',
+        presetName: preset,
+      })
+      if (!claimed.success) throw new Error(claimed.error)
+    } catch (error) {
+      errors.report(error, {
+        category: 'validation',
+        code: 'sessions/turn-refused',
+        surface: 'toast',
+      })
+      return null
+    }
+    pendingTurns.value = {
+      ...pendingTurns.value,
+      [sessionId]: { ...turn, preset, createdAt: Date.now() },
+    }
+    turnIds[sessionId] = turnId
+    aborts[sessionId] = new AbortController()
+    return { sessionId, preset }
+  }
+
+  const turnIds: Record<string, string> = {}
+  const aborts: Record<string, AbortController> = {}
+
+  /** False when the Session has no audio turn to stop. */
+  function cancel(sessionId: string): boolean {
+    const abort = aborts[sessionId]
+    abort?.abort()
+    return !!abort
+  }
+
+  function end(sessionId: string): void {
+    const { [sessionId]: _ended, ...rest } = pendingTurns.value
+    pendingTurns.value = rest
+    const turnId = turnIds[sessionId]
+    delete turnIds[sessionId]
+    delete aborts[sessionId]
+    if (turnId) {
+      void window.electronAPI.sessions
+        .endTurn(sessionId, turnId)
+        .catch((error: unknown) => errors.report(error, { surface: 'silent' }))
+    }
+  }
+
+  async function settle(request: AudioTurnRequest): Promise<boolean> {
+    try {
+      const result = await window.electronAPI.sessions.recordAudioTurn(cloneForIpc(request))
+      if (!result.success) throw new Error(result.error)
+      return true
+    } catch (error) {
+      errors.report(error, {
+        category: 'backend',
+        code: 'sessions/record-audio-failed',
+        userMessage: i18nState.SESSION_AUDIO_TURN_NOT_SAVED,
+        surface: 'toast',
+      })
+      return false
+    }
+  }
+
+  /** A failed settle recorded nothing, so the turn a redo replaced comes back instead of vanishing. */
+  async function replaceSettledTurn(
+    request: AudioTurnRequest,
+    rerun: AudioRerun | undefined,
+  ): Promise<void> {
+    if (!(await settle(request))) {
+      if (rerun) await sessions.restoreForgottenTimelineMessages(request.sessionId)
+      return
+    }
+    if (!rerun) return
+    await gallery.removeTurn(request.sessionId, {
+      messageIds: rerun.messageIds,
+      fileUrls: rerun.audioUrl ? [rerun.audioUrl] : [],
+    })
+  }
+
+  function forgetReplacedTurn(sessionId: string, rerun: AudioRerun | undefined): void {
+    if (rerun) sessions.forgetTimelineMessages(sessionId, rerun.messageIds)
+  }
+
+  async function synthesize(text: string, rerun?: AudioRerun): Promise<void> {
+    const prompt = text.trim()
+    if (!prompt) return
+    const started = await begin({ kind: 'tts', prompt, phase: 'loading-model' }, rerun?.preset)
+    if (!started) return
+    forgetReplacedTurn(started.sessionId, rerun)
+    const { sessionId, preset } = started
+    const base = { sessionId, kind: 'tts' as const, preset, prompt, summariser: turnSummariser() }
+    try {
+      let request: AudioTurnRequest
+      try {
+        const clip = await untilAborted(
+          synthesizeClip({ text: prompt, onPhase: (phase) => setPhase(sessionId, phase) }),
+          aborts[sessionId].signal,
+        )
+        request = {
+          ...base,
+          status: 'completed',
+          engine: ENGINE_LABEL[clip.engine],
+          audio: {
+            base64: clip.audioBase64,
+            fileName: `tts_${formatTtsAudioTimestamp(new Date())}.${extensionOf(clip.mediaType)}`,
+          },
+        }
+      } catch (error) {
+        if (isCancellation(error)) {
+          request = { ...base, status: 'cancelled' }
+        } else {
+          errors.report(error, {
+            category: 'inference',
+            code: 'inference/tts-failed',
+            userMessage: `Text To Speech failed: ${messageOf(error)}`,
+            surface: 'toast',
+          })
+          request = { ...base, status: 'failed', error: messageOf(error) }
+        }
+      }
+      await replaceSettledTurn(request, rerun)
+    } finally {
+      end(sessionId)
+    }
+  }
+
+  /** Transcribes an uploaded or recorded clip; the clip itself is kept in the Session. */
+  async function transcribeAudio(
+    blob: Blob,
+    source: { label: string; fileName?: string },
+    rerun?: AudioRerun,
+  ): Promise<void> {
+    const started = await begin(
+      { kind: 'stt', prompt: source.label, phase: 'transcribing' },
+      rerun?.preset,
+    )
+    if (!started) return
+    forgetReplacedTurn(started.sessionId, rerun)
+    const { sessionId, preset } = started
+    const base = {
+      sessionId,
+      kind: 'stt' as const,
+      preset,
+      prompt: source.label,
+      summariser: turnSummariser(),
+    }
+    try {
+      const audio = {
+        base64: await base64Of(blob),
+        fileName:
+          source.fileName ??
+          `recording_${formatTtsAudioTimestamp(new Date())}.${extensionOf(blob.type)}`,
+      }
+      let request: AudioTurnRequest
+      try {
+        await readyTranscriptionForInput()
+        const { text } = await untilAborted(transcribe({ audio: blob }), aborts[sessionId].signal)
+        const transcript = text.trim()
+        request = transcript
+          ? { ...base, status: 'completed', engine: 'Whisper', transcript, audio }
+          : { ...base, status: 'failed', error: NO_SPEECH, audio }
+      } catch (error) {
+        if (isCancellation(error)) {
+          request = { ...base, status: 'cancelled', audio }
+        } else {
+          errors.report(error, {
+            category: 'inference',
+            code: 'inference/stt-failed',
+            userMessage: `Speech To Text failed: ${messageOf(error)}`,
+            surface: 'toast',
+          })
+          request = { ...base, status: 'failed', error: messageOf(error), audio }
+        }
+      }
+      await replaceSettledTurn(request, rerun)
+    } finally {
+      end(sessionId)
+    }
+  }
+
+  /** Reads a clip the Session stores back as a Blob, to transcribe it again. */
+  async function storedClipBlob(url: string): Promise<Blob> {
+    const result = await window.electronAPI.readAipgMediaAsBase64(url)
+    if (!result.success) throw new Error(result.error)
+    // Copy into a fresh Uint8Array<ArrayBuffer> so the BlobPart type is satisfied.
+    const bytes = new Uint8Array(base64ToBytes(result.data))
+    return new Blob([bytes], { type: clipMimeOf(url) })
+  }
+
+  /** Runs the latest speech turn's input again; the result replaces it in the Session. */
+  async function regenerate(rerun: AudioRerun): Promise<void> {
+    try {
+      if (rerun.kind === 'tts') {
+        await synthesize(rerun.prompt, rerun)
+        return
+      }
+      if (!rerun.audioUrl) return
+      const stored = sessionMediaPathOf(rerun.audioUrl)
+      const blob = await storedClipBlob(rerun.audioUrl)
+      await transcribeAudio(blob, { label: rerun.prompt, fileName: stored?.path }, rerun)
+    } catch (error) {
+      if (isCancellation(error)) return
+      errors.report(error, {
+        category: 'inference',
+        code: `inference/${rerun.kind}-failed`,
+        userMessage: `${rerun.kind === 'tts' ? i18nState.SESSION_AUDIO_TTS_FAILED : i18nState.SESSION_AUDIO_STT_FAILED}: ${messageOf(error)}`,
+        surface: 'toast',
+      })
+    }
+  }
+
+  async function deleteTurn(deletion: TurnDeletion): Promise<void> {
+    const sessionId = sessions.openSessionId
+    if (!sessionId) return
+    await gallery.removeTurn(sessionId, deletion)
+  }
+
+  return {
+    pendingTurns,
+    pendingTurn,
+    processing,
+    synthesize,
+    transcribeAudio,
+    regenerate,
+    deleteTurn,
+    cancel,
+  }
+})
+
+if (import.meta.hot) {
+  import.meta.hot.accept(acceptHMRUpdate(useSessionAudio, import.meta.hot))
+}

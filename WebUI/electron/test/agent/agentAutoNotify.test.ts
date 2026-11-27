@@ -8,6 +8,9 @@ import type { ChatAskPayload } from '@/types/chatRequests'
 import type { NotificationConfig } from '@/types/notificationsIpc'
 import type { PermissionsPromptPayload } from '@/types/permissionsIpc'
 import { thumbnailAnswer, type FakeThumbnail } from './fakeThumbnail'
+import { sessionHolding } from './sessionHolding'
+import { sessionOfHarnessSession } from '../../session/sessionHarness'
+import { plainTextOf } from '../../agent/channelText'
 
 // Automatic Notifications for a Background Session, seen at the Channel: a real Pi
 // session against a fake backend calls a speech tool and waits on the window, the
@@ -31,6 +34,10 @@ vi.mock('../../persist/userDataPaths', async (importOriginal) => ({
   getAgentSessionsDir: () => sessionsDir,
   getAgentTasksFile: () => tasksFile,
   getChannelMessageMapFile: () => messageMapFile,
+  getAgentTrialsDir: () => path.join(tempRoot, 'agent-trials'),
+  getSessionsDir: () => path.join(tempRoot, 'sessions'),
+  getLegacySessionsDir: () => path.join(tempRoot, 'sessions'),
+  getAppWorkspacesDir: () => `${path.join(tempRoot, 'sessions')}-workspaces`,
   getAudioDir: () => path.join(tempRoot, 'audio'),
 }))
 
@@ -43,6 +50,8 @@ let finalText = 'done'
 let notifyAttachment: string | null = null
 /** The clip the window hands back for the speech request. */
 let clipBase64 = ''
+/** What the model says before its tool call, which a Channel sees streaming. */
+let narration = ''
 
 function frame(chunk: unknown): Uint8Array {
   return new TextEncoder().encode(`data: ${JSON.stringify(chunk)}\n\n`)
@@ -61,6 +70,7 @@ function completion(delta: Record<string, unknown>, finish: string | null = null
 /** The first step calls the speech tool; the step after its result just answers. */
 function toolCall(name: string, args: unknown) {
   return [
+    ...(narration ? [completion({ role: 'assistant', content: narration })] : []),
     completion({
       role: 'assistant',
       tool_calls: [
@@ -117,15 +127,17 @@ afterAll(() => {
 })
 
 const SESSION = 'aipg-agent-news'
+/** The Session holding SESSION. */
+let newsSessionRef = ''
 
 const CONFIG: NotificationConfig = {
-  homeAgentEnabled: true,
-  notificationChannel: 'telegram',
-  autoNotify: true,
-  sessionInView: null,
+  channels: ['telegram'],
+  sessionOnScreen: null,
+  trialRunInView: null,
   realShellSessions: [],
   templates: {
     header: '🤖 Agent · {title}',
+    assistantHeader: '💬 Assistant · {title}',
     paused: '⏸ Waiting for you: {reason}. Open AI Playground to continue.',
     pauseReason: '{kind} ({summary})',
     pauseKinds: {
@@ -136,12 +148,15 @@ const CONFIG: NotificationConfig = {
     },
     failed: '❌ Failed: {error}. Open AI Playground for details.',
     sessionLabel: '"{title}"',
-    taskLabel: '"{task}" (step {step}/{steps})',
-    untitled: 'An agent run',
+    untitled: 'Untitled Session',
+    untitledAgent: 'Untitled agent',
     answerButton: '💬 Answer',
     answerOnComputer: 'Answer on your computer',
     answerInThread: 'Reply in thread to answer.',
     answerByReply: '↩️ Reply to this message to answer.',
+    queueDroppedOnQuit: 'Dropped {count}.',
+    agentStarted: '▶️ Started “{name}” in {title}.',
+    trialRunLabel: 'Trial Run · {agent}',
   },
 }
 
@@ -151,13 +166,18 @@ type Sent = {
   replyTo?: string
   media?: string
   buttons?: unknown
+  plain?: boolean
 }
 let sent: Sent[] = []
+/** Each streamed draft edit, and the draft each final message settled. */
+let drafts: Array<{ kind: ChannelKind; id: number; ref?: string; text: string }> = []
+let settled: Array<{ kind: ChannelKind; text: string; draft?: number }> = []
 let typing: Array<{ kind: ChannelKind; typing: 'start' | 'stop' }> = []
 let asks: ChatAskPayload[] = []
 let prompts: PermissionsPromptPayload[] = []
 let windowShown = true
 let refusedFiles: string[] = []
+let failingKinds: ChannelKind[] = []
 let thumbnail: FakeThumbnail = { base64: 'anBlZw==' }
 let thumbnailAsks: string[] = []
 
@@ -188,7 +208,6 @@ beforeAll(async () => {
     getService: () => ({ ensureBackendReadiness: async () => {}, baseUrl: null }),
     awaitChatWindow: async () => {},
     stopOvmsImageServer: async () => {},
-    notifyHomeAgentUpstreamReady: () => {},
   })
   const fakeWindow = {
     isDestroyed: () => false,
@@ -211,18 +230,28 @@ beforeAll(async () => {
   bus.setKernelEventWindow(fakeWindow as never)
   manager.setAgentModeMainWindow(fakeWindow as never)
   notifier.setNotificationChannel({
+    draft: async (kind, draft, text) => {
+      drafts.push({ kind, id: draft.id, ref: draft.ref, text: plainTextOf(text) })
+      return kind === 'slack' && !draft.ref
+        ? { success: true, ref: `draft-${draft.id}`, chat: 'D1' }
+        : { success: true }
+    },
     typing: async (kind, state) => {
       typing.push({ kind, typing: state })
       return { success: true }
     },
     send: async (kind, message) => {
+      const text = plainTextOf(message)
+      if (message.draft) settled.push({ kind, text, draft: message.draft.id })
       sent.push({
         kind,
-        text: message.text,
+        text,
         replyTo: message.replyTo,
         media: message.media && `${message.media.kind}:${message.media.filename}`,
         buttons: message.buttons,
+        plain: message.plain,
       })
+      if (failingKinds.includes(kind)) return { success: false, error: `${kind} is down` }
       if (refusedFiles.includes(message.media?.filename ?? ''))
         return { success: false, error: 'too large' }
       return { success: true, ref: `msg-${sent.length}` }
@@ -238,6 +267,7 @@ beforeAll(async () => {
     updatedAt: 1,
     messages: [],
   })
+  newsSessionRef = await sessionHolding(SESSION)
 })
 
 afterAll(async () => {
@@ -246,6 +276,9 @@ afterAll(async () => {
 
 beforeEach(() => {
   sent = []
+  drafts = []
+  settled = []
+  narration = ''
   typing = []
   asks = []
   prompts = []
@@ -255,6 +288,7 @@ beforeEach(() => {
   notifyAttachment = null
   clipBase64 = ''
   refusedFiles = []
+  failingKinds = []
   thumbnail = { base64: 'anBlZw==' }
   thumbnailAsks = []
   fs.rmSync(tasksFile, { force: true })
@@ -332,13 +366,15 @@ async function pauseForQuestion(): Promise<void> {
 const REPLY_HINT = '\n↩️ Reply to this message to answer.'
 
 const QUESTION_TEXT =
-  '🤖 Agent · "Morning news"\n⏸ Waiting for you: a question (Which colour?). ' +
+  '💬 Assistant · "Morning news"\n⏸ Waiting for you: a question (Which colour?). ' +
   'Open AI Playground to continue.'
 
 describe('a Background Session pausing for the user', () => {
   it('sends one Notification naming the session and the question', async () => {
     await withWaitingTurn(SESSION, pauseForQuestion)
-    expect(sent).toEqual([{ kind: 'telegram', text: QUESTION_TEXT + REPLY_HINT }])
+    await vi.waitFor(() =>
+      expect(sent).toEqual([{ kind: 'telegram', text: QUESTION_TEXT + REPLY_HINT, plain: true }]),
+    )
   }, 30000)
 
   it('sends no Notification for a download pause, which the window asks as a Channel Question', async () => {
@@ -388,48 +424,90 @@ describe('a Background Session pausing for the user', () => {
       userWait.setAwaitingUser(SESSION, false)
     })
     expect(sent.map((s) => s.text)).toEqual([
-      '🤖 Agent · "Morning news"\n⏸ Waiting for you: a VRAM warning (Flux). Open AI Playground to continue.' +
+      '💬 Assistant · "Morning news"\n⏸ Waiting for you: a VRAM warning (Flux). Open AI Playground to continue.' +
         REPLY_HINT,
-      '🤖 Agent · "Morning news"\n⏸ Waiting for you: a confirmation (Continue in Game Agent?). ' +
+      '💬 Assistant · "Morning news"\n⏸ Waiting for you: a confirmation (Continue in Game Agent?). ' +
         'Open AI Playground to continue.' +
         REPLY_HINT,
-      '🤖 Agent · "Morning news"\n⏸ Waiting for you: a question (Which colour?). ' +
+      '💬 Assistant · "Morning news"\n⏸ Waiting for you: a question (Which colour?). ' +
         'Open AI Playground to continue.' +
         REPLY_HINT,
     ])
   }, 30000)
 
-  it('labels a session with no record yet as an agent run', async () => {
+  it('labels a Session with no title and no Harness Session record as an Untitled Session', async () => {
+    await sessionHolding('aipg-agent-fresh')
     await withWaitingTurn('aipg-agent-fresh', async () => {
       pauseFor('aipg-agent-fresh', 'question', 'Which colour?')
       await settle()
       userWait.setAwaitingUser('aipg-agent-fresh', false)
     })
     expect(sent.map((s) => s.text)).toEqual([
-      '🤖 Agent · "An agent run"\n⏸ Waiting for you: a question (Which colour?). ' +
+      '💬 Assistant · "Untitled Session"\n⏸ Waiting for you: a question (Which colour?). ' +
         'Open AI Playground to continue.' +
         REPLY_HINT,
     ])
   }, 30000)
 
+  it('names its Session, not the Harness Session', async () => {
+    const sessions = await import('../../session/sessions')
+    await sessions.renameSession(newsSessionRef, 'Breakfast briefing')
+    try {
+      await withWaitingTurn(SESSION, pauseForQuestion)
+    } finally {
+      await sessions.mutateSession(newsSessionRef, (file) => ({ ...file, title: '' }))
+    }
+    expect(sent.map((s) => s.text)).toEqual([
+      '💬 Assistant · "Breakfast briefing"\n⏸ Waiting for you: a question (Which colour?). ' +
+        'Open AI Playground to continue.' +
+        REPLY_HINT,
+    ])
+  }, 30000)
+
+  it('notifies every enabled, verified Channel, recording each message', async () => {
+    notifier.setNotificationConfig({ ...CONFIG, channels: ['telegram', 'slack', 'local-web'] })
+    await withWaitingTurn(SESSION, pauseForQuestion)
+    await vi.waitFor(async () => {
+      expect(sent.map((s) => s.kind)).toEqual(['telegram', 'slack', 'local-web'])
+      expect(sent[1].text).toBe(`${QUESTION_TEXT}\nReply in thread to answer.`)
+      for (const [index, kind] of (['telegram', 'slack', 'local-web'] as const).entries()) {
+        expect(await messageMap.channelMessageOwner(kind, `msg-${index + 1}`)).toEqual({
+          sessionRef: newsSessionRef,
+          harnessSessionId: SESSION,
+        })
+      }
+    })
+  }, 30000)
+
+  it('notifies another Channel when one fails to send', async () => {
+    notifier.setNotificationConfig({ ...CONFIG, channels: ['telegram', 'slack'] })
+    failingKinds = ['telegram']
+    await withWaitingTurn(SESSION, pauseForQuestion)
+    await vi.waitFor(async () => {
+      expect(sent.map((s) => s.kind)).toEqual(['telegram', 'slack'])
+      expect(await messageMap.channelMessageOwner('slack', 'msg-2')).toEqual({
+        sessionRef: newsSessionRef,
+        harnessSessionId: SESSION,
+      })
+    })
+  }, 30000)
+
   it('stays quiet for the session open on screen', async () => {
-    notifier.setNotificationConfig({ ...CONFIG, sessionInView: SESSION })
+    notifier.setNotificationConfig({ ...CONFIG, sessionOnScreen: newsSessionRef })
     await withWaitingTurn(SESSION, pauseForQuestion)
     expect(sent).toEqual([])
   }, 30000)
 
   it('notifies for the open session while the window is hidden or minimized', async () => {
-    notifier.setNotificationConfig({ ...CONFIG, sessionInView: SESSION })
+    notifier.setNotificationConfig({ ...CONFIG, sessionOnScreen: newsSessionRef })
     windowShown = false
     await withWaitingTurn(SESSION, pauseForQuestion)
-    expect(sent).toEqual([{ kind: 'telegram', text: QUESTION_TEXT + REPLY_HINT }])
+    await vi.waitFor(() =>
+      expect(sent).toEqual([{ kind: 'telegram', text: QUESTION_TEXT + REPLY_HINT, plain: true }]),
+    )
   }, 30000)
 
-  it.each([
-    ['automatic Notifications are off', { autoNotify: false }],
-    ['Home Agent is off', { homeAgentEnabled: false }],
-    ['no Notification Channel is set up', { notificationChannel: null }],
-  ])(
+  it.each([['the Channels toggle is off', { channels: [] }]])(
     'sends nothing when %s',
     async (_case, override) => {
       notifier.setNotificationConfig({ ...CONFIG, ...override })
@@ -443,7 +521,7 @@ describe('a Background Session pausing for the user', () => {
 const TASK_SESSION = 'aipg-agent-task-run'
 
 /** Saves a "Daily digest" Task whose run is in flight in `TASK_SESSION`. */
-async function saveTaskRun(activeRun?: { stepIndex: number; stepCount: number }) {
+async function saveTaskRun(inFlight = true) {
   await sessionFiles.saveAgentSession({
     id: TASK_SESSION,
     workspaceDir: tempRoot,
@@ -460,58 +538,324 @@ async function saveTaskRun(activeRun?: { stepIndex: number; stepCount: number })
     steps: ['one', 'two', 'three'].map((prompt) => ({ id: prompt, prompt })),
     createdAt: 1,
     updatedAt: 1,
-    ...(activeRun ? { activeRun: { sessionId: TASK_SESSION, ...activeRun } } : {}),
+    ...(inFlight ? { activeRuns: [{ sessionId: TASK_SESSION, sessionRef: 'session-1' }] } : {}),
   })
 }
 
 describe('a Task run', () => {
-  it('is labelled by its Task name and step when it pauses', async () => {
-    await saveTaskRun({ stepIndex: 2, stepCount: 3 })
+  beforeAll(async () => {
+    const sessions = await import('../../session/sessions')
+    await sessions.renameSession(
+      await sessionHolding(TASK_SESSION, { agentRun: true }),
+      'Weekday news',
+    )
+  })
+
+  it('is labelled by its Session and Agent, without a Step, when it pauses', async () => {
+    await saveTaskRun()
     await withWaitingTurn(TASK_SESSION, async () => {
       pauseFor(TASK_SESSION, 'question', 'Which source?')
       await settle()
       userWait.setAwaitingUser(TASK_SESSION, false)
     })
     expect(sent.map((s) => s.text)).toEqual([
-      '🤖 Agent · "Daily digest" (step 2/3)\n⏸ Waiting for you: a question (Which source?). ' +
+      '🤖 Agent · "Weekday news" · "Daily digest"\n⏸ Waiting for you: a question (Which source?). ' +
         'Open AI Playground to continue.' +
         REPLY_HINT,
     ])
   }, 30000)
 
   it('is labelled the same way when it fails', async () => {
-    await saveTaskRun({ stepIndex: 3, stepCount: 3 })
-    modelRetired = true
-    await manager.startAgentTurn(crypto.randomUUID(), 'hi', configFor(TASK_SESSION))
-    await settle()
-    expect(sent.map((s) => s.text)).toEqual([
-      '🤖 Agent · "Daily digest" (step 3/3)\n❌ Failed: 400: model test-model was retired. ' +
-        'Open AI Playground for details.' +
-        REPLY_HINT,
-    ])
-  }, 30000)
-
-  it('falls back to the Task name when the step cannot be resolved', async () => {
-    await saveTaskRun({ stepIndex: 0, stepCount: 0 })
-    modelRetired = true
-    await manager.startAgentTurn(crypto.randomUUID(), 'hi', configFor(TASK_SESSION))
-    await settle()
-    expect(sent.map((s) => s.text)).toEqual([
-      '🤖 Agent · "Daily digest"\n❌ Failed: 400: model test-model was retired. Open AI Playground for details.' +
-        REPLY_HINT,
-    ])
-  }, 30000)
-
-  it('keeps the session title once the run is over', async () => {
     await saveTaskRun()
     modelRetired = true
     await manager.startAgentTurn(crypto.randomUUID(), 'hi', configFor(TASK_SESSION))
+    await vi.waitFor(() =>
+      expect(sent.map((s) => s.text)).toEqual([
+        '🤖 Agent · "Weekday news" · "Daily digest"\n❌ Failed: 400: model test-model was retired. ' +
+          'Open AI Playground for details.' +
+          REPLY_HINT,
+      ]),
+    )
+  }, 30000)
+
+  it('names only its Session once the run is over', async () => {
+    await saveTaskRun(false)
+    modelRetired = true
+    await manager.startAgentTurn(crypto.randomUUID(), 'hi', configFor(TASK_SESSION))
+    await vi.waitFor(() =>
+      expect(sent.map((s) => s.text)).toEqual([
+        '🤖 Agent · "Weekday news"\n❌ Failed: 400: model test-model was retired. ' +
+          'Open AI Playground for details.' +
+          REPLY_HINT,
+      ]),
+    )
+  }, 30000)
+})
+
+/** Writes `names` into a fresh `generated/` folder of the turn's workspace. */
+function generatedFiles(config: AgentModeTurnConfig, names: string[]): string[] {
+  const generated = path.join(config.workspaceDir, 'generated')
+  fs.mkdirSync(generated, { recursive: true })
+  for (const name of names) fs.writeFileSync(path.join(generated, name), 'bytes')
+  return names.map((name) => `generated/${name}`)
+}
+
+describe('a Scheduled Run', () => {
+  const EVERY: ChannelKind[] = ['telegram', 'slack']
+  const run = (notifiesResult?: boolean): AgentModeTurnConfig => ({
+    ...configFor(TASK_SESSION),
+    taskRun: {
+      taskName: 'Daily digest',
+      ...(notifiesResult ? { notifiesResult } : {}),
+    },
+  })
+  const header = '🤖 Agent · "Weekday news" · "Daily digest"'
+
+  beforeEach(async () => {
+    await saveTaskRun()
+    notifier.setNotificationConfig({ ...CONFIG, channels: EVERY })
+  })
+
+  it('sends its result to every Channel, recorded as the Session’s', async () => {
+    await withWaitingTurn(TASK_SESSION, async () => {}, run(true))
+    await vi.waitFor(async () => {
+      expect(sent).toEqual([
+        { kind: 'telegram', text: `${header}\ndone${REPLY_HINT}` },
+        { kind: 'slack', text: `${header}\ndone\nReply in thread to answer.` },
+      ])
+      expect(await messageMap.channelMessageOwner('slack', 'msg-2')).toMatchObject({
+        harnessSessionId: TASK_SESSION,
+      })
+    })
+  }, 30000)
+
+  it('sends every Artifact its turn generated to every Channel too', async () => {
+    const config = run(true)
+    const [chart, map] = generatedFiles(config, ['chart.png', 'map.png'])
+    const media = await import('../../agent/generatedMedia')
+    await withWaitingTurn(
+      TASK_SESSION,
+      async () => {
+        media.noteGeneratedMedia(config.workspaceDir, [chart])
+        await vi.waitFor(() => expect(sent).toHaveLength(2))
+        media.noteGeneratedMedia(config.workspaceDir, [map])
+      },
+      config,
+    )
+    // Wait for the result texts that follow the media too, or they leak into the next test.
+    await vi.waitFor(() =>
+      expect(sent.map((s) => [s.kind, s.media ?? s.text.split('\n')[1]])).toEqual([
+        ['telegram', 'photo:chart.png'],
+        ['slack', 'photo:chart.png'],
+        ['telegram', 'photo:map.png'],
+        ['slack', 'photo:map.png'],
+        ['telegram', 'done'],
+        ['slack', 'done'],
+      ]),
+    )
+  }, 30000)
+
+  it('reports the question its turn ends on as its result', async () => {
+    finalText = 'Which city should the digest cover?'
+    await withWaitingTurn(TASK_SESSION, async () => {}, run(true))
+    await vi.waitFor(() =>
+      expect(sent.map((s) => [s.kind, s.text.split('\n')[1]])).toEqual([
+        ['telegram', 'Which city should the digest cover?'],
+        ['slack', 'Which city should the digest cover?'],
+      ]),
+    )
+  }, 30000)
+
+  it('sends nothing for a run nobody scheduled', async () => {
+    await withWaitingTurn(TASK_SESSION, async () => {}, run())
     await settle()
-    expect(sent.map((s) => s.text)).toEqual([
-      '🤖 Agent · "Fetch the headlines"\n❌ Failed: 400: model test-model was retired. ' +
-        'Open AI Playground for details.' +
-        REPLY_HINT,
-    ])
+    expect(sent).toEqual([])
+  }, 30000)
+
+  it('sends nothing while the Channels toggle is off', async () => {
+    notifier.setNotificationConfig({ ...CONFIG, channels: [] })
+    await withWaitingTurn(TASK_SESSION, async () => {}, run(true))
+    await settle()
+    expect(sent).toEqual([])
+  }, 30000)
+
+  it('leaves any other failure to the window while its Session is on screen', async () => {
+    const sessionRef = await sessionOfHarnessSession(TASK_SESSION)
+    notifier.setNotificationConfig({ ...CONFIG, channels: EVERY, sessionOnScreen: sessionRef })
+    modelRetired = true
+    await manager.startAgentTurn(crypto.randomUUID(), 'hi', run(true))
+    await settle()
+    expect(sent).toEqual([])
+  }, 30000)
+
+  it('fails at once when its Workspace is missing, naming the folder on every Channel', async () => {
+    const folders = await import('../../session/sessionFolders')
+    const sessionRef = (await sessionOfHarnessSession(TASK_SESSION))!
+    const project = path.join(tempRoot, 'Project')
+    fs.mkdirSync(project)
+    const { list } = await folders.addSessionFolder(sessionRef, project)
+    const entry = list.folders.find((folder) => folder.hostPath === project)!
+    await folders.starSessionFolder(sessionRef, entry.id)
+    fs.rmSync(project, { recursive: true })
+    notifier.setNotificationConfig({ ...CONFIG, channels: EVERY, sessionOnScreen: sessionRef })
+    const states: string[] = []
+    const bus = await import('../../kernel/kernelBus')
+    const stop = bus.onKernelEvent((event) => {
+      if (event.type === 'agent-turn-state') states.push(event.state)
+    })
+    try {
+      const result = await manager.startAgentTurn(crypto.randomUUID(), 'hi', {
+        ...run(true),
+        sessionRef,
+        workspaceDir: project,
+      })
+      expect(result).toMatchObject({ success: false, error: expect.stringContaining(project) })
+      await vi.waitFor(() =>
+        expect(sent.map((s) => [s.kind, s.text.split('\n')[1]])).toEqual([
+          [
+            'telegram',
+            expect.stringMatching(/^❌ Failed: The Workspace folder "Project" is missing/),
+          ],
+          ['slack', expect.stringMatching(/^❌ Failed: The Workspace folder "Project" is missing/)],
+        ]),
+      )
+      expect(states).not.toContain('paused')
+      expect(asks).toEqual([])
+    } finally {
+      stop()
+      await folders.startNewSessionWorkspace(sessionRef)
+    }
+  }, 30000)
+
+  it("fails at once when its Agent's own Workspace is missing, naming that folder", async () => {
+    const workspaces = await import('../../session/sessionWorkspace')
+    const sessionRef = (await sessionOfHarnessSession(TASK_SESSION))!
+    const own = path.join(tempRoot, 'Agent Project')
+    notifier.setNotificationConfig({ ...CONFIG, channels: EVERY, sessionOnScreen: sessionRef })
+    const states: string[] = []
+    const bus = await import('../../kernel/kernelBus')
+    const stop = bus.onKernelEvent((event) => {
+      if (event.type === 'agent-turn-state') states.push(event.state)
+    })
+    try {
+      const result = await manager.startAgentTurn(crypto.randomUUID(), 'hi', {
+        ...run(true),
+        sessionRef,
+        workspaceDir: own,
+        folderOverrides: { workspace: { id: 'own', hostPath: own, slug: 'agent-project' } },
+      })
+      expect(result).toMatchObject({ success: false, error: expect.stringContaining(own) })
+      await vi.waitFor(() =>
+        expect(sent.map((s) => [s.kind, s.text.split('\n')[1]])).toEqual([
+          ['telegram', expect.stringMatching(/^❌ Failed: .*"Agent Project" is missing/)],
+          ['slack', expect.stringMatching(/^❌ Failed: .*"Agent Project" is missing/)],
+        ]),
+      )
+      expect(states).not.toContain('paused')
+      expect(asks).toEqual([])
+      expect(fs.existsSync(own)).toBe(false)
+      expect(fs.readdirSync(workspaces.sessionWorkspaceDir(sessionRef))).toEqual([])
+    } finally {
+      stop()
+    }
+  }, 30000)
+})
+
+describe('an Agent Run started from a Channel', () => {
+  const STARTED_BY = { channel: 'telegram' as const, replyTo: 'agents-12' }
+  const run = (): AgentModeTurnConfig => ({
+    ...configFor(TASK_SESSION),
+    answer: STARTED_BY,
+    taskRun: { taskName: 'Daily digest', notifiesResult: true },
+  })
+  const header = '🤖 Agent · "Weekday news" · "Daily digest"'
+  const started = {
+    kind: 'telegram',
+    text: '▶️ Started “Daily digest” in "Weekday news".',
+    replyTo: 'agents-12',
+    plain: true,
+  }
+
+  beforeEach(async () => {
+    await saveTaskRun()
+    notifier.setNotificationConfig({ ...CONFIG, channels: ['telegram', 'slack'] })
+  })
+
+  it('says it started, then reports its result, to the starting Channel alone', async () => {
+    finalText = 'Three headlines.'
+    await withWaitingTurn(TASK_SESSION, async () => {}, run())
+    await vi.waitFor(() =>
+      expect(sent).toEqual([
+        started,
+        { kind: 'telegram', text: `${header}\nThree headlines.`, replyTo: 'agents-12' },
+      ]),
+    )
+  }, 30000)
+
+  it('says it started only once, not again for an Answer to its question', async () => {
+    finalText = 'Which city?'
+    await withWaitingTurn(TASK_SESSION, async () => {}, run())
+    await vi.waitFor(() => expect(sent).toHaveLength(2))
+    asks = []
+    finalText = 'Berlin news.'
+    const { taskRun: _run, ...answerTurn } = run()
+    await withWaitingTurn(TASK_SESSION, async () => {}, {
+      ...answerTurn,
+      answer: { channel: 'telegram', replyTo: 'msg-2' },
+    })
+    await vi.waitFor(() =>
+      expect(sent).toEqual([
+        started,
+        { kind: 'telegram', text: `${header}\nWhich city?`, replyTo: 'agents-12' },
+        { kind: 'telegram', text: `${header}\nBerlin news.`, replyTo: 'msg-2' },
+      ]),
+    )
+  }, 30000)
+
+  it('records its result, so a reply to it reaches the run’s Harness Session', async () => {
+    await withWaitingTurn(TASK_SESSION, async () => {}, run())
+    await vi.waitFor(async () => {
+      const result = sent.findIndex((s) => s.text.includes('\ndone'))
+      expect(result).not.toBe(-1)
+      expect(await messageMap.channelMessageOwner('telegram', `msg-${result + 1}`)).toMatchObject({
+        harnessSessionId: TASK_SESSION,
+      })
+    })
+  }, 30000)
+
+  it('sends every Artifact its turn generated, after it said it started', async () => {
+    const config = run()
+    const files = generatedFiles(config, ['chart.png', 'map.png'])
+    const media = await import('../../agent/generatedMedia')
+    await withWaitingTurn(
+      TASK_SESSION,
+      async () => media.noteGeneratedMedia(config.workspaceDir, files),
+      config,
+    )
+    await vi.waitFor(() =>
+      expect(sent.map((s) => s.media ?? s.text.split('\n').at(-1))).toEqual([
+        '▶️ Started “Daily digest” in "Weekday news".',
+        'photo:chart.png',
+        'photo:map.png',
+        'done',
+      ]),
+    )
+  }, 30000)
+
+  it('notifies a failed run on the starting Channel, although the Session is on screen', async () => {
+    notifier.setNotificationConfig({
+      ...CONFIG,
+      channels: ['telegram', 'slack'],
+      sessionOnScreen: await sessionOfHarnessSession(TASK_SESSION),
+    })
+    modelRetired = true
+    await manager.startAgentTurn(crypto.randomUUID(), 'hi', run())
+    await vi.waitFor(() =>
+      expect(sent.map((s) => [s.kind, s.replyTo, s.text.includes('❌ Failed')])).toEqual([
+        ['telegram', 'agents-12', false],
+        ['telegram', 'agents-12', true],
+      ]),
+    )
   }, 30000)
 })
 
@@ -526,7 +870,8 @@ describe('a sent Notification', () => {
     await failingTurn()
     expect(sent).toHaveLength(1)
     expect(await messageMap.channelMessageOwner('telegram', 'msg-1')).toEqual({
-      sessionId: SESSION,
+      sessionRef: newsSessionRef,
+      harnessSessionId: SESSION,
     })
     expect(await messageMap.channelMessageOwner('slack', 'msg-1')).toBeNull()
     expect(await messageMap.channelMessageOwner('telegram', 'msg-2')).toBeNull()
@@ -534,7 +879,7 @@ describe('a sent Notification', () => {
 
   it('is forgotten when its session is deleted, but still known as a deleted session’s', async () => {
     await failingTurn()
-    await messageMap.forgetSessionMessages(SESSION)
+    await messageMap.forgetHarnessSessionMessages(SESSION)
     expect(await messageMap.channelMessageOwner('telegram', 'msg-1')).toEqual({
       deletedSession: true,
     })
@@ -544,7 +889,7 @@ describe('a sent Notification', () => {
 
 describe('a Background Session whose turn fails', () => {
   const FAILED_TEXT =
-    '🤖 Agent · "Morning news"\n❌ Failed: 400: model test-model was retired. Open AI Playground for details.'
+    '💬 Assistant · "Morning news"\n❌ Failed: 400: model test-model was retired. Open AI Playground for details.'
 
   async function failingTurn(): Promise<void> {
     modelRetired = true
@@ -554,27 +899,23 @@ describe('a Background Session whose turn fails', () => {
 
   it('sends one Notification with the error the app shows', async () => {
     await failingTurn()
-    expect(sent).toEqual([{ kind: 'telegram', text: FAILED_TEXT + REPLY_HINT }])
+    expect(sent).toEqual([{ kind: 'telegram', text: FAILED_TEXT + REPLY_HINT, plain: true }])
   }, 30000)
 
   it('stays quiet for the session open on screen', async () => {
-    notifier.setNotificationConfig({ ...CONFIG, sessionInView: SESSION })
+    notifier.setNotificationConfig({ ...CONFIG, sessionOnScreen: newsSessionRef })
     await failingTurn()
     expect(sent).toEqual([])
   }, 30000)
 
   it('notifies for the open session while the window is hidden or minimized', async () => {
-    notifier.setNotificationConfig({ ...CONFIG, sessionInView: SESSION })
+    notifier.setNotificationConfig({ ...CONFIG, sessionOnScreen: newsSessionRef })
     windowShown = false
     await failingTurn()
     expect(sent.map((m) => m.text)).toEqual([FAILED_TEXT + REPLY_HINT])
   }, 30000)
 
-  it.each([
-    ['automatic Notifications are off', { autoNotify: false }],
-    ['Home Agent is off', { homeAgentEnabled: false }],
-    ['no Notification Channel is set up', { notificationChannel: null }],
-  ])(
+  it.each([['the Channels toggle is off', { channels: [] }]])(
     'sends nothing when %s',
     async (_case, override) => {
       notifier.setNotificationConfig({ ...CONFIG, ...override })
@@ -594,7 +935,7 @@ describe('a Background Session whose turn fails', () => {
     const run = manager.startAgentTurn(crypto.randomUUID(), 'say hi', configFor(SESSION))
     await vi.waitFor(() => expect(asks).toHaveLength(1))
     // The pause itself would notify; only what follows the stop is under test.
-    notifier.setNotificationConfig({ ...CONFIG, autoNotify: false })
+    notifier.setNotificationConfig({ ...CONFIG, channels: [] })
     const consent = permissions.requestDownloadConsent([{ repo_id: 'voice' }]).catch(() => {})
     const remote = await nextPrompt('is-remote')
     promptAdapter.handlePermissionsPromptResponse({ requestId: remote.requestId, result: false })
@@ -623,65 +964,227 @@ describe('a Background Session whose turn fails', () => {
   }, 30000)
 })
 
+describe('a Trial Run', () => {
+  const PAUSED =
+    '🤖 Agent · Trial Run · Helper\n⏸ Waiting for you: a question (Which colour?). ' +
+    'Open AI Playground to continue.' +
+    REPLY_HINT
+  const FAILED =
+    '🤖 Agent · Trial Run · Helper\n❌ Failed: 400: model test-model was retired. ' +
+    'Open AI Playground for details.' +
+    REPLY_HINT
+
+  /** Starts a Trial Run of `agentId`, as the Agent Library does; returns its Harness Session. */
+  async function trialRun(agentId: string): Promise<string> {
+    const trialRuns = await import('../../agent/trialRuns')
+    const { harnessSessionId } = await trialRuns.trialRunHarnessFor(agentId)
+    await trialRuns.saveTrialRun({
+      agentId,
+      harnessSessionId,
+      name: 'Helper',
+      startedAt: 1,
+      state: 'running',
+    })
+    return harnessSessionId
+  }
+
+  const turnOf = (sessionId: string, notify: boolean): AgentModeTurnConfig => ({
+    ...configFor(sessionId),
+    capabilities: notify ? ['media', 'notify'] : ['media'],
+  })
+
+  async function pausedTrial(sessionId: string, notify = true): Promise<void> {
+    await withWaitingTurn(
+      sessionId,
+      async () => {
+        pauseFor(sessionId, 'question', 'Which colour?')
+        await settle()
+        userWait.setAwaitingUser(sessionId, false)
+      },
+      turnOf(sessionId, notify),
+    )
+    await settle()
+  }
+
+  async function failedTrial(sessionId: string, notify = true): Promise<void> {
+    modelRetired = true
+    await manager.startAgentTurn(crypto.randomUUID(), 'hi', turnOf(sessionId, notify))
+    await settle()
+  }
+
+  it('that may notify sends its pause while the Agent Library is closed', async () => {
+    const harnessSessionId = await trialRun('agent-pause')
+    await pausedTrial(harnessSessionId)
+    expect(sent).toEqual([{ kind: 'telegram', text: PAUSED, plain: true }])
+    expect(await messageMap.channelMessageOwner('telegram', 'msg-1')).toEqual({
+      trialRun: true,
+      harnessSessionId,
+      agentId: 'agent-pause',
+    })
+  }, 30000)
+
+  it('that may notify sends its failure while the Agent Library shows another one', async () => {
+    const harnessSessionId = await trialRun('agent-fail')
+    notifier.setNotificationConfig({ ...CONFIG, trialRunInView: 'aipg-agent-other-trial' })
+    await failedTrial(harnessSessionId)
+    expect(sent.map((s) => s.text)).toEqual([FAILED])
+  }, 30000)
+
+  it('sends neither while the Agent Library shows it', async () => {
+    const harnessSessionId = await trialRun('agent-in-view')
+    notifier.setNotificationConfig({ ...CONFIG, trialRunInView: harnessSessionId })
+    await pausedTrial(harnessSessionId)
+    await failedTrial(harnessSessionId)
+    expect(sent).toEqual([])
+  }, 30000)
+
+  it('sends both while the Agent Library shows it in a hidden window', async () => {
+    const harnessSessionId = await trialRun('agent-hidden')
+    notifier.setNotificationConfig({ ...CONFIG, trialRunInView: harnessSessionId })
+    windowShown = false
+    await pausedTrial(harnessSessionId)
+    await failedTrial(harnessSessionId)
+    expect(sent.map((s) => s.text)).toEqual([PAUSED, FAILED])
+  }, 30000)
+
+  it('of an Agent without notify sends neither', async () => {
+    const harnessSessionId = await trialRun('agent-quiet')
+    windowShown = false
+    await pausedTrial(harnessSessionId, false)
+    await failedTrial(harnessSessionId, false)
+    expect(sent).toEqual([])
+  }, 30000)
+
+  it('in view leaves a Session off screen notifying as before', async () => {
+    const harnessSessionId = await trialRun('agent-beside')
+    notifier.setNotificationConfig({ ...CONFIG, trialRunInView: harnessSessionId })
+    await withWaitingTurn(SESSION, pauseForQuestion)
+    await vi.waitFor(() =>
+      expect(sent).toEqual([{ kind: 'telegram', text: QUESTION_TEXT + REPLY_HINT, plain: true }]),
+    )
+  }, 30000)
+})
+
+describe('a Session that is not reachable', () => {
+  let reachability: typeof import('../../session/sessionChannels')
+
+  beforeAll(async () => {
+    reachability = await import('../../session/sessionChannels')
+  })
+
+  afterEach(async () => {
+    await reachability.setSessionReachable(newsSessionRef, true)
+  })
+
+  it('sends nothing when it pauses or fails off screen', async () => {
+    await reachability.setSessionReachable(newsSessionRef, false)
+    await withWaitingTurn(SESSION, pauseForQuestion)
+    modelRetired = true
+    await manager.startAgentTurn(crypto.randomUUID(), 'hi', configFor(SESSION))
+    await settle()
+    expect(sent).toEqual([])
+  }, 30000)
+
+  it('sends no reply to a turn started from a Channel once made unreachable', async () => {
+    const answer = { channel: 'telegram' as const, replyTo: 'answer-78' }
+    await withWaitingTurn(
+      SESSION,
+      () => reachability.setSessionReachable(newsSessionRef, false).then(() => {}),
+      { ...configFor(SESSION), answer },
+    )
+    await settle()
+    expect(sent).toEqual([])
+  }, 30000)
+})
+
 describe('the turn an Answer started', () => {
   const ANSWER = { channel: 'telegram' as const, replyTo: 'answer-77' }
   const answerTurn = (): AgentModeTurnConfig => ({ ...configFor(SESSION), answer: ANSWER })
 
-  it('replies under the Answer with the agent header and its final text', async () => {
+  it('replies under the Answer with the Assistant header and its final text', async () => {
     await withWaitingTurn(SESSION, async () => {}, answerTurn())
-    await settle()
-    expect(sent).toEqual([
-      { kind: 'telegram', text: '🤖 Agent · "Morning news"\ndone', replyTo: 'answer-77' },
-    ])
+    await vi.waitFor(() =>
+      expect(sent).toEqual([
+        { kind: 'telegram', text: '💬 Assistant · "Morning news"\ndone', replyTo: 'answer-77' },
+      ]),
+    )
   }, 30000)
 
-  it('replies even with automatic Notifications off and the session in view', async () => {
-    notifier.setNotificationConfig({ ...CONFIG, autoNotify: false, sessionInView: SESSION })
-    await withWaitingTurn(SESSION, async () => {}, answerTurn())
+  it('replies, pauses and fails on the asking Channel alone, with every Channel enabled', async () => {
+    notifier.setNotificationConfig({ ...CONFIG, channels: ['slack', 'telegram', 'local-web'] })
+    await withWaitingTurn(SESSION, pauseForQuestion, answerTurn())
+    modelRetired = true
+    await manager.startAgentTurn(crypto.randomUUID(), 'hi', answerTurn())
+    await vi.waitFor(() =>
+      expect(sent.map((s) => [s.kind, s.replyTo])).toEqual([
+        ['telegram', 'answer-77'],
+        ['telegram', 'answer-77'],
+        ['telegram', 'answer-77'],
+      ]),
+    )
+  }, 30000)
+
+  it('sends nothing once the asking Channel is turned off', async () => {
+    notifier.setNotificationConfig({ ...CONFIG, channels: ['slack'] })
+    await withWaitingTurn(SESSION, pauseForQuestion, answerTurn())
     await settle()
-    expect(sent.map((s) => s.replyTo)).toEqual(['answer-77'])
+    expect(sent).toEqual([])
+  }, 30000)
+
+  it('replies although the session is on screen', async () => {
+    notifier.setNotificationConfig({ ...CONFIG, sessionOnScreen: newsSessionRef })
+    await withWaitingTurn(SESSION, async () => {}, answerTurn())
+    await vi.waitFor(() => expect(sent.map((s) => s.replyTo)).toEqual(['answer-77']))
   }, 30000)
 
   it('replies on the channel the Answer came from', async () => {
+    notifier.setNotificationConfig({ ...CONFIG, channels: ['telegram', 'slack'] })
     await withWaitingTurn(SESSION, async () => {}, {
       ...configFor(SESSION),
       answer: { channel: 'slack', replyTo: '1700000000.0001' },
     })
-    await settle()
-    expect(sent).toEqual([
-      {
-        kind: 'slack',
-        text: '🤖 Agent · "Morning news"\ndone',
-        replyTo: '1700000000.0001',
-      },
-    ])
-    expect(await messageMap.channelMessageOwner('slack', 'msg-1')).toEqual({ sessionId: SESSION })
+    await vi.waitFor(async () => {
+      expect(sent).toEqual([
+        {
+          kind: 'slack',
+          text: '💬 Assistant · "Morning news"\ndone',
+          replyTo: '1700000000.0001',
+        },
+      ])
+      expect(await messageMap.channelMessageOwner('slack', 'msg-1')).toEqual({
+        sessionRef: newsSessionRef,
+        harnessSessionId: SESSION,
+      })
+    })
   }, 30000)
 
   it('notifies a pause under the Answer although the session is in view', async () => {
-    notifier.setNotificationConfig({ ...CONFIG, sessionInView: SESSION })
+    notifier.setNotificationConfig({ ...CONFIG, sessionOnScreen: newsSessionRef })
     await withWaitingTurn(SESSION, pauseForQuestion, answerTurn())
-    await settle()
-    expect(sent).toEqual([
-      { kind: 'telegram', text: QUESTION_TEXT, replyTo: 'answer-77' },
-      { kind: 'telegram', text: '🤖 Agent · "Morning news"\ndone', replyTo: 'answer-77' },
-    ])
+    await vi.waitFor(() =>
+      expect(sent).toEqual([
+        { kind: 'telegram', text: QUESTION_TEXT, replyTo: 'answer-77', plain: true },
+        { kind: 'telegram', text: '💬 Assistant · "Morning news"\ndone', replyTo: 'answer-77' },
+      ]),
+    )
   }, 30000)
 
   it('notifies its failure under the Answer although the session is in view', async () => {
-    notifier.setNotificationConfig({ ...CONFIG, sessionInView: SESSION })
+    notifier.setNotificationConfig({ ...CONFIG, sessionOnScreen: newsSessionRef })
     modelRetired = true
     await manager.startAgentTurn(crypto.randomUUID(), 'hi', answerTurn())
-    await settle()
-    expect(sent).toEqual([
-      {
-        kind: 'telegram',
-        text:
-          '🤖 Agent · "Morning news"\n❌ Failed: 400: model test-model was retired. ' +
-          'Open AI Playground for details.',
-        replyTo: 'answer-77',
-      },
-    ])
+    await vi.waitFor(() =>
+      expect(sent).toEqual([
+        {
+          kind: 'telegram',
+          text:
+            '💬 Assistant · "Morning news"\n❌ Failed: 400: model test-model was retired. ' +
+            'Open AI Playground for details.',
+          replyTo: 'answer-77',
+          plain: true,
+        },
+      ]),
+    )
   }, 30000)
 
   it('sends no text when the turn wrote none, not an earlier turn’s reply', async () => {
@@ -697,16 +1200,164 @@ describe('the turn an Answer started', () => {
     expect(sent).toEqual([])
   }, 30000)
 
+  describe('streams its reply', () => {
+    const header = '💬 Assistant · "Morning news"'
+
+    it('into one draft naming its Session, which its final text settles', async () => {
+      narration = 'Let me say it.'
+      await withWaitingTurn(
+        SESSION,
+        async () => {
+          await vi.waitFor(() => expect(drafts).toHaveLength(1))
+        },
+        answerTurn(),
+      )
+      await vi.waitFor(() => {
+        expect(drafts).toEqual([
+          { kind: 'telegram', id: expect.any(Number), text: `${header}\nLet me say it.` },
+        ])
+        expect(sent).toEqual([{ kind: 'telegram', text: `${header}\ndone`, replyTo: 'answer-77' }])
+        expect(settled).toEqual([
+          { kind: 'telegram', text: `${header}\ndone`, draft: drafts[0].id },
+        ])
+      })
+    }, 30000)
+
+    it('as a Slack message recorded as the Session’s, so a reply to it is an Answer', async () => {
+      narration = 'Let me say it.'
+      notifier.setNotificationConfig({ ...CONFIG, channels: ['slack'] })
+      await withWaitingTurn(
+        SESSION,
+        async () => {
+          await vi.waitFor(async () =>
+            expect(await messageMap.channelMessageOwner('slack', `draft-${drafts[0]?.id}`)).toEqual(
+              { sessionRef: newsSessionRef, harnessSessionId: SESSION },
+            ),
+          )
+        },
+        { ...configFor(SESSION), answer: { channel: 'slack', replyTo: '1700000000.0001' } },
+      )
+      await vi.waitFor(() =>
+        expect(settled).toEqual([{ kind: 'slack', text: `${header}\ndone`, draft: drafts[0].id }]),
+      )
+    }, 30000)
+
+    it('and settles what it streamed before a failure reports it', async () => {
+      narration = 'Let me say it.'
+      await withWaitingTurn(
+        SESSION,
+        async () => {
+          await vi.waitFor(() => expect(drafts).toHaveLength(1))
+          modelRetired = true
+        },
+        answerTurn(),
+      ).catch(() => {})
+      await vi.waitFor(() => {
+        expect(sent.map((s) => s.text)).toEqual([
+          `${header}\nLet me say it.`,
+          `${header}\n❌ Failed: 400: model test-model was retired. Open AI Playground for details.`,
+        ])
+        expect(settled.map((s) => s.draft)).toEqual([drafts[0].id])
+      })
+    }, 30000)
+
+    it('but not for a turn no Channel caused', async () => {
+      narration = 'Let me say it.'
+      await withWaitingTurn(SESSION, async () => {}, configFor(SESSION))
+      await settle()
+      expect(drafts).toEqual([])
+    }, 30000)
+  })
+
   it('records its reply, so replying to that is again an Answer to the session', async () => {
     await withWaitingTurn(SESSION, async () => {}, answerTurn())
-    await settle()
-    expect(await messageMap.channelMessageOwner('telegram', 'msg-1')).toEqual({
-      sessionId: SESSION,
-    })
+    await vi.waitFor(async () =>
+      expect(await messageMap.channelMessageOwner('telegram', 'msg-1')).toEqual({
+        sessionRef: newsSessionRef,
+        harnessSessionId: SESSION,
+      }),
+    )
   }, 30000)
 
+  describe('started by a voice message', () => {
+    const header = '💬 Assistant · "Morning news"'
+    const spokenAnswer = (): AgentModeTurnConfig => ({
+      ...configFor(SESSION),
+      answer: { ...ANSWER, voice: true },
+    })
+
+    it('speaks its reply after the text when the turn has the speech tool', async () => {
+      await withWaitingTurn(SESSION, async () => {}, spokenAnswer())
+      await vi.waitFor(() => expect(asks).toHaveLength(2))
+      expect(asks[1]).toMatchObject({
+        kind: 'channel-voice-reply',
+        channel: 'telegram',
+        text: 'done',
+        replyTo: 'answer-77',
+      })
+      chatAsk.handleChatAnswer({
+        requestId: asks[1].requestId,
+        result: { audioBase64: 'UklGRg==', mediaType: 'audio/wav' },
+      })
+      await vi.waitFor(() =>
+        expect(sent).toEqual([
+          { kind: 'telegram', text: `${header}\ndone`, replyTo: 'answer-77' },
+          { kind: 'telegram', text: header, replyTo: 'answer-77', media: 'voice:reply.wav' },
+        ]),
+      )
+    }, 30000)
+
+    it('is not spoken again when the turn already sent a voice clip', async () => {
+      const config = spokenAnswer()
+      const generated = path.join(config.workspaceDir, 'generated')
+      fs.mkdirSync(generated, { recursive: true })
+      fs.writeFileSync(path.join(generated, 'speech.wav'), 'RIFF')
+      const media = await import('../../agent/generatedMedia')
+      await withWaitingTurn(
+        SESSION,
+        async () => {
+          media.noteGeneratedMedia(config.workspaceDir, ['generated/speech.wav'])
+          await vi.waitFor(() => expect(sent).toHaveLength(1))
+        },
+        config,
+      )
+      await vi.waitFor(() => {
+        expect(asks).toHaveLength(1)
+        expect(sent).toEqual([
+          { kind: 'telegram', text: header, replyTo: 'answer-77', media: 'voice:speech.wav' },
+          { kind: 'telegram', text: `${header}\ndone`, replyTo: 'answer-77' },
+        ])
+      })
+    }, 30000)
+
+    it('sends the text alone when no spoken reply could be made', async () => {
+      await withWaitingTurn(SESSION, async () => {}, spokenAnswer())
+      await vi.waitFor(() => expect(asks).toHaveLength(2))
+      chatAsk.handleChatAnswer({ requestId: asks[1].requestId, result: null })
+      await vi.waitFor(() =>
+        expect(sent).toEqual([{ kind: 'telegram', text: `${header}\ndone`, replyTo: 'answer-77' }]),
+      )
+    }, 30000)
+
+    it('is not spoken when the turn has no speech tool', async () => {
+      const config = { ...spokenAnswer(), toolSpecs: [] }
+      expect(await manager.startAgentTurn(crypto.randomUUID(), 'say hi', config)).toEqual({
+        success: true,
+      })
+      await vi.waitFor(() => {
+        expect(asks).toEqual([])
+        expect(sent).toEqual([{ kind: 'telegram', text: `${header}\ndone`, replyTo: 'answer-77' }])
+      })
+    }, 30000)
+
+    it('is not spoken for a typed Answer', async () => {
+      await withWaitingTurn(SESSION, async () => {}, answerTurn())
+      await vi.waitFor(() => expect(asks).toHaveLength(1))
+    }, 30000)
+  })
+
   it('leaves the next turn of the session to the normal Notification rules', async () => {
-    notifier.setNotificationConfig({ ...CONFIG, sessionInView: SESSION })
+    notifier.setNotificationConfig({ ...CONFIG, sessionOnScreen: newsSessionRef })
     await withWaitingTurn(SESSION, async () => {}, answerTurn())
     await settle()
     sent = []
@@ -719,7 +1370,7 @@ describe('the turn an Answer started', () => {
     expect(sent).toEqual([])
   }, 30000)
 
-  it('sends the media the turn generated under the Answer too', async () => {
+  it('sends the media the turn generates under the Answer as soon as it is made', async () => {
     const config = answerTurn()
     const generated = path.join(config.workspaceDir, 'generated')
     fs.mkdirSync(generated, { recursive: true })
@@ -735,19 +1386,21 @@ describe('the turn an Answer started', () => {
           'generated/intro.mp4',
           'generated/ship.glb',
         ])
+        await vi.waitFor(() => expect(sent).toHaveLength(4))
       },
       config,
     )
-    await settle()
-    const header = '🤖 Agent · "Morning news"'
-    expect(sent).toEqual([
-      { kind: 'telegram', text: `${header}\ndone`, replyTo: 'answer-77' },
-      { kind: 'telegram', text: header, replyTo: 'answer-77', media: 'photo:cover.png' },
-      { kind: 'telegram', text: header, replyTo: 'answer-77', media: 'video:intro.mp4' },
-      { kind: 'telegram', text: header, replyTo: 'answer-77', media: 'photo:ship.jpg' },
-      { kind: 'telegram', text: '', replyTo: 'answer-77', media: 'document:ship.glb' },
-    ])
-    expect(thumbnailAsks).toEqual([Buffer.from('bytes').toString('base64')])
+    const header = '💬 Assistant · "Morning news"'
+    await vi.waitFor(() => {
+      expect(sent).toEqual([
+        { kind: 'telegram', text: header, replyTo: 'answer-77', media: 'photo:cover.png' },
+        { kind: 'telegram', text: header, replyTo: 'answer-77', media: 'video:intro.mp4' },
+        { kind: 'telegram', text: header, replyTo: 'answer-77', media: 'photo:ship.jpg' },
+        { kind: 'telegram', text: '', replyTo: 'answer-77', media: 'document:ship.glb' },
+        { kind: 'telegram', text: `${header}\ndone`, replyTo: 'answer-77' },
+      ])
+      expect(thumbnailAsks).toEqual([Buffer.from('bytes').toString('base64')])
+    })
   }, 30000)
 
   it('sends a 3D model without its screenshot when the window cannot render one', async () => {
@@ -764,16 +1417,17 @@ describe('the turn an Answer started', () => {
       async () => media.noteGeneratedMedia(config.workspaceDir, ['generated/ship.glb']),
       config,
     )
-    await settle()
-    const header = '🤖 Agent · "Morning news"'
-    expect(sent).toEqual([
-      { kind: 'telegram', text: `${header}\ndone`, replyTo: 'answer-77' },
-      { kind: 'telegram', text: '', replyTo: 'answer-77', media: 'document:ship.glb' },
-    ])
-    expect(warn).toHaveBeenCalledWith(
-      '3D screenshot not rendered: model load timed out',
-      'notifier',
-    )
+    const header = '💬 Assistant · "Morning news"'
+    await vi.waitFor(() => {
+      expect(sent).toEqual([
+        { kind: 'telegram', text: '', replyTo: 'answer-77', media: 'document:ship.glb' },
+        { kind: 'telegram', text: `${header}\ndone`, replyTo: 'answer-77' },
+      ])
+      expect(warn).toHaveBeenCalledWith(
+        '3D screenshot not rendered: model load timed out',
+        'notifier',
+      )
+    })
     warn.mockRestore()
   }, 30000)
 
@@ -795,50 +1449,53 @@ describe('the turn an Answer started', () => {
       },
       config,
     )
-    await settle()
-    const header = '🤖 Agent · "Morning news"'
-    expect(sent).toEqual([
-      { kind: 'telegram', text: `${header}\ndone`, replyTo: 'answer-77' },
-      { kind: 'telegram', text: header, replyTo: 'answer-77', media: 'photo:ship.jpg' },
-      { kind: 'telegram', text: '', replyTo: 'answer-77', media: 'document:ship.glb' },
-      { kind: 'telegram', text: header, replyTo: 'answer-77', media: 'photo:cover.png' },
-    ])
-    expect(warn).toHaveBeenCalledWith('answer media not delivered: too large', 'notifier')
+    const header = '💬 Assistant · "Morning news"'
+    await vi.waitFor(() => {
+      expect(sent).toEqual([
+        { kind: 'telegram', text: header, replyTo: 'answer-77', media: 'photo:ship.jpg' },
+        { kind: 'telegram', text: '', replyTo: 'answer-77', media: 'document:ship.glb' },
+        { kind: 'telegram', text: header, replyTo: 'answer-77', media: 'photo:cover.png' },
+        { kind: 'telegram', text: `${header}\ndone`, replyTo: 'answer-77' },
+      ])
+      expect(warn).toHaveBeenCalledWith('answer media not delivered: too large', 'notifier')
+    })
     warn.mockRestore()
   }, 30000)
 
   it('sends the speech the turn generated as a voice message under the Answer', async () => {
     clipBase64 = Buffer.from('RIFF-wav').toString('base64')
     await withWaitingTurn(SESSION, async () => {}, answerTurn())
-    await settle()
-    const header = '🤖 Agent · "Morning news"'
-    expect(sent).toEqual([
-      { kind: 'telegram', text: `${header}\ndone`, replyTo: 'answer-77' },
-      { kind: 'telegram', text: header, replyTo: 'answer-77', media: 'voice:speech.wav' },
-    ])
+    const header = '💬 Assistant · "Morning news"'
+    await vi.waitFor(() =>
+      expect(sent).toEqual([
+        { kind: 'telegram', text: header, replyTo: 'answer-77', media: 'voice:speech.wav' },
+        { kind: 'telegram', text: `${header}\ndone`, replyTo: 'answer-77' },
+      ]),
+    )
   }, 30000)
 
-  it('does not send again at turn end what notify_user already sent during the turn', async () => {
+  it('leaves out of notify_user what the turn already sent as it was made', async () => {
     clipBase64 = Buffer.from('RIFF-wav').toString('base64')
     notifyAttachment = 'generated/speech.wav'
     await withWaitingTurn(SESSION, async () => {}, {
       ...answerTurn(),
       capabilities: ['media', 'notify'],
     })
+    const header = '💬 Assistant · "Morning news"'
     await settle()
-    const header = '🤖 Agent · "Morning news"'
-    expect(sent).toEqual([
-      {
-        kind: 'telegram',
-        text: `${header}\nlisten`,
-        replyTo: 'answer-77',
-        media: 'voice:speech.wav',
-      },
+    // The clip and the notify_user step race; neither carries the clip twice.
+    expect(sent.slice(0, 2)).toEqual(
+      expect.arrayContaining([
+        { kind: 'telegram', text: header, replyTo: 'answer-77', media: 'voice:speech.wav' },
+        { kind: 'telegram', text: `${header}\nlisten`, replyTo: 'answer-77' },
+      ]),
+    )
+    expect(sent.slice(2)).toEqual([
       { kind: 'telegram', text: `${header}\ndone`, replyTo: 'answer-77' },
     ])
   }, 30000)
 
-  it('does not send again at turn end a 3D model notify_user already sent during the turn', async () => {
+  it('leaves out of notify_user a 3D model the turn already sent as it was made', async () => {
     const config = { ...answerTurn(), capabilities: ['media', 'notify'] }
     const generated = path.join(config.workspaceDir, 'generated')
     fs.mkdirSync(generated, { recursive: true })
@@ -847,27 +1504,28 @@ describe('the turn an Answer started', () => {
     const media = await import('../../agent/generatedMedia')
     await withWaitingTurn(
       SESSION,
-      async () => media.noteGeneratedMedia(config.workspaceDir, ['generated/ship.glb']),
+      async () => {
+        media.noteGeneratedMedia(config.workspaceDir, ['generated/ship.glb'])
+        await vi.waitFor(() => expect(sent).toHaveLength(2))
+      },
       config,
     )
-    await settle()
-    const header = '🤖 Agent · "Morning news"'
-    expect(sent).toEqual([
-      {
-        kind: 'telegram',
-        text: `${header}\nlisten`,
-        replyTo: 'answer-77',
-        media: 'photo:ship.jpg',
-      },
-      { kind: 'telegram', text: '', replyTo: 'answer-77', media: 'document:ship.glb' },
-      { kind: 'telegram', text: `${header}\ndone`, replyTo: 'answer-77' },
-    ])
+    const header = '💬 Assistant · "Morning news"'
+    await vi.waitFor(() =>
+      expect(sent).toEqual([
+        { kind: 'telegram', text: header, replyTo: 'answer-77', media: 'photo:ship.jpg' },
+        { kind: 'telegram', text: '', replyTo: 'answer-77', media: 'document:ship.glb' },
+        { kind: 'telegram', text: `${header}\nlisten`, replyTo: 'answer-77' },
+        { kind: 'telegram', text: `${header}\ndone`, replyTo: 'answer-77' },
+      ]),
+    )
   }, 30000)
 
   describe('shows typing', () => {
     const TELEGRAM_START = { kind: 'telegram', typing: 'start' }
 
     beforeEach(() => {
+      notifier.setNotificationConfig({ ...CONFIG, channels: ['telegram', 'slack', 'local-web'] })
       vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
     })
 
@@ -947,13 +1605,14 @@ describe('the turn an Answer started', () => {
         },
         { ...configFor(SESSION), answer: { channel: 'local-web', replyTo: '5' } },
       )
-      await settle()
-      expect(typing).toEqual([
-        { ...lan, typing: 'start' },
-        { ...lan, typing: 'stop' },
-        { ...lan, typing: 'start' },
-        { ...lan, typing: 'stop' },
-      ])
+      await vi.waitFor(() =>
+        expect(typing).toEqual([
+          { ...lan, typing: 'start' },
+          { ...lan, typing: 'stop' },
+          { ...lan, typing: 'start' },
+          { ...lan, typing: 'stop' },
+        ]),
+      )
     }, 30000)
 
     it('until a failed turn ends', async () => {
@@ -962,8 +1621,7 @@ describe('the turn an Answer started', () => {
         ...configFor(SESSION),
         answer: { channel: 'local-web', replyTo: '5' },
       })
-      await settle()
-      expect(typing.at(-1)).toEqual({ kind: 'local-web', typing: 'stop' })
+      await vi.waitFor(() => expect(typing.at(-1)).toEqual({ kind: 'local-web', typing: 'stop' }))
       typing = []
       vi.advanceTimersByTime(12000)
       expect(typing).toEqual([])
@@ -977,8 +1635,7 @@ describe('the turn an Answer started', () => {
       await vi.waitFor(() => expect(asks).toHaveLength(1))
       manager.cancelAgentTurn(SESSION)
       await run
-      await settle()
-      expect(typing.at(-1)).toEqual({ kind: 'local-web', typing: 'stop' })
+      await vi.waitFor(() => expect(typing.at(-1)).toEqual({ kind: 'local-web', typing: 'stop' }))
       typing = []
       vi.advanceTimersByTime(12000)
       expect(typing).toEqual([])

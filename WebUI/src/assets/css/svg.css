@@ -17,14 +17,6 @@
   --svg: url('@/assets/svg/uncheck.svg');
 }
 
-.i-setup {
-  --svg: url('@/assets/svg/setup.svg');
-}
-
-.i-code {
-  --svg: url('@/assets/svg/code.svg');
-}
-
 .i-mini {
   --svg: url('@/assets/svg/mini.svg');
 }
@@ -209,4 +201,33 @@
 
 .i-rag {
   --svg: url('@/assets/svg/rag-on.svg');
+}
+
+.i-backend-llamacpp {
+  --svg: url('@/assets/svg/backend-llamacpp.svg');
+}
+
+.i-backend-openvino {
+  --svg: url('@/assets/svg/backend-openvino.svg');
+}
+
+.i-backend-comfyui {
+  --svg: url('@/assets/svg/backend-comfyui.svg');
+}
+
+.i-backend-qwen {
+  --svg: url('@/assets/svg/backend-qwen.svg');
+}
+
+.i-backend-cloud {
+  --svg: url('@/assets/svg/backend-cloud.svg');
+}
+
+.i-external-link {
+  --svg: url('@/assets/svg/external-link.svg');
+}
+
+/* Heroicons document glyph as a mask: a Vue icon component cannot mount inside sanitized markdown HTML. */
+.i-document {
+  --svg: url('@/assets/svg/document.svg');
 }

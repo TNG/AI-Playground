@@ -9,7 +9,7 @@
  * submission and the websocket progress through to a settled outcome —
  * streaming phase/item events on the kernel bus so the renderer's stores are
  * pure projections of this module. One run is active at a time; later
- * submissions wait in the orchestrator's queues — panel and Home Agent runs in
+ * submissions wait in the orchestrator's queues — panel runs in
  * the Turn Queue, media nested in a turn (the chat tools' lane, in-process
  * agent direct tools) on the artifact queue.
  *
@@ -18,8 +18,11 @@
  * boot, installs, model load, execution, item settlement.
  */
 import { randomUUID } from 'node:crypto'
+import path from 'node:path'
 import { deflateSync } from 'node:zlib'
 import { appLoggerInstance } from '../observability/logger'
+import { getMediaDir } from '../persist/userDataPaths'
+import { pngDimensions } from './pngSize'
 import {
   beginArtifactRunSnapshot,
   emitArtifactDone,
@@ -30,6 +33,7 @@ import {
 import type { ArtifactPhase, ArtifactRunOwner, ArtifactRunTag } from '@/types/kernelEvents'
 import type { MediaItem } from '@/types/mediaItem'
 import type { ArtifactRunMode, ArtifactRunResult } from '@/types/artifactIpc'
+import type { Summariser } from '@/types/sessionIpc'
 import type { IpcOkWith } from '@/types/ipcChannels'
 import {
   findKeysByClassType,
@@ -62,7 +66,7 @@ import {
   type ComfyClientDeps,
 } from './comfyClient'
 import { buildDummyGlb, DUMMY_3D_PRESET_NAME, VIEW_FIXTURE } from '@/lib/devPresetWorkflows'
-import { saveMediaItems } from '../persist/mediaItemFiles'
+import { recordMediaTurn } from '../session/sessionMediaTurn'
 import { extractMessage } from '@/assets/js/errors/appError'
 
 const appLogger = appLoggerInstance
@@ -125,6 +129,10 @@ export type ArtifactRunPayload = {
   conversationKey?: string
   /** The renderer activity the tool began for this run — lets queue events relabel it. */
   activityId?: string
+  /** The Session a panel run belongs to: its outputs and History Entry settle there. */
+  sessionId?: string
+  /** The renderer-resolved local model and reply language for that Session's summary. */
+  summariser?: Summariser
 }
 
 // Hoisted to `@/types/artifactIpc` (the manifest row states it); re-exported
@@ -151,8 +159,8 @@ export type ArtifactRunnerDeps = {
   modelsMissing(preset: ComfyUiPreset): Promise<ArtifactMissingModel[]>
   /**
    * Ask the user for download consent through the renderer's permissions layer
-   * (dialog / Home Agent in-channel / pre-grants). `true` implies the download
-   * completed; `false` means declined or cancelled. `onProgress` fires while
+   * (dialog / Channel in-channel / pre-grants). `true` implies the download
+   * completed; `false` means declined; a failed download rejects. `onProgress` fires while
    * the download runs, re-arming the idle watchdog. `conversationKey` names the
    * turn the run belongs to, which pauses while the user is asked (`null`: none).
    */
@@ -170,6 +178,14 @@ export type ArtifactRunnerDeps = {
   getPlatform(): NodeJS.Platform
   /** Dev-only dummy presets are offered (npm run dev / showDebugSettingsInUI). */
   devPresetsEnabled(): boolean
+  /** The file an `aipg-media://` URL names, so a Session can take the run's outputs. */
+  localPathOf?(url: string): string | null
+  /**
+   * Hands the GPU back to chat before a panel run's Overview Summary update: the
+   * run still holds the Turn Queue's place, so the orchestrator frees ComfyUI and
+   * reloads the chat model here instead of waiting for the run to settle.
+   */
+  prepareChatForSettlement?(): Promise<void>
 }
 
 type ActiveRun = {
@@ -187,6 +203,9 @@ type ActiveRun = {
   /** ComfyUI client id for this run — unique so leftover WS frames cannot mix. */
   clientId: string
   comfyBaseUrl: string | null
+  startedAt: number
+  /** An item began generating; a run failing before that keeps none of its slots. */
+  generationStarted: boolean
 }
 
 let activeRun: ActiveRun | null = null
@@ -237,8 +256,12 @@ export async function prepareRunModels(
   }
   if (missing.length === 0) return { state: 'ready' }
   onAsk()
-  const approved = await runnerDeps.requestModelConsent(missing, undefined, conversationKey)
-  return approved ? { state: 'ready' } : { state: 'declined' }
+  try {
+    const approved = await runnerDeps.requestModelConsent(missing, undefined, conversationKey)
+    return approved ? { state: 'ready' } : { state: 'declined' }
+  } catch (error) {
+    return { state: 'failed', error: `Model download failed: ${extractMessage(error)}` }
+  }
 }
 
 /** Cancels the active run — the Stop button. Queued runs are untouched. */
@@ -285,6 +308,7 @@ function emitItem(run: ActiveRun, item: MediaItem): void {
   const index = run.items.findIndex((existing) => existing.id === item.id)
   if (index === -1) run.items.push(item)
   else run.items[index] = item
+  if (item.state === 'generating' || item.state === 'done') run.generationStarted = true
   emitArtifactItem(artifactRunTag(run.payload), item)
 }
 
@@ -326,6 +350,14 @@ function doneItems(run: ActiveRun): MediaItem[] {
   return run.items.filter(isDoneWithMedia)
 }
 
+/** The slots a run that had started generating left without a result, without their preview. */
+function unfinishedItems(run: ActiveRun, state: 'failed' | 'stopped'): MediaItem[] | undefined {
+  if (!run.generationStarted) return undefined
+  return run.items
+    .filter((item) => !isDoneWithMedia(item))
+    .map((item) => ({ ...item, state, type: 'image', imageUrl: '' }) as MediaItem)
+}
+
 function settleItems(run: ActiveRun, state: 'failed' | 'stopped'): void {
   for (const item of run.items) {
     if (item.state === 'queued' || item.state === 'generating') {
@@ -334,13 +366,41 @@ function settleItems(run: ActiveRun, state: 'failed' | 'stopped'): void {
   }
 }
 
-function persistRendererGallery(run: ActiveRun): void {
-  if (runOrigin(run.payload) !== 'renderer') return
-  const items = doneItems(run)
-  if (items.length === 0) return
-  void saveMediaItems(items).catch((error) => {
-    appLogger.warn(`Media record persist failed: ${extractMessage(error)}`, 'electron-backend')
-  })
+/** A panel run in a Session moves its outputs there and records its turn before it settles. */
+async function settleIntoSession(
+  sessionId: string,
+  run: ActiveRun,
+  result: ArtifactRunResult,
+): Promise<ArtifactRunResult> {
+  try {
+    const items = await recordMediaTurn(
+      {
+        sessionId,
+        runId: run.payload.runId,
+        mode: run.payload.mode,
+        preset: run.payload.preset.name,
+        variant: resolvedVariantName(run.payload),
+        prompt: run.payload.params.prompt,
+        status: result.state,
+        error: result.error,
+        durationMs: Date.now() - run.startedAt,
+        items: result.items,
+        unfinished: result.unfinished,
+        localPathOf: (url) => runnerDeps?.localPathOf?.(url) ?? null,
+      },
+      {
+        ...(run.payload.summariser ? { summariser: run.payload.summariser } : {}),
+        beforeSummary: async () => {
+          await runnerDeps?.prepareChatForSettlement?.()
+        },
+      },
+    )
+    for (const item of items) emitItem(run, item)
+    return { ...result, items }
+  } catch (error) {
+    appLogger.warn(`Session turn record failed: ${extractMessage(error)}`, 'electron-backend')
+    return result
+  }
 }
 
 function finish(run: ActiveRun, result: ArtifactRunResult): void {
@@ -352,7 +412,16 @@ function finish(run: ActiveRun, result: ArtifactRunResult): void {
   }
   run.statusWatch?.()
   run.statusWatch = null
-  persistRendererGallery(run)
+  if (run.payload.sessionId && runOrigin(run.payload) === 'renderer') {
+    void settleIntoSession(run.payload.sessionId, run, result).then((settled) =>
+      publishSettlement(run, settled),
+    )
+  } else {
+    publishSettlement(run, result)
+  }
+}
+
+function publishSettlement(run: ActiveRun, result: ArtifactRunResult): void {
   emitArtifactPhase(
     artifactRunTag(run.payload),
     result.state === 'completed'
@@ -389,7 +458,12 @@ function failRun(run: ActiveRun, message: string, interrupt: boolean): void {
     void clearQueue(baseUrl, clientDeps()).catch(() => {})
   }
   settleItems(run, 'failed')
-  finish(run, { state: 'failed', items: doneItems(run), error: message })
+  finish(run, {
+    state: 'failed',
+    items: doneItems(run),
+    unfinished: unfinishedItems(run, 'failed'),
+    error: message,
+  })
 }
 
 function cancelRun(run: ActiveRun): void {
@@ -400,13 +474,23 @@ function cancelRun(run: ActiveRun): void {
     void clearQueue(baseUrl, clientDeps()).catch(() => {})
   }
   settleItems(run, 'stopped')
-  finish(run, { state: 'cancelled', items: doneItems(run), error: 'Generation cancelled.' })
+  finish(run, {
+    state: 'cancelled',
+    items: doneItems(run),
+    unfinished: unfinishedItems(run, 'stopped'),
+    error: 'Generation cancelled.',
+  })
 }
 
 function checkCompletion(run: ActiveRun): void {
   if (run.settled) return
   if (run.items.some((item) => item.state === 'failed')) {
-    finish(run, { state: 'failed', items: doneItems(run), error: 'Generation failed' })
+    finish(run, {
+      state: 'failed',
+      items: doneItems(run),
+      unfinished: unfinishedItems(run, 'failed'),
+      error: 'Generation failed',
+    })
     return
   }
   const completed = doneItems(run)
@@ -470,6 +554,8 @@ function startRun(payload: ArtifactRunPayload): Promise<ArtifactRunResult> {
     phase: 'queued',
     clientId: `aipg-artifact-${payload.runId}`,
     comfyBaseUrl: null,
+    startedAt: Date.now(),
+    generationStarted: false,
   }
   activeRun = run
 
@@ -681,8 +767,10 @@ function handleWebsocketMessage(run: ActiveRun, msg: unknown): void {
       const current = run.items[run.generateIdx]
       if (!current) break
       const createdAt = Date.now()
+      // ComfyUI reuses a filename once the earlier file has left its output folder,
+      // so the item id keeps two outputs from sharing a URL (and a cached image).
       const relative = (subfolder?: string, filename?: string) =>
-        mediaUrl(subfolder && filename ? `${subfolder}/${filename}` : (filename ?? ''))
+        `${mediaUrl(subfolder && filename ? `${subfolder}/${filename}` : (filename ?? ''))}?v=${encodeURIComponent(current.id)}`
       const image = 'images' in output ? output.images.find((i) => i.type === 'output') : undefined
       const video = 'gifs' in output ? output.gifs.find((i) => i.type === 'output') : undefined
       const model3d =
@@ -699,6 +787,22 @@ function handleWebsocketMessage(run: ActiveRun, msg: unknown): void {
           output.animated[output.images.indexOf(image)]
             ? { type: 'video', videoUrl: relative(image.subfolder, image.filename) }
             : { type: 'image', imageUrl: relative(image.subfolder, image.filename) }
+        // Stamp the size the workflow actually produced, not the size that was
+        // requested — a fixed-size graph ignores width/height params, and the
+        // reported size must never be fiction.
+        if (patch.type === 'image') {
+          const dims = pngDimensions(
+            path.join(getMediaDir(), image.subfolder ?? '', image.filename),
+          )
+          if (dims) {
+            patch.settings = {
+              ...(current.settings ?? {}),
+              width: dims.width,
+              height: dims.height,
+              resolution: `${dims.width}x${dims.height}`,
+            }
+          }
+        }
       } else if (video) {
         patch = {
           type: 'video',

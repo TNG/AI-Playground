@@ -4,7 +4,7 @@
  * Policy lives in main; showing the download modal / in-channel prompt / VRAM
  * warning is still a renderer job (the desktop and channel UIs). Same trust
  * direction as `artifact:request`: main asks, the current window answers by
- * requestId. A hidden window still has Chromium, so a Home Agent turn can
+ * requestId. A hidden window still has Chromium, so a Channel turn can
  * confirm on the channel the user is on.
  */
 import { randomUUID } from 'node:crypto'

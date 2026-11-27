@@ -142,8 +142,8 @@ const BasePresetFieldsSchema = z.object({
         replaceWorkflow: z.boolean().optional(),
         // Groups variants by execution backend (e.g. 'comfyui', 'openvino'). When omitted,
         // the variant is treated as belonging to the default 'comfyui' backend. The
-        // SettingsWorkflow Backend dropdown is built from the distinct values across
-        // a preset's variants; the quality radio in PresetSelector then filters to
+        // SettingsWorkflowInferencing Backend dropdown is built from the distinct values across
+        // a preset's variants; the quality radio in PresetVariantPicker then filters to
         // variants matching the active backend.
         backend: z.string().optional(),
         overrides: z.any(), // DeepPartial<Preset> - using z.any() for flexibility
@@ -154,10 +154,6 @@ const BasePresetFieldsSchema = z.object({
   mediaType: z.enum(['image', 'video', 'model3d']).optional(), // Specifies what type of media the preset generates
   toolInstructions: z.string().optional(), // Instructions for the AI on how to generate prompts for this preset
   toolCategory: z.string().optional(), // Category for tool organization (e.g. 'create-images', 'edit-images'). Presets without toolCategory are not available as tools.
-  // When true, hide this preset from the Home Agent (Telegram) /imgGen picker.
-  // Set on presets that need extra UI configuration (e.g. manual sliders, reference
-  // image uploads) and therefore can't be driven cleanly via a chat command.
-  excludeFromHomeAgentPicker: z.boolean().optional(),
 })
 
 // ComfyUI Preset Schema
@@ -215,7 +211,7 @@ export const ChatPresetSchema = BasePresetFieldsSchema.omit({ backend: true }).e
   // chat: selecting it turns the prompt box into a synthesizer (typed text -> Qwen3-TTS
   // audio, no LLM loaded). The `backends` array is a schema-required placeholder and is
   // unused. Lives in the `audio` category (the Audio mode), not `chat`.
-  // See SettingsTts.vue and the direct-synthesis branch in openAiCompatibleChat.
+  // See SettingsTtsInferencing.vue and the direct-synthesis branch in openAiCompatibleChat.
   ttsPreset: z.boolean().optional(),
   // When true, this "chat" preset runs on the agent harness (Pi coding agent in the
   // main process) instead of plain chat inference: selecting it switches the app to
@@ -227,11 +223,10 @@ export const ChatPresetSchema = BasePresetFieldsSchema.omit({ backend: true }).e
   // 'game-studio', 'memory', `mcp:<serverId>`). When set, it replaces the user's
   // default selection for sessions started under this preset.
   agentCapabilities: z.array(z.string()).optional(),
-  // Where the agent works: 'pick' lets the user choose any folder, 'games' has the
-  // app provision a folder per game under the games library (no folder picker).
+  // 'pick' (the default) is the open Session's folder; 'games' mints one per game.
   agentWorkspace: z.enum(['pick', 'games']).optional(),
-  // A user preset saved from an Agent: picking it opens a session set up as that Agent.
-  agentTaskId: z.string().optional(),
+  // `systemPrompt` replaces Pi's coding-agent prompt; file and shell tools need `files`.
+  agentOwnsPrompt: z.boolean().optional(),
   requiresCoding: z.boolean().optional(), // Filter models to ones fit for writing code
   // Filter models to ones reliable at multi-step tool use (Agent, Game Agent, Quick Coder).
   requiresAgentic: z.boolean().optional(),
@@ -249,7 +244,7 @@ export const ChatPresetSchema = BasePresetFieldsSchema.omit({ backend: true }).e
   filterLargeMoeOnly: z.boolean().optional(), // Only show large MoE models (e.g. for the Phison aiDAPTIV+ preset)
   advancedMode: z.boolean().optional(), // Show advanced features: unspecified models + system prompt editing + vision model support
   // When true, the preset is hidden from the standard chat PresetSelector. Used for built-in
-  // presets that drive a specific feature (e.g. Home Agent / Telegram) and should not be
+  // presets that drive a specific feature (e.g. a Channel) and should not be
   // selectable from the normal Chat Settings picker.
   excludeFromChatPresetPicker: z.boolean().optional(),
 })

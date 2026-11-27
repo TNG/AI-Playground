@@ -84,7 +84,7 @@
             }}</span>
             <span v-else>Detect</span>
           </button>
-          <span v-if="detectedChatId" class="text-xs text-green-500">
+          <span v-if="detectedChatId" class="text-xs text-success">
             ✅ Chat ID: {{ detectedChatId }}
           </span>
           <span v-if="detectStatus === 'error'" class="text-xs text-destructive">
@@ -95,10 +95,10 @@
           Paste your bot token above first.
         </p>
         <p
-          v-if="isAlreadyConfigured && homeAgent.telegramChatId && !detectedChatId"
+          v-if="isAlreadyConfigured && channelStore.telegramChatId && !detectedChatId"
           class="text-xs text-muted-foreground pt-1"
         >
-          Previously detected: {{ homeAgent.telegramChatId }}
+          Previously detected: {{ channelStore.telegramChatId }}
         </p>
       </div>
     </div>
@@ -108,14 +108,14 @@
       <StepBadge
         :step="3"
         :done="
-          verifyStatus === 'success' || (homeAgent.telegramVerified && verifyStatus === 'idle')
+          verifyStatus === 'success' || (channelStore.telegramVerified && verifyStatus === 'idle')
         "
       />
       <div class="flex-1">
         <p class="text-sm font-medium">Verify Connection</p>
         <p class="text-xs text-muted-foreground pt-0.5">
-          Send a test message to confirm everything works. The Home Agent toggle will only be
-          enabled after a successful test.
+          Send a test message to confirm everything works. The Telegram toggle will only be enabled
+          after a successful test.
         </p>
         <div class="flex items-center gap-3 pt-2">
           <button
@@ -126,15 +126,15 @@
             <span v-if="verifyStatus === 'loading'">Sending…</span>
             <span v-else>Send Test Message</span>
           </button>
-          <span v-if="verifyStatus === 'success'" class="text-xs text-green-500">
+          <span v-if="verifyStatus === 'success'" class="text-xs text-success">
             ✅ Message sent — check your Telegram!
           </span>
           <span v-else-if="verifyStatus === 'error'" class="text-xs text-destructive">
             ❌ {{ verifyError }}
           </span>
           <span
-            v-else-if="homeAgent.telegramVerified && verifyStatus === 'idle'"
-            class="text-xs text-green-500"
+            v-else-if="channelStore.telegramVerified && verifyStatus === 'idle'"
+            class="text-xs text-success"
           >
             ✅ Previously verified
           </span>
@@ -162,7 +162,7 @@ const emit = defineEmits<{
 
 const setup = useTelegramSetup()
 const {
-  homeAgent,
+  channelStore,
   tokenInput,
   showToken,
   detectedChatId,

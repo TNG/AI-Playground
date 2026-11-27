@@ -1,4 +1,5 @@
 import type { HelpTopicId } from '@/assets/js/help/helpTopics'
+import type { PromptBarStyle } from '@/assets/js/store/promptBarStyle'
 
 /**
  * Anchors the demo tour uses that are deliberately not click-to-learn targets.
@@ -15,22 +16,43 @@ export type TourStep = {
   title: string
   descr: string
   align?: 'start' | 'center' | 'end'
+  /** Skipped when its anchor is not on screen. */
+  optional?: boolean
 }
 
-/** Guided-narration copy for the demo-mode walkthrough, auto-started in demo mode. */
-export const TOUR_STEPS: TourStep[] = [
-  {
-    id: '#contextual-help-toggle',
-    title: 'Welcome to Intel AI-Playground!',
-    descr:
-      'Intel AI-Playground is a generative AI app that provides local-powered chat, image, and video capabilities. Whenever you want to know what something does, click this "?" button and then click the control — help mode explains it without changing anything. Click "Next" or press "Right" to start the tour.',
-  },
+const WELCOME_STEP: TourStep = {
+  id: '#contextual-help-toggle',
+  title: 'Welcome to Intel AI-Playground!',
+  descr:
+    'Intel AI-Playground is a generative AI app that provides local-powered chat, image, and video capabilities. Whenever you want to know what something does, click this "?" button and then click the control — help mode explains it without changing anything. Click "Next" or press "Right" to start the tour.',
+}
+
+const CLASSIC_MODE_STEPS: TourStep[] = [
   {
     id: '#mode-buttons',
     title: 'Pick your Mode',
     descr:
       'Here are multiple mode buttons, that define the type of content you are generating. Select any one of these modes later to explore each. Little dots generally indicate additional help is available when clicking the first time.',
   },
+]
+
+const MODERN_MODE_STEPS: TourStep[] = [
+  {
+    id: '#mode-dropdown',
+    title: 'Pick your Mode',
+    descr:
+      'Open this menu to choose the type of work you are doing: Chat, Agent, Audio, Image Gen, Image Edit or Video. Picking a mode activates the preset you last used in it.',
+  },
+  {
+    id: '#preset-dropdown',
+    title: 'Pick a Preset',
+    descr:
+      'This shows the preset that will run, after the backend, device and model it runs on. Click it to pick another; each one is tuned for a task, from a chat model to an image workflow.',
+    optional: true,
+  },
+]
+
+const PROMPT_STEPS: TourStep[] = [
   {
     id: '#prompt-input',
     title: 'Unified Prompt',
@@ -45,6 +67,12 @@ export const TOUR_STEPS: TourStep[] = [
     align: 'end',
   },
 ]
+
+/** Guided-narration copy for the demo-mode walkthrough, auto-started in demo mode. */
+export function tourSteps(style: PromptBarStyle): TourStep[] {
+  const modeSteps = style === 'modern' ? MODERN_MODE_STEPS : CLASSIC_MODE_STEPS
+  return [WELCOME_STEP, ...modeSteps, ...PROMPT_STEPS]
+}
 
 /** Per-control copy used by the mini tours triggered from individual buttons. */
 export const TOUR_STEPS_ALTERNATIVE: TourStep[] = [
@@ -64,13 +92,13 @@ export const TOUR_STEPS_ALTERNATIVE: TourStep[] = [
     id: '#mode-button-imageGen',
     title: 'Image Mode',
     descr:
-      "The Image Gen mode allows you to generate images from text you enter. Describe a scene or character and style (photographic, watercolor, etc), you wish to generate, and have watching your ideas come to life. When in this mode, you'll find ready to go presets in the Prompt Settings that allow you to create images using generative models to achieve different levels of realism and generation times. Click the prompt input to see a sample prompt!",
+      "The Image Gen mode allows you to generate images from text you enter. Describe a scene or character and style (photographic, watercolor, etc), you wish to generate, and have watching your ideas come to life. When in this mode, you'll find ready to go presets in the Inferencing tab that allow you to create images using generative models to achieve different levels of realism and generation times. Click the prompt input to see a sample prompt!",
   },
   {
     id: '#mode-button-imageEdit',
     title: 'Image Edit Mode',
     descr:
-      'The Image Edit mode allows you to edit existing images or photos, often by describing what to change. Simply drag in a photo, select an editing Preset in Prompt Settings where you can upscale images, edit images with precision, generate 3D models from images, and more. An input image is already pre-selected for you. Click the prompt input to see a sample prompt!',
+      'The Image Edit mode allows you to edit existing images or photos, often by describing what to change. Simply drag in a photo, select an editing Preset in the Inferencing tab where you can upscale images, edit images with precision, generate 3D models from images, and more. An input image is already pre-selected for you. Click the prompt input to see a sample prompt!',
   },
   {
     id: '#mode-button-video',
@@ -91,22 +119,22 @@ export const TOUR_STEPS_ALTERNATIVE: TourStep[] = [
       'Click this button to capture an image from your camera. The captured image will be added to your prompt for vision-capable models to analyze.',
   },
   {
-    id: '#advanced-settings-button',
-    title: 'Prompt Settings',
+    id: '#session-tab-inferencing',
+    title: 'Inferencing and Attributes',
     descr:
-      'Each mode has prompt settings specific to the mode of content you are generating. Here you will find ready to go preset to do targeted tasks. Each preset is already dialed in to go, but you choose to adjust options and own values from Max Tokens in Chat, to Aspect Ratio settings for Image Gen. Prompt settings is at the heart of getting AI Playground to do what you want it to do. Select a Mode and explore what our Prompt Settings have to offer.',
+      "Each Session's settings live in the Inferencing and Attributes tabs above the prompt. Inferencing is where you pick a ready to go preset and choose how it runs, from the model to Max Tokens in Chat. Attributes holds what the preset works with, from the system prompt to Aspect Ratio settings for Image Gen. Each preset is already dialed in to go, and the tabs are where you make it your own.",
     align: 'end',
   },
   {
     id: '#app-settings-button',
     title: 'Application Settings',
     descr:
-      "Select this gear icon to see a list of application-level settings, from to language options, installation manager, and speech mode. You'll find important application settings here. Click here and select the Theme menu to give AI Playground different looks.",
+      'Select this gear icon to see a list of application-level settings, from language and prompt bar style to backend status, permissions and developer options.',
   },
   {
-    id: '#show-history-button',
-    title: 'History Panel',
+    id: '#sessions-panel',
+    title: 'Sessions',
     descr:
-      "The History Panel keeps track of all that you've generated. History will show you the latest content from each mode you used. Use this to scroll back through and revisit previous discussion and content generated from AI Playground.",
+      'Everything you do happens in a Session, whichever presets you use. Press + to start a new Session, click one to pick up where you left off, and rename or delete it from its menu.',
   },
 ]

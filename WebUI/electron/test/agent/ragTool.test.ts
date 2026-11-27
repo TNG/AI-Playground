@@ -32,12 +32,16 @@ vi.mock('../../adapters/mcp/mcpManager.ts', () => ({
 
 const { resolveCapabilities } = await import('../../agent/capabilities/index.ts')
 const { setRagAccess, resetRagAccess } = await import('../../agent/ragAccess.ts')
+const { resetDocumentIndex } = await import('../../agent/documentIndex.ts')
 const { testables } = await import('../../agent/capabilities/rag.ts')
 const { setToolBridgeWindow, submitAgentToolResult } = await import('../../agent/piCustomTools.ts')
 const { Document } = await import('@langchain/classic/document')
 import type { RagAccess } from '../../agent/ragAccess.ts'
 
-const { DEFAULT_K, MAX_K, MAX_RESULT_CHARS, resolveWorkspaceFile, formatChunks } = testables
+const { DEFAULT_K, MAX_K, MAX_RESULT_CHARS, resolveDocumentFile, formatChunks } = testables
+
+const resolveWorkspaceFile = (workspaceDir: string, input: string) =>
+  resolveDocumentFile([{ sandboxPath: '/workspace', hostPath: workspaceDir }], input)
 
 type Host = Parameters<typeof resolveCapabilities>[0]
 
@@ -158,6 +162,7 @@ function fakeRendererPrep(status: 'ready' | 'declined' | 'failed', error = 'disk
 
 beforeEach(() => {
   resetRagAccess()
+  resetDocumentIndex()
   fakeRendererPrep('ready')
 })
 
@@ -167,6 +172,25 @@ afterAll(() => {
 })
 
 describe('the rag tool', () => {
+  it("finds a Session's Attached Documents outside the Workspace at /attachments, and by their old name", async () => {
+    const attachmentsDir = path.join(agentDir, 'internal', 'attachments')
+    fs.mkdirSync(attachmentsDir, { recursive: true })
+    fs.writeFileSync(path.join(attachmentsDir, 'report.pdf'), 'some text')
+    const host = hostWith({ attachmentsDir })
+    const { inquiry } = fakeAccess()
+    const tool = await buildRagTool(host)
+
+    for (const file of ['/attachments/report.pdf', 'attachments/report.pdf']) {
+      const text = await resultOf(tool, { files: [file], query: 'the budget' })
+      expect(text).toContain('The budget is $42.')
+      expect(text).toContain('attachments/report.pdf')
+      expect((inquiry().ragList as { filepath: string }[])[0].filepath).toBe(
+        fs.realpathSync(path.join(attachmentsDir, 'report.pdf')),
+      )
+    }
+    expect(fs.existsSync(path.join(host.workspaceDir, 'attachments'))).toBe(false)
+  })
+
   it('asks for files and a query', async () => {
     const tool = await buildRagTool(hostWith())
     expect(tool.parameters?.required).toEqual(['files', 'query'])
@@ -267,6 +291,21 @@ describe('the rag tool', () => {
     expect(calls.ingest).toBe(1)
     expect(inquiry()).toMatchObject({ prompt: 'budget' })
     expect(text).toContain('report.pdf')
+  })
+
+  it('accepts the /mnt/<slug> form of a Workspace mounted there, and not /workspace', async () => {
+    const host = hostWith({ workspaceMount: '/mnt/poster' })
+    workspaceFile(host, 'report.pdf')
+    const { calls } = fakeAccess()
+    const tool = await buildRagTool(host)
+
+    const text = await resultOf(tool, { files: ['/mnt/poster/report.pdf'], query: 'budget' })
+    expect(calls.ingest).toBe(1)
+    expect(text).toContain('report.pdf')
+    expect(text).not.toContain('/mnt/poster/report.pdf')
+    expect(await resultOf(tool, { files: ['/workspace/report.pdf'], query: 'q' })).toMatch(
+      /not a file in the workspace/,
+    )
   })
 
   it('accepts the real absolute workspace path host-shell mode uses', async () => {
@@ -526,6 +565,85 @@ describe('the rag tool', () => {
     const resolution = await resolveCapabilities(host, ['rag'])
     expect(resolution.resolved).toEqual([])
     expect(resolution.extensionFactories).toEqual([])
+  })
+})
+
+describe('the rag tool in Mounted Folders', () => {
+  function mountedFolder(name: string, access: 'read-only' | 'read-write' = 'read-only') {
+    const hostPath = fs.realpathSync(fs.mkdtempSync(path.join(agentDir, `${name}-`)))
+    return { hostPath, name, access }
+  }
+
+  function hostFile(folder: string, name: string, content = 'some text'): string {
+    const filePath = path.join(folder, name)
+    fs.mkdirSync(path.dirname(filePath), { recursive: true })
+    fs.writeFileSync(filePath, content)
+    return filePath
+  }
+
+  it('indexes a document at /mnt/<name>/… and returns its passages', async () => {
+    const notes = mountedFolder('notes')
+    const file = hostFile(notes.hostPath, 'sub/report.pdf')
+    const { calls, inquiry } = fakeAccess()
+    const tool = await buildRagTool(hostWith({ mountedFolders: [notes] }))
+
+    const text = await resultOf(tool, { files: ['/mnt/notes/sub/report.pdf'], query: 'budget' })
+    expect(calls.ingest).toBe(1)
+    expect((inquiry().ragList as { filepath: string }[])[0].filepath).toBe(file)
+    expect(text).toContain('/mnt/notes/sub/report.pdf')
+    expect(text).toContain('The budget is $42.')
+  })
+
+  it('accepts the real path under a Mounted Folder that host-shell mode shows', async () => {
+    const notes = mountedFolder('notes', 'read-write')
+    const file = hostFile(notes.hostPath, 'report.md')
+    const { calls } = fakeAccess()
+    const tool = await buildRagTool(hostWith({ mountedFolders: [notes] }))
+
+    await resultOf(tool, { files: [file], query: 'budget' })
+    expect(calls.ingest).toBe(1)
+  })
+
+  it('refuses a path escaping its mount without touching the index', async () => {
+    const notes = mountedFolder('notes')
+    const other = mountedFolder('other')
+    hostFile(other.hostPath, 'secret.pdf')
+    const outside = hostFile(agentDir, 'outside-mount.pdf')
+    fs.symlinkSync(outside, path.join(notes.hostPath, 'link.pdf'))
+    const { calls } = fakeAccess()
+    const tool = await buildRagTool(hostWith({ mountedFolders: [notes, other] }))
+
+    for (const input of [
+      `/mnt/notes/../${path.basename(other.hostPath)}/secret.pdf`,
+      '/mnt/notes/../other/secret.pdf',
+      '/mnt/notes/link.pdf',
+      '/mnt/missing/report.pdf',
+      outside,
+    ]) {
+      expect(await resultOf(tool, { files: [input], query: 'q' })).toMatch(/not a file in/)
+    }
+    expect(calls.ingest).toBe(0)
+    expect(calls.retrieve).toBe(0)
+  })
+
+  it('reads documents in a read-only Mounted Folder and leaves them unchanged', async () => {
+    const notes = mountedFolder('notes', 'read-only')
+    const file = hostFile(notes.hostPath, 'report.txt', 'unchanged')
+    const { calls } = fakeAccess()
+    const tool = await buildRagTool(hostWith({ mountedFolders: [notes] }))
+
+    expect(await resultOf(tool, { files: ['/mnt/notes/report.txt'], query: 'q' })).toContain(
+      'passage',
+    )
+    expect(calls.ingest).toBe(1)
+    expect(fs.readFileSync(file, 'utf8')).toBe('unchanged')
+  })
+
+  it('tells the model to find documents in a Mounted Folder first', async () => {
+    fakeAccess()
+    const tool = (await buildRagTool(hostWith())) as RagTool & { description: string }
+    expect(tool.description).toMatch(/Mounted Folder/)
+    expect(tool.description).toMatch(/find/)
   })
 })
 

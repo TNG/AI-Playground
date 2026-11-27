@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { ComfyInputSchema, ComfyUiPresetSchema } from '@/lib/presetSchemas'
+import { SummariserSchema } from './sessionIpc'
 import type { MediaItem } from './mediaItem'
 
 /**
@@ -41,6 +42,10 @@ export const ArtifactRunRequestSchema = z.object({
   conversationKey: z.string().optional(),
   /** The renderer activity the tool began for this run — lets queue events relabel it. */
   activityId: z.string().optional(),
+  /** The Session a panel run belongs to. */
+  sessionId: z.string().optional(),
+  /** The renderer-resolved local model and reply language for that Session's summary. */
+  summariser: SummariserSchema.optional(),
 })
 
 export type ArtifactRunRequest = z.infer<typeof ArtifactRunRequestSchema>
@@ -51,5 +56,9 @@ export type ArtifactRunMode = ArtifactRunRequest['mode']
 export type ArtifactRunResult = {
   state: 'completed' | 'failed' | 'cancelled'
   items: MediaItem[]
+  /** Failed or stopped slots of a run that had started generating; absent when it had not. */
+  unfinished?: MediaItem[]
   error?: string
+  /** Cancelled because the user declined its model download. */
+  declined?: true
 }

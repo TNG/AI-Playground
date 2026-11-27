@@ -1,5 +1,8 @@
 # Architecture as landed — processes, persistence, common sequences
 
+> The Home Agent named below has since been replaced by Channels, which reach ordinary Sessions
+> ([ADR 0010](./adr/0010-channels-reach-sessions.md)); its `/imgGen` command and `/load` summarization are gone.
+
 **This is the implementation after migration steps 1–15**, not the target in
 [`architecture-target.md`](./architecture-target.md). That file's §2 "Today" diagram is the
 draft-time symptom picture (chat `streamText` in the renderer, media as UI mutation). Steps 1–7

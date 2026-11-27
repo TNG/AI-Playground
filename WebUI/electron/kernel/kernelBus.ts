@@ -21,6 +21,8 @@ import type {
   KernelSnapshot,
   KernelStoredEvent,
 } from '@/types/kernelEvents'
+import type { SessionDocument, SessionGroupsState, SessionTurns } from '@/types/sessionIpc'
+import type { HeldComponent } from '@/types/componentChange'
 import type { MediaItem } from '@/types/mediaItem'
 import type { UIMessageChunk } from 'ai'
 import {
@@ -228,6 +230,24 @@ export function emitAgentTurnDone(sessionId: string, turnId: string): void {
   if (agentTurnOf(sessionId, turnId)) agentTurns.delete(sessionId)
 }
 
+/** A rewound turn: the snapshot carries it so a reconnecting renderer drops the answers too. */
+export function emitAgentTurnRewound(
+  sessionId: string,
+  turnId: string,
+  rewoundTurnId: string,
+): void {
+  let turn = agentTurnOf(sessionId, turnId)
+  if (!turn) {
+    beginAgentTurnSnapshot(sessionId, turnId)
+    turn = agentTurns.get(sessionId)
+  }
+  if (turn) turn.rewoundTurnId = rewoundTurnId
+  emit(
+    { type: 'agent-turn-rewound', sessionId, turnId, rewoundTurnId },
+    { kind: 'run', runId: turnId },
+  )
+}
+
 function agentTurnSnapshots(): AgentTurnSnapshot[] {
   return [...agentTurns.values()].map((turn) => ({
     ...turn,
@@ -418,6 +438,38 @@ export function emitStored(
   emit({ type: 'stored', kind, id, inferenceProfile }, { kind: 'global' })
 }
 
+export function emitSessionChanged(session: SessionDocument): void {
+  emit({ type: 'session-changed', session }, { kind: 'global' })
+}
+
+export function emitSessionGroupsChanged(state: SessionGroupsState): void {
+  emit({ type: 'session-groups-changed', state }, { kind: 'global' })
+}
+
+let sessionTurns: SessionTurns = {}
+
+export function emitSessionTurns(turns: SessionTurns): void {
+  sessionTurns = { ...turns }
+  emit({ type: 'session-turns', turns: { ...turns } }, { kind: 'global' })
+}
+
+let componentHolds: HeldComponent[] = []
+let anyInFlightWork = false
+let componentHoldsSignature = ''
+
+/** Emits only when the held set or work presence changed. */
+export function setComponentHolds(holds: HeldComponent[], inFlight: boolean): void {
+  const signature = JSON.stringify([holds, inFlight])
+  componentHolds = [...holds]
+  anyInFlightWork = inFlight
+  if (signature === componentHoldsSignature) return
+  componentHoldsSignature = signature
+  emit(
+    { type: 'component-holds', holds: [...holds], anyInFlightWork: inFlight },
+    { kind: 'global' },
+  )
+}
+
 export function setInferenceProfileSnapshot(profile: KernelInferenceProfile | null): void {
   inferenceProfile = profile
   emitStored('inference-profile', undefined, profile)
@@ -597,6 +649,9 @@ export function getKernelSnapshot(): KernelSnapshot {
       chatTurns: chatTurnSnapshots,
       activities: [...activeActivities.values()],
       inferenceProfile,
+      sessionTurns: { ...sessionTurns },
+      componentHolds: [...componentHolds],
+      anyInFlightWork,
     },
   }
 }
@@ -619,4 +674,8 @@ export function resetKernelBusForTest(): void {
   taps.clear()
   activeActivities.clear()
   inferenceProfile = null
+  sessionTurns = {}
+  componentHolds = []
+  anyInFlightWork = false
+  componentHoldsSignature = ''
 }

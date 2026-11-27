@@ -119,10 +119,12 @@ describe('mediaDelegation (in-process media tool)', () => {
         images: [{ id: '1', type: 'image', imageUrl: 'aipg-media://castle.png' }],
       }),
       workspaceDir,
+      undefined,
+      'session-1',
     )
   })
 
-  it('returns the model its text unchanged and the transcript the items and steps', async () => {
+  it('returns the model the slim result and the transcript the items and steps', async () => {
     const video = { id: 'v', type: 'video', videoUrl: 'aipg-media://clip.mp4' }
     const model = { id: 'm', type: 'model3d', model3dUrl: 'aipg-media://shape.glb' }
     runMediaAgentInMainMock.mockResolvedValueOnce(specialistResult([video, model]))
@@ -136,10 +138,14 @@ describe('mediaDelegation (in-process media tool)', () => {
       new AbortController().signal,
     )) as { content: { type: string; text: string }[]; details?: unknown }
 
+    // The parent model's context carries no media URLs; the transcript's items keep them.
     expect(JSON.parse(result.content[0].text)).toEqual({
       summary: 'Made it.',
       steps: ['comfyUI (W1): produced 2 video, model3d'],
-      images: [video, model],
+      images: [
+        { id: 'v', type: 'video' },
+        { id: 'm', type: 'model3d' },
+      ],
     })
     expect(result.details).toEqual({
       items: [
@@ -154,11 +160,25 @@ describe('mediaDelegation (in-process media tool)', () => {
     const video = { id: 'v', type: 'video', videoUrl: 'aipg-media://media/clip.mp4' }
     const model = { id: 'm', type: 'model3d', model3dUrl: 'aipg-media://media/shape.glb' }
     runMediaAgentInMainMock.mockResolvedValueOnce(specialistResult([video, model]))
-    saveMediaMock.mockImplementationOnce(async (result) => ({
-      ...(result as object),
-      savedFiles: ['generated/clip.mp4'],
-    }))
-    const tool = (await buildDelegatedMediaTool(hostWith(), MEDIA_SPEC)) as unknown as {
+    const appMedia = fs.mkdtempSync(path.join(os.tmpdir(), 'app-media-'))
+    fs.writeFileSync(path.join(appMedia, 'clip.mp4'), 'mp4-bytes')
+    const filesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'session-files-'))
+    fs.writeFileSync(path.join(filesDir, 'clip.mp4'), 'earlier-clip')
+    const actual = await vi.importActual<typeof import('../../agent/piCustomTools.ts')>(
+      '../../agent/piCustomTools.ts',
+    )
+    actual.setAppMediaPathResolver((url) =>
+      path.join(appMedia, decodeURIComponent(new URL(url).pathname)),
+    )
+    saveMediaMock.mockImplementationOnce((result, dir) =>
+      actual.saveGeneratedMediaToWorkspace(result, dir, {
+        sessionRef: 'session-1',
+        workspace: 'files',
+        folderId: 'folder-ws',
+      }),
+    )
+    const host = hostWith({ workspaceDir: filesDir })
+    const tool = (await buildDelegatedMediaTool(host, MEDIA_SPEC)) as unknown as {
       execute: (id: string, params: unknown, signal: AbortSignal) => Promise<unknown>
     }
 
@@ -169,12 +189,71 @@ describe('mediaDelegation (in-process media tool)', () => {
     )) as { details: { items: { workspacePath?: string }[] } }
 
     expect(result.details.items.map((item) => item.workspacePath)).toEqual([
-      'generated/clip.mp4',
+      'clip-1.mp4',
       undefined,
     ])
+    actual.setAppMediaPathResolver(null)
   })
 
-  it('keeps the step lines of a run that produced nothing', async () => {
+  it('keeps the folder-served URLs out of the model content, which names files by path', async () => {
+    runMediaAgentInMainMock.mockResolvedValueOnce(
+      specialistResult([
+        {
+          id: '1',
+          type: 'image',
+          imageUrl: 'aipg-media://media/castle.png',
+          mode: 'imageGen',
+          settings: { preset: 'Draft Image', prompt: 'a castle' },
+        },
+      ]),
+    )
+    const appMedia = fs.mkdtempSync(path.join(os.tmpdir(), 'app-media-'))
+    fs.writeFileSync(path.join(appMedia, 'castle.png'), 'png-bytes')
+    const filesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'session-files-'))
+    const actual = await vi.importActual<typeof import('../../agent/piCustomTools.ts')>(
+      '../../agent/piCustomTools.ts',
+    )
+    actual.setAppMediaPathResolver((url) =>
+      path.join(appMedia, decodeURIComponent(new URL(url).pathname)),
+    )
+    saveMediaMock.mockImplementationOnce((result, dir) =>
+      actual.saveGeneratedMediaToWorkspace(result, dir, {
+        sessionRef: 'session-1',
+        workspace: 'files',
+        folderId: 'folder-ws',
+      }),
+    )
+    const host = hostWith({ workspaceDir: filesDir })
+    const tool = (await buildDelegatedMediaTool(host, MEDIA_SPEC)) as unknown as {
+      execute: (id: string, params: unknown, signal: AbortSignal) => Promise<unknown>
+    }
+
+    const result = (await tool.execute(
+      'call-1',
+      { request: 'a castle' },
+      new AbortController().signal,
+    )) as {
+      content: { type: string; text: string }[]
+      details: { items: Record<string, unknown>[] }
+    }
+
+    // The model names files by their saved paths: the folder-served URLs — and with them the
+    // Session and folder ids — stay out of its context, so it never quotes a UUID to the user.
+    const content = JSON.parse(result.content[0].text) as {
+      images: Record<string, unknown>[]
+      savedFiles: string[]
+    }
+    expect(content.savedFiles).toEqual(['castle.png'])
+    expect(content.images[0].imageUrl).toBeUndefined()
+    expect(result.content[0].text).not.toContain('aipg-media://folders/')
+    // The transcript's item keeps the folder-served URL the UI displays the image from.
+    expect(result.details.items[0].imageUrl).toBe(
+      'aipg-media://folders/session-1/folder-ws/castle.png',
+    )
+    actual.setAppMediaPathResolver(null)
+  })
+
+  it('keeps the step lines and the failure of a run that produced nothing', async () => {
     runMediaAgentInMainMock.mockResolvedValueOnce({
       text: '',
       steps: [
@@ -197,7 +276,103 @@ describe('mediaDelegation (in-process media tool)', () => {
       details?: unknown
     }
 
-    expect(result.details).toEqual({ items: [], steps: ['comfyUI (W1): failed — oom'] })
+    expect(result.details).toEqual({
+      items: [],
+      steps: ['comfyUI (W1): failed — oom'],
+      failure: { state: 'failed', error: 'oom' },
+    })
+  })
+
+  it('says the download was declined, and keeps the decline for the next media call', async () => {
+    const declinedMessage =
+      'The user declined the download of the models for the "W1" workflow, so it is unavailable.'
+    runMediaAgentInMainMock.mockResolvedValue({
+      text: 'Tried again with another workflow, which also failed.',
+      steps: [
+        {
+          toolName: 'comfyUI',
+          input: { workflow: 'W1' },
+          output: { success: false, declined: true, message: declinedMessage },
+        },
+        {
+          toolName: 'comfyUI',
+          input: { workflow: 'W2' },
+          output: { success: false, message: 'oom' },
+        },
+      ],
+    })
+    const tool = (await buildDelegatedMediaTool(hostWith(), MEDIA_SPEC)) as unknown as {
+      execute: (id: string, params: unknown, signal: AbortSignal) => Promise<unknown>
+    }
+    const signal = new AbortController().signal
+
+    const result = (await tool.execute('call-1', { request: 'x' }, signal)) as {
+      content: Array<{ text: string }>
+    }
+    await tool.execute('call-2', { request: 'y' }, signal)
+
+    expect(JSON.parse(result.content[0].text)).toMatchObject({
+      success: false,
+      declined: true,
+      message: declinedMessage,
+    })
+    const [first, second] = runMediaAgentInMainMock.mock.calls.map(
+      ([request]) => (request as { declinedWorkflows?: Set<string> }).declinedWorkflows,
+    )
+    expect(first).toBeInstanceOf(Set)
+    expect(second).toBe(first)
+  })
+
+  it('keeps the full generation settings in the transcript items but out of the model content', async () => {
+    const dynamicSettings = [
+      {
+        type: 'number',
+        label: 'Guidance Scale',
+        nodeTitle: 'Node',
+        nodeInput: 'guidance',
+        displayed: true,
+        modifiable: true,
+        defaultValue: 7,
+        current: 7.5,
+      },
+    ]
+    runMediaAgentInMainMock.mockResolvedValueOnce(
+      specialistResult([
+        {
+          id: '1',
+          type: 'image',
+          imageUrl: 'aipg-media://castle.png',
+          mode: 'imageGen',
+          settings: { preset: 'Draft Image', prompt: 'a castle', inferenceSteps: 20, seed: 42 },
+          dynamicSettings,
+        },
+      ]),
+    )
+    const tool = (await buildDelegatedMediaTool(hostWith(), MEDIA_SPEC)) as unknown as {
+      execute: (id: string, params: unknown, signal: AbortSignal) => Promise<unknown>
+    }
+
+    const result = (await tool.execute(
+      'call-1',
+      { request: 'a castle, 20 steps' },
+      new AbortController().signal,
+    )) as {
+      content: { type: string; text: string }[]
+      details: { items: Record<string, unknown>[] }
+    }
+
+    // The parent model's context keeps only the prompt and workflow name per item.
+    const content = JSON.parse(result.content[0].text) as { images: Record<string, unknown>[] }
+    expect(content.images[0].settings).toEqual({ prompt: 'a castle', preset: 'Draft Image' })
+    expect(content.images[0].dynamicSettings).toBeUndefined()
+    // The transcript's items carry the full generation settings and dynamic inputs.
+    expect(result.details.items[0].settings).toEqual({
+      preset: 'Draft Image',
+      prompt: 'a castle',
+      inferenceSteps: 20,
+      seed: 42,
+    })
+    expect(result.details.items[0].dynamicSettings).toEqual(dynamicSettings)
   })
 
   it('resolves a workspace source path to a data URI before the specialist run', async () => {

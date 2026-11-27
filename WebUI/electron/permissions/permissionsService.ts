@@ -42,7 +42,7 @@ export type RequestDownloadOptions = {
  * A prompt names the turn it holds up so that turn gives up its Turn Queue place
  * while the user decides, and so the window can keep it out of sight until that
  * turn's session is open. The pause ends with the answer: a turn then waiting on
- * its Model Download is not waiting on the user (docs/adr/0005), though its place
+ * its Model Download is not waiting on the user, though its place
  * stays given up until it reclaims it for its next model call.
  */
 export async function requestDownloadConsent(
@@ -91,7 +91,7 @@ export async function requestVramWarningConsent(req: {
   return answer.confirmed === true
 }
 
-/** Whether a Home Agent remote turn would take this prompt; never one for an Agent Mode turn. */
+/** Whether a Channel turn would take this prompt; never one for an Agent Mode turn. */
 async function isRemoteTurnActive(conversationKey: string | undefined): Promise<boolean> {
   try {
     return (

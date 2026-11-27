@@ -28,7 +28,8 @@ export const usePromptStore = defineStore('prompt', () => {
    * Returns false when the mode is unavailable (ComfyUI missing → install
    * warning shown) and nothing was changed.
    */
-  function setCurrentMode(mode: ModeType, options: { skipPresetSwitch?: boolean } = {}): boolean {
+  /** False, after offering the setup wizard, when the mode's backend is not installed. */
+  function ensureModeAvailable(mode: ModeType): boolean {
     const comfyUiModes: ModeType[] = ['imageGen', 'imageEdit', 'video']
     if (comfyUiModes.includes(mode)) {
       const backendServices = useBackendServices()
@@ -45,6 +46,11 @@ export const usePromptStore = defineStore('prompt', () => {
         return false
       }
     }
+    return true
+  }
+
+  function setCurrentMode(mode: ModeType, options: { skipPresetSwitch?: boolean } = {}): boolean {
+    if (!ensureModeAvailable(mode)) return false
 
     const presetSwitching = usePresetSwitching()
 
@@ -155,6 +161,7 @@ export const usePromptStore = defineStore('prompt', () => {
     injectedPromptText,
     getCurrentMode,
     setCurrentMode,
+    ensureModeAvailable,
     setModeOnly,
     setModeForPreset,
     submitPrompt,

@@ -1,31 +1,36 @@
 import type {
   AgentCapabilityInfo,
   AgentModeTurnConfig,
+  DeleteAgentTurnsRequest,
   AgentToolExecuteRequest,
   AgentToolSpec,
   ArcadeCatalogEntry,
+  AttachmentTarget,
   GameLibraryEntry,
+  SessionFileAction,
+  SessionFileReadResult,
 } from './agentIpc'
 import type { AgentMediaFileAction, AgentMediaFileRef } from './agentMediaDetails'
-import type { AgentSessionBootstrap, AgentSessionRecordWire } from './agentSessionIpc'
-import type { AgentTask } from './agentTaskIpc'
+import type {
+  AgentSessionBootstrap,
+  AgentSessionRecordWire,
+  MountedFolderAccess,
+} from './agentSessionIpc'
+import type { AgentDraft, AgentTask, TrialRunRecord } from './agentTaskIpc'
 import type { AgentWorkspaceState } from './agentWorkspaceIpc'
 import type { ArtifactRunRequest, ArtifactRunResult } from './artifactIpc'
-import type {
-  ChatModelConfig,
-  ChatSummarizeRequest,
-  ChatTurnRequest,
-  ChatTurnResumeResult,
-} from './chatIpc'
+import type { ChatModelConfig, ChatTurnRequest, ChatTurnResumeResult } from './chatIpc'
 import type { ChatAnswerPayload, ChatAskPayload } from './chatRequests'
 import type { ComfyUICustomNodeRepoId } from './comfyuiIpc'
 import type { ComputeSnapshot, ProbeReport } from './computeMetrics'
 import type { LlamaCppVramInputs } from '../lib/vram/types'
+import type { GroupNameProblem } from '../lib/sessionGroupName'
 import type { ConversationBootstrap, ConversationSaveRequest } from './conversationIpc'
 import type { DemoConfigSaveResult, DemoConfigUpdate } from './demoModeIpc'
-import type { HomeAgentInboundMessage } from './homeAgentIpc'
+import type { ChannelInboundMessage } from './channelIpc'
 import type { KernelEvent, KernelSnapshot, PauseReason } from './kernelEvents'
 import type { CloseAnswerPayload, CloseAskPayload, InFlightWorkItem } from './lifecycleIpc'
+import type { ComponentChangeRefusal, HeldComponent } from './componentChange'
 import type { MediaItemsBootstrap } from './mediaItemIpc'
 import type { MediaRequestPayload, MediaResponsePayload } from './mediaRequests'
 import type {
@@ -35,7 +40,32 @@ import type {
   PermissionsPromptResponse,
 } from './permissionsIpc'
 import type { RagDocumentSection } from './ragDocumentIpc'
+import type { MountedFolderRefusal } from '../lib/mountedFolders'
 import type { BackendLaunchSettings, BackendVersionWire } from './preferencesIpc'
+import type {
+  ArtifactMediaType,
+  AssistantCapabilityDefaults,
+  AudioTurnRequest,
+  HarnessGameWorkspace,
+  HarnessSessionRef,
+  NewestArtifact,
+  SessionArtifact,
+  SessionCreatedFile,
+  MissingWorkspace,
+  SessionCreateOptions,
+  SessionDeletePreview,
+  SessionDocument,
+  SessionFolderList,
+  SessionGroup,
+  SessionLastPreset,
+  SessionSummary,
+  SessionTurn,
+  ShowMore,
+  ShowMoreSection,
+  Summariser,
+  OverviewSummaryUpdateRow,
+} from './sessionIpc'
+import type { PresetSessionSettings, SessionSettingsMap } from './sessionSettings'
 import type { SpeechSynthesisRequest } from './speechIpc'
 import type { ChannelMessageOwner, NotificationConfig } from './notificationsIpc'
 import type {
@@ -48,10 +78,10 @@ import type {
 import type { ChannelKind } from '@/assets/js/store/channels/types'
 import type { ModelLibraryScan } from '@/assets/js/models/types'
 import type { ModelLists, ModelPaths } from '@/assets/js/store/models'
-import type { EmbedInquiry, IndexedDocument } from '@/types/rag'
+import type { DocumentEmbedding, EmbedInquiry, IndexedDocument } from '@/types/rag'
 import type { PhisonKmIngestConfig, WarmupRequest } from './phisonKmRag'
 
-export type IpcOwner = 'main' | 'homeAgent'
+export type IpcOwner = 'main' | 'channels'
 export type IpcKind = 'invoke' | 'send' | 'push'
 
 export type InvokeRow<A extends readonly unknown[] = readonly unknown[], R = unknown> = {
@@ -92,6 +122,11 @@ export type IpcMutationResult = IpcOk | IpcFail
 export type IpcDataResult<T> = { success: true; data: T } | IpcFail
 /** Success carries named fields beyond `success` itself (e.g. `{ url: string }`, `{ filepath: string }`). */
 export type IpcOkWith<Fields> = ({ success: true } & Fields) | IpcFail
+/** Like `IpcOkWith`, but a refused Session Group name says which rule it broke. */
+export type IpcGroupNameResult<Fields> =
+  ({ success: true } & Fields) | (IpcFail & { nameProblem?: GroupNameProblem })
+/** A Component change: done, or refused because work holds the Component, or failed. */
+export type ComponentChangeResult = IpcOk | (IpcFail & { refusal?: ComponentChangeRefusal })
 export type IpcStatusError = { status: 'error'; error: string }
 /** `GET /v1/models` from main. A failure keeps the provider status and body. */
 export type CloudModelListResult =
@@ -200,6 +235,414 @@ export const CHANNELS = {
     args: [] as unknown as readonly [string[]],
     result: null as unknown as IpcMutationResult,
   },
+  /** Every Session of the active root (demo or real), newest first, its Session Groups and "show more" choices. */
+  'sessions:list': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as IpcOkWith<{
+      sessions: SessionSummary[]
+      groups: SessionGroup[]
+      showMore: ShowMore
+    }>,
+  },
+  /**
+   * Create a Session and lay out its Session Folder, optionally already in a Session Group. It
+   * starts reachable, with `notify` in its Assistant settings (from `defaultCapabilities`), and
+   * with a copy of the Session Settings of the Session `settingsFrom` names, if any.
+   */
+  'sessions:create': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [groupId?: string, options?: SessionCreateOptions],
+    result: null as unknown as IpcOkWith<{ session: SessionSummary }>,
+  },
+  /** One Session's row plus its display timeline, and the artifact URLs whose file is gone. */
+  'sessions:open': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as IpcOkWith<{
+      session: SessionDocument
+      missingFiles: string[]
+      lastPreset: SessionLastPreset | null
+    }>,
+  },
+  /**
+   * The open Session's artifact URLs whose file is gone, re-read after a Session change: a
+   * later turn may have re-created a file that was missing when the Session was opened.
+   */
+  'sessions:missingArtifacts': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as IpcOkWith<{ missingFiles: string[] }>,
+  },
+  /** Give a Session a user-chosen title. */
+  'sessions:rename': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string],
+    result: null as unknown as IpcOkWith<{ session: SessionSummary }>,
+  },
+  /**
+   * Make a Session reachable from Channels or not; turning it on adds `notify` to its Assistant
+   * settings (from `defaultCapabilities` when they name none) and is refused while it uses the
+   * real system shell. Pushes `session-changed`.
+   */
+  'sessions:setReachable': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, boolean, AssistantCapabilityDefaults?],
+    result: null as unknown as IpcOkWith<{ session: SessionSummary }>,
+  },
+  /**
+   * One-shot upgrade: Home Agent threads become ungrouped Reachable Sessions, and the thread
+   * `routingKey` names becomes every Channel's Channel Session (`channelSession`, null when none
+   * was set or the migration already ran).
+   */
+  'sessions:migrateHomeAgentThreads': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [{ routingKey: string | null } & AssistantCapabilityDefaults],
+    result: null as unknown as IpcOkWith<{ channelSession: string | null }>,
+  },
+  /** The workspace folders the real system shell is on; a Reachable Session in one stops being reachable. */
+  'sessions:setRealShellFolders': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string[]],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Pin or unpin a Session; pushes `session-changed`. */
+  'sessions:pin': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, boolean],
+    result: null as unknown as IpcOkWith<{ session: SessionSummary }>,
+  },
+  /**
+   * Include a Session in Overviews or not. With a request, enabling starts the first Overview
+   * Summary update from the whole history and opting out cancels it and deletes the summary;
+   * without one it only records consent, as before. Pushes `session-changed`.
+   */
+  'sessions:setIncludedInOverviews': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, boolean, Summariser?],
+    result: null as unknown as IpcOkWith<{ session: SessionSummary }>,
+  },
+  /**
+   * Run the Overview Summary update again without a new turn, after a failure or on a refresh.
+   * The request carries the renderer-resolved local model and the Session's reply language.
+   * Pushes `session-changed` when it settles.
+   */
+  'sessions:refreshOverviewSummary': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, Summariser],
+    result: null as unknown as IpcOkWith<{ session: SessionSummary }>,
+  },
+  /**
+   * Retry the Overview Summary update a settled turn's details row names, without a new turn,
+   * and write the new outcome back onto that same History Entry. Pushes `session-changed`.
+   */
+  'sessions:retryOverviewUpdate': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string, Summariser],
+    result: null as unknown as IpcOkWith<{ session: SessionSummary }>,
+  },
+  /**
+   * Resume the pending update markers an interrupted run left behind, on launch. Only pending
+   * entries are rerun; a failed update is left for its Retry or a later turn. Pushes
+   * `session-changed` for each Session it resumes.
+   */
+  'sessions:resumePendingOverviewUpdates': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [Summariser],
+    result: null as unknown as IpcDataResult<{ resumed: string[] }>,
+  },
+  /**
+   * The per-turn Overview Summary update outcomes of a Session's History Entries, which a
+   * settled chat or agent turn's details row shows. `pending` is a durable marker.
+   */
+  'sessions:overviewUpdates': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as IpcDataResult<{ updates: OverviewSummaryUpdateRow[] }>,
+  },
+  /**
+   * Add a host folder to a Session's folder list, read-only; `refusal` says why it was not added
+   * (too broad, the home folder, or overlapping an entry). Pushes `session-changed`.
+   */
+  'sessions:addFolder': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string],
+    result: null as unknown as IpcOkWith<{
+      list: SessionFolderList
+      refusal?: MountedFolderRefusal
+    }>,
+  },
+  /** Take a folder off a Session's list, never the Workspace; its files stay. Pushes `session-changed`. */
+  'sessions:removeFolder': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string],
+    result: null as unknown as IpcOkWith<{ list: SessionFolderList }>,
+  },
+  /** Make a listed folder read-only or read-write; the Workspace stays read-write. Pushes `session-changed`. */
+  'sessions:setFolderAccess': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string, MountedFolderAccess],
+    result: null as unknown as IpcOkWith<{ list: SessionFolderList }>,
+  },
+  /**
+   * Star a listed folder as the Workspace (made read-write if it was not); refused while the
+   * Session has a turn in flight. Nothing already written moves. Pushes `session-changed`.
+   */
+  'sessions:starFolder': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string],
+    result: null as unknown as IpcOkWith<{ list: SessionFolderList; madeReadWrite: boolean }>,
+  },
+  /** The Session's Workspace when it is a user folder that no longer exists; null otherwise. */
+  'sessions:missingWorkspace': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as IpcOkWith<{ missing: MissingWorkspace | null }>,
+  },
+  /**
+   * Point a missing Workspace at the folder the user located, keeping its id and slug; a refused
+   * folder leaves the list as it was. Pushes `session-changed`.
+   */
+  'sessions:locateWorkspace': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string],
+    result: null as unknown as IpcOkWith<{
+      list: SessionFolderList
+      refusal?: MountedFolderRefusal
+    }>,
+  },
+  /** Star a fresh app-created Workspace in place of a missing one. Pushes `session-changed`. */
+  'sessions:startNewWorkspace': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as IpcOkWith<{ list: SessionFolderList }>,
+  },
+  /**
+   * Show a listed folder in the OS file manager, the Workspace when no folder id is given; the
+   * app-created Workspace is created first, so this works before the first turn.
+   */
+  'sessions:openFolder': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string | undefined],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Pick an Agent in a Session's prompt bar, or `null` for Assistant; pushes `session-changed`. */
+  'sessions:pickAgent': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string | null],
+    result: null as unknown as IpcOkWith<{ session: SessionSummary }>,
+  },
+  /** Name a new Session Group and move the Session into it; pushes `session-changed` and `session-groups-changed`. */
+  'sessions:createGroup': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string],
+    result: null as unknown as IpcGroupNameResult<{
+      group: SessionGroup
+      session: SessionSummary
+    }>,
+  },
+  /** Move a Session into a Session Group, or out of its own with `null`; pushes `session-changed`. */
+  'sessions:moveToGroup': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string | null],
+    result: null as unknown as IpcOkWith<{ session: SessionSummary }>,
+  },
+  /** Rename a Session Group; a name taken by another Group, ignoring case, fails. Pushes `session-groups-changed`. */
+  'sessions:renameGroup': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string],
+    result: null as unknown as IpcGroupNameResult<{ group: SessionGroup }>,
+  },
+  /** Delete a Session Group; its Sessions stay and leave it, each pushing `session-changed`. Pushes `session-groups-changed`. */
+  'sessions:deleteGroup': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Expand or collapse a Session Group's header; pushes `session-groups-changed`. */
+  'sessions:setGroupExpanded': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, boolean],
+    result: null as unknown as IpcOkWith<{ group: SessionGroup }>,
+  },
+  /** Remember whether a shortened panel section lists every Session; pushes `session-groups-changed`. */
+  'sessions:setShowMore': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [ShowMoreSection, boolean],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Delete a Session: its listed app-created Workspace to the Trash, its internal storage gone. */
+  'sessions:delete': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** What deleting the Session would move to the Trash, for its delete dialog. */
+  'sessions:deletePreview': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as IpcOkWith<{ preview: SessionDeletePreview }>,
+  },
+  /**
+   * The Session's Harness Session for an agent preset (minted on first use) and its workspace;
+   * a games preset passes its game folder instead of working in `files/`.
+   */
+  'sessions:harnessSession': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string, HarnessGameWorkspace?],
+    result: null as unknown as IpcOkWith<{ harness: HarnessSessionRef }>,
+  },
+  /** A fresh Harness Session for one Task Run of the Session, working in its `files/`. */
+  'sessions:taskRunHarness': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as IpcOkWith<{ harness: HarnessSessionRef }>,
+  },
+  /** Save settled display messages into a Session's timeline, replacing ones with the same id. */
+  'sessions:saveTimelineMessages': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, unknown[]],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Take display messages out of a Session's timeline — the turn a regenerate replaces. */
+  'sessions:removeTimelineMessages': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string[]],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Mark display messages hidden: still in the file, only the timeline view leaves them out. */
+  'sessions:addHiddenMessages': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string[]],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Bring every hidden message of one Session back into its timeline view. */
+  'sessions:clearHiddenMessages': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Bring every hidden message of every Session back into its timeline view. */
+  'sessions:clearAllHiddenMessages': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Replace a Session's chat transcript (a removed or cleared message); other turns stay. */
+  'sessions:saveChatTranscript': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, unknown[]],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Settle a Text-to-Speech / Speech-to-Text turn: audio into files/, a History Entry, the timeline. */
+  'sessions:recordAudioTurn': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [AudioTurnRequest],
+    result: null as unknown as IpcOkWith<{ session: SessionDocument }>,
+  },
+  /** The gallery: every Session's artifacts whose file still exists, newest first. */
+  'sessions:listArtifacts': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as IpcOkWith<{ artifacts: SessionArtifact[] }>,
+  },
+  /** The documents: every file the Sessions' agent turns wrote, latest write per file winning. */
+  'sessions:listCreatedFiles': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as IpcOkWith<{ files: SessionCreatedFile[] }>,
+  },
+  /** Move one artifact's file to the Trash (session id, its media URL); its History Entry stays. */
+  'sessions:deleteArtifact': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Open one artifact's file with the OS default application (session id, its media URL). */
+  'sessions:openArtifact': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** A Session's Session Settings, every preset's at once (ADR-0004). */
+  'sessions:readSettings': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as IpcOkWith<{ settings: SessionSettingsMap }>,
+  },
+  /** Replace one preset's Session Settings in a Session. */
+  'sessions:writePresetSettings': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string, PresetSessionSettings],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Claim the Session for a turn the renderer runs itself (audio); fails while it has one. */
+  'sessions:beginTurn': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, SessionTurn],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Release the Session from that turn (session id, turn id). */
+  'sessions:endTurn': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** The Session's newest artifact of a media type, across every preset; null when it has none. */
+  'sessions:newestArtifact': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, ArtifactMediaType],
+    result: null as unknown as IpcOkWith<{ artifact: NewestArtifact | null }>,
+  },
   /** All preference sections at once; the file is small, so every store picks its own. */
   'preferences:read': {
     kind: 'invoke',
@@ -270,6 +713,13 @@ export const CHANNELS = {
     args: [] as unknown as readonly [string],
     result: null as unknown as IpcMutationResult,
   },
+  /** Delete Assistant turns from their Harness Session and the Session's timeline. */
+  'agentMode:deleteTurns': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [DeleteAgentTurnsRequest],
+    result: null as unknown as IpcOkWith<{ unrestorable: string[] }>,
+  },
   /** Hydrate the session-panel records once before mount: session files plus the active id. */
   'agentMode:bootstrapSessions': {
     kind: 'invoke',
@@ -333,19 +783,96 @@ export const CHANNELS = {
     args: [] as unknown as readonly [AgentTask],
     result: null as unknown as IpcMutationResult,
   },
-  /** Delete one Task; the sessions it created stay. */
+  /** Delete one Agent and its Draft; the sessions it created stay. */
   'agentMode:deleteTask': {
     kind: 'invoke',
     owner: 'main',
     args: [] as unknown as readonly [string],
     result: null as unknown as IpcMutationResult,
   },
-  /** Copy an attached file into the workspace; the answer carries its relative path. */
+  /** Show one of a saved Agent's Mounted Folders in the file manager; refuses any other path. */
+  'agentMode:openTaskFolder': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Every Agent's Draft; an absent file reads as none, an unreadable one fails. */
+  'agentMode:readDrafts': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as IpcOkWith<{ drafts: AgentDraft[] }>,
+  },
+  /** Insert an Agent's Draft, or replace the one it has. */
+  'agentMode:saveDraft': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [AgentDraft],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Delete an Agent's Draft, by Agent id. */
+  'agentMode:deleteDraft': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** A fresh Harness Session in the Agent's scratch folder; its previous Trial Run is thrown away. */
+  'agentMode:trialRunHarness': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as IpcOkWith<{ harness: HarnessSessionRef }>,
+  },
+  /** Throw the Agent's Trial Run away, with its folder and Harness Session, by Agent id. */
+  'agentMode:discardTrialRun': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Every Trial Run whose progress was kept, for a window picking them up after a reload. */
+  'agentMode:readTrialRuns': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as IpcOkWith<{ trialRuns: TrialRunRecord[] }>,
+  },
+  /** Keep where a Trial Run is; ignored once it was thrown away or a newer one replaced it. */
+  'agentMode:saveTrialRun': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [TrialRunRecord],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Keep a copy of an attached file (`attachmentsFolderFor`); the answer is how a prompt names it. */
   'agentMode:importAttachment': {
     kind: 'invoke',
     owner: 'main',
-    args: [] as unknown as readonly [string, string, Uint8Array],
+    args: [] as unknown as readonly [AttachmentTarget, string, Uint8Array],
     result: null as unknown as { success: true; path: string } | IpcFail,
+  },
+  /** The Attached Documents of a Session (or a game folder), as `attachments/<file>` paths. */
+  'agentMode:sessionDocuments': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [AttachmentTarget],
+    result: null as unknown as string[],
+  },
+  /** Split and embed an attached document now, so the first `rag` call on it is fast. */
+  'agentMode:indexDocument': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [AttachmentTarget, string, DocumentEmbedding],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Delete an attached document's Session copy, so later turns no longer see it. */
+  'agentMode:removeSessionDocument': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [AttachmentTarget, string],
+    result: null as unknown as IpcMutationResult,
   },
   /** Open, reveal, drag or save a session's generated file: the workspace copy, else the app copy. */
   'agentMode:mediaFileAction': {
@@ -360,6 +887,30 @@ export const CHANNELS = {
     owner: 'main',
     args: [] as unknown as readonly [string],
     result: null as unknown as IpcMutationResult,
+  },
+  /**
+   * Open, reveal or delete a file an agent turn wrote, addressed the way the model wrote it:
+   * workspace-relative, or under a sandbox mount. Main resolves the path against the
+   * session's own folders and refuses anything outside them (agent/sessionFileAction.ts).
+   */
+  'agentMode:sessionFileAction': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string, SessionFileAction],
+    result: null as unknown as IpcMutationResult,
+  },
+  /**
+   * Read a file an agent turn wrote as UTF-8 text, for the transcript's inline
+   * preview. Same path validation as sessionFileAction (agent/sessionFileAction.ts);
+   * the content is the file's first 10 lines under a 16 KB ceiling — `full`
+   * drops the line cap and raises the ceiling to 1 MB — and `truncated` says
+   * when either limit bit. A file gone from disk fails with `missing: true`.
+   */
+  'agentMode:readSessionFile': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string, boolean | undefined],
+    result: null as unknown as SessionFileReadResult,
   },
   /** What the agent could be equipped with, for the Capabilities checkboxes. */
   'agentMode:listCapabilities': {
@@ -414,13 +965,6 @@ export const CHANNELS = {
     owner: 'main',
     args: [] as unknown as readonly [string, string],
     result: null as unknown as { success: true },
-  },
-  /** One-shot conversation-title summarization; occupies as `text`, `remember: false`. */
-  'chat:summarize': {
-    kind: 'invoke',
-    owner: 'main',
-    args: [] as unknown as readonly [ChatSummarizeRequest],
-    result: null as unknown as IpcDataResult<string>,
   },
   /** The renderer's answer to a `chat:ask` question, keyed by requestId. */
   'chat:answer': {
@@ -547,7 +1091,14 @@ export const CHANNELS = {
     args: [] as unknown as readonly [ChannelKind, string],
     result: null as unknown as ChannelMessageOwner | null,
   },
-  /** The Home Agent state main's Notifier delivers through; pushed on every change. */
+  /** Puts a posted Start Prompt Request in the message map, so a late reply is told it expired. */
+  'notifications:recordStartPromptRequest': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [ChannelKind, string],
+    result: null as unknown as void,
+  },
+  /** The Channel state main's Notifier delivers through; pushed on every change. */
   'notifications:setConfig': {
     kind: 'send',
     owner: 'main',
@@ -579,12 +1130,12 @@ export const CHANNELS = {
     args: [] as unknown as readonly [ServiceSettings],
     result: null as unknown as void,
   },
-  /** Remove a service's installed files; ignored when the service is unknown. */
+  /** Remove a service's installed files; refused while work holds it. */
   uninstall: {
     kind: 'invoke',
     owner: 'main',
     args: [] as unknown as readonly [string],
-    result: null as unknown as void,
+    result: null as unknown as ComponentChangeResult,
   },
   /** Persist and apply the selected inference device for a service. */
   selectDevice: {
@@ -621,12 +1172,19 @@ export const CHANNELS = {
     args: [] as unknown as readonly [string],
     result: null as unknown as BackendStatus,
   },
-  /** Install/update a service; progress streams as `serviceSetUpProgress` events. */
+  /** Install/update a service; progress streams as `serviceSetUpProgress` events. Refused while work holds it. */
   setUpService: {
     kind: 'invoke',
     owner: 'main',
     args: [] as unknown as readonly [BackendServiceName],
-    result: null as unknown as void,
+    result: null as unknown as ComponentChangeResult,
+  },
+  /** Whether a Component may be changed now; a refusal names the work, so a caller can ask before stopping it. */
+  componentChangeAdmission: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [BackendServiceName],
+    result: null as unknown as ComponentChangeResult,
   },
   /** The pinned release for a service: remote versions file, local fallback. */
   resolveBackendVersion: {
@@ -977,6 +1535,13 @@ export const CHANNELS = {
     args: [] as const,
     result: null as unknown as string,
   },
+  /** The user's home folder, which the Mounted Folders picker refuses as too broad. */
+  getHomePath: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as string,
+  },
   /** The OS platform (`process.platform`). */
   getPlatform: {
     kind: 'invoke',
@@ -990,6 +1555,13 @@ export const CHANNELS = {
     owner: 'main',
     args: [] as unknown as readonly [string],
     result: null as unknown as boolean | undefined,
+  },
+  /** Whether a path is an existing folder, symlinks followed — what a Mounted Folder must be. */
+  isFolderPath: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as boolean,
   },
 
   // ── Media files: app-owned media dirs, renderer-supplied payloads ──
@@ -1155,6 +1727,13 @@ export const CHANNELS = {
     args: [] as unknown as readonly [SaveDialogOptions],
     result: null as unknown as SaveDialogResult | undefined,
   },
+  /** Save a copy of a media URL's file where the user picks; cancelling is not a failure. */
+  saveMediaCopy: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as IpcMutationResult,
+  },
   /** The OS message box over the caller's window; `response` is the button index. */
   showMessageBox: {
     kind: 'invoke',
@@ -1229,13 +1808,21 @@ export const CHANNELS = {
     owner: 'main',
     args: [] as unknown as readonly [string, string],
   },
-  /** The In-flight Work only the window knows (Prompt Runs, Task Runs); replaces the last report. */
+  /** The In-flight Work only the window knows (Agent Runs, Trial Runs); replaces the last report. */
   'lifecycle:reportWork': {
     kind: 'send',
     owner: 'main',
     args: [] as unknown as readonly [InFlightWorkItem[]],
     flat: true as const,
     member: 'reportInFlightWork' as const,
+  },
+  /** Components only the window knows are in use (speech turns, model downloads); replaces the last report. */
+  'lifecycle:reportComponentHolds': {
+    kind: 'send',
+    owner: 'main',
+    args: [] as unknown as readonly [HeldComponent[]],
+    flat: true as const,
+    member: 'reportComponentHolds' as const,
   },
   /** The in-app close button: main's close coordinator decides whether to quit or ask. */
   'lifecycle:requestClose': {
@@ -1244,6 +1831,20 @@ export const CHANNELS = {
     args: [] as const,
     flat: true as const,
     member: 'requestAppClose' as const,
+  },
+  /** Relaunch the app through the close coordinator; Keep open on its question cancels it. */
+  'lifecycle:restart': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as void,
+  },
+  /** Open the machine-level settings file in the OS default application; never creates it. */
+  'lifecycle:openSettingsFile': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as IpcMutationResult,
   },
   /** Main asks the window whether to quit while In-flight Work runs. */
   'lifecycle:askClose': {
@@ -1725,119 +2326,110 @@ export const CHANNELS = {
     raw: true as const,
   },
 
-  // ── Home Agent documents, LAN chat and channel dispatch (batch 9c) ──
-  // `saveHomeAgentDocument` has no namespace and the `channel:*` channels
-  // pre-date the `ns:` convention, so their dotted `member` overrides place
-  // them inside the homeAgent bridge group. The channel handlers are
-  // registered by the Home Agent backend service (service-gated).
+  // ── LAN chat and Channel dispatch (batch 9c) ──
+  // The `channel:*` channels pre-date the `ns:` convention, so their dotted
+  // `member` overrides place them inside the channels bridge group. The
+  // channel handlers are registered by the Channels backend service (service-gated).
 
-  /** Persist an inbound Home Agent document (base64) for RAG; answers its path. */
-  saveHomeAgentDocument: {
-    kind: 'invoke',
-    owner: 'main',
-    args: [] as unknown as readonly [string, string],
-    result: null as unknown as IpcOkWith<{ filepath: string }>,
-    member: 'homeAgent.saveDocument' as const,
-  },
   /** Addresses the LAN chat page is reachable at (loopback only unless LAN is on). */
-  'homeAgent:localWeb:getUrls': {
+  'channels:localWeb:getUrls': {
     kind: 'invoke',
-    owner: 'homeAgent',
+    owner: 'channels',
     args: [] as unknown as readonly [number, boolean],
     result: null as unknown as string[],
   },
   /** Save one channel's config blob (secrets encrypted at rest by main). */
   'channel:saveConfig': {
     kind: 'invoke',
-    owner: 'homeAgent',
+    owner: 'channels',
     args: [] as unknown as readonly [ChannelKind, Record<string, string>],
     result: null as unknown as IpcMutationResult,
-    member: 'homeAgent.channel.saveConfig' as const,
+    member: 'channels.saveConfig' as const,
   },
   /** One channel's decrypted config, or null when none is saved. */
   'channel:loadConfig': {
     kind: 'invoke',
-    owner: 'homeAgent',
+    owner: 'channels',
     args: [] as unknown as readonly [ChannelKind],
     result: null as unknown as Record<string, string> | null,
-    member: 'homeAgent.channel.loadConfig' as const,
+    member: 'channels.loadConfig' as const,
   },
   /** Delete one channel's saved config file. */
   'channel:clearConfig': {
     kind: 'invoke',
-    owner: 'homeAgent',
+    owner: 'channels',
     args: [] as unknown as readonly [ChannelKind],
     result: null as unknown as void,
-    member: 'homeAgent.channel.clearConfig' as const,
+    member: 'channels.clearConfig' as const,
   },
   /** Persist the verified/enabled setup flags without touching credentials. */
   'channel:savePrefs': {
     kind: 'invoke',
-    owner: 'homeAgent',
+    owner: 'channels',
     args: [] as unknown as readonly [ChannelKind, { verified?: boolean; enabled?: boolean }],
     result: null as unknown as IpcMutationResult,
-    member: 'homeAgent.channel.savePrefs' as const,
+    member: 'channels.savePrefs' as const,
   },
   /** One channel's persisted setup flags, or null when none saved. */
   'channel:loadPrefs': {
     kind: 'invoke',
-    owner: 'homeAgent',
+    owner: 'channels',
     args: [] as unknown as readonly [ChannelKind],
     result: null as unknown as { verified: boolean; enabled: boolean } | null,
-    member: 'homeAgent.channel.loadPrefs' as const,
+    member: 'channels.loadPrefs' as const,
   },
   /** Verify saved credentials with the platform from main (Telegram/Slack/LAN). */
   'channel:test': {
     kind: 'invoke',
-    owner: 'homeAgent',
+    owner: 'channels',
     args: [] as unknown as readonly [ChannelKind],
     result: null as unknown as IpcMutationResult,
-    member: 'homeAgent.channel.test' as const,
+    member: 'channels.test' as const,
   },
   /** Inject credentials into the running backend so its channel bot starts. */
   'channel:inject': {
     kind: 'invoke',
-    owner: 'homeAgent',
+    owner: 'channels',
     args: [] as unknown as readonly [ChannelKind, Record<string, string | undefined>],
     result: null as unknown as { status: string; error?: string },
-    member: 'homeAgent.channel.inject' as const,
+    member: 'channels.inject' as const,
   },
   /** Detect the chat id from a freshly pasted credential (saved config as fallback). */
   'channel:detectIdentity': {
     kind: 'invoke',
-    owner: 'homeAgent',
+    owner: 'channels',
     args: [] as unknown as readonly [ChannelKind, Record<string, string | undefined>],
     result: null as unknown as { identity: string } | { error: string },
-    member: 'homeAgent.channel.detectIdentity' as const,
+    member: 'channels.detectIdentity' as const,
   },
   /** Re-run identity detection from the saved config. */
   'channel:detectIdentityFromSaved': {
     kind: 'invoke',
-    owner: 'homeAgent',
+    owner: 'channels',
     args: [] as unknown as readonly [ChannelKind],
     result: null as unknown as { identity: string } | { error: string },
-    member: 'homeAgent.channel.detectIdentityFromSaved' as const,
+    member: 'channels.detectIdentityFromSaved' as const,
   },
   /** Drain one channel's inbound message queue (empty when not running). */
   'channel:poll': {
     kind: 'invoke',
-    owner: 'homeAgent',
+    owner: 'channels',
     args: [] as unknown as readonly [ChannelKind],
-    result: null as unknown as HomeAgentInboundMessage[],
-    member: 'homeAgent.channel.poll' as const,
+    result: null as unknown as ChannelInboundMessage[],
+    member: 'channels.poll' as const,
   },
   /** Push any pending outbound messages through the backend. */
   'channel:flushPending': {
     kind: 'invoke',
-    owner: 'homeAgent',
+    owner: 'channels',
     args: [] as unknown as readonly [ChannelKind],
     result: null as unknown as void,
-    member: 'homeAgent.channel.flushPending' as const,
+    member: 'channels.flushPending' as const,
   },
   /** Send one channel-native action to the platform via the Python backend. */
   'channel:send': {
     kind: 'invoke',
-    owner: 'homeAgent',
+    owner: 'channels',
     args: [] as unknown as readonly [
       ChannelKind,
       (
@@ -1860,7 +2452,7 @@ export const CHANNELS = {
       channel?: string
       messageId?: number
     }>,
-    member: 'homeAgent.channel.send' as const,
+    member: 'channels.send' as const,
   },
 
   // ── Kernel stream (infra) — the event push itself stays hand-wired ──
@@ -1923,7 +2515,7 @@ type ChannelLeaf<S extends string> = S extends `${string}:${infer Leaf}` ? Chann
 
 // A channel's bridge member lives at a path of segments. The natural path is
 // the channel's own namespace segments plus its member name; a row overrides
-// the placement with a dotted `member` ('homeAgent.channel.send' — the whole
+// the placement with a dotted `member` ('channels.send' — the whole
 // path) or `flat: true` (a namespaced channel whose member sits at the top
 // level, like `lifecycle:reportWork`).
 

@@ -269,6 +269,13 @@ export async function readAgentSessionWorkspaceDir(id: string): Promise<string |
   return record?.workspaceDir || null
 }
 
+/** The Session a saved session record belongs to, when it is one. */
+export async function readAgentSessionSessionRef(id: string): Promise<string | null> {
+  if (!isSafeFileId(id)) return null
+  const record = recordFromDocOrNull(await readJson(sessionFile(id), LOG_SCOPE))
+  return record?.sessionRef || null
+}
+
 export async function saveAgentSession(record: AgentSessionRecordWire): Promise<void> {
   assertSafeFileId(record.id, 'agent session')
   return serialize(record.id, async () => {
@@ -298,6 +305,26 @@ export async function saveAgentSessionActiveId(id: string | null): Promise<void>
     const index = await currentIndex()
     index.activeSessionId = id
     await writeIndex(index)
+  })
+}
+
+type TurnStampedMessage = { metadata?: { harnessTurnId?: unknown } }
+
+/** Drops a rewound turn's answers from the record so a stale snapshot can't bring them back. */
+export async function removeAgentSessionMessagesOfTurn(id: string, turnId: string): Promise<void> {
+  assertSafeFileId(id, 'agent session')
+  return serialize(id, async () => {
+    const doc = parseSessionDoc(await readJson(sessionFile(id), LOG_SCOPE))
+    if (!doc) return
+    const kept = doc.messages.filter(
+      (message) => (message as TurnStampedMessage | null)?.metadata?.harnessTurnId !== turnId,
+    )
+    if (kept.length === doc.messages.length) return
+    const next: AgentSessionFile = { ...doc, messages: sanitizeMessages(kept) }
+    await atomicWriteJson(sessionFile(id), next)
+    // The index stays as it was: a removal is not activity, and the record
+    // keeps its place in the list.
+    emitStored('session', id)
   })
 }
 

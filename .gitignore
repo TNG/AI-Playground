@@ -45,7 +45,7 @@ models/
 !WebUI/src/assets/js/models/
 !WebUI/src/components/models/
 
-# Home Agent — runtime Telegram chat id (local dev); never commit
+# Channels — runtime Telegram chat id (local dev); never commit
 home-agent/.*id
 
 # Laminar tracing — local project API keys (dev opt-in); never commit
@@ -56,3 +56,6 @@ WebUI/external/laminar.localhost.json
 # redistributed, so the raw scores stay on the machine that fetched them; only
 # the thresholded booleans they inform are committed.
 docs/agentic-scores.local.json
+
+# Local markdown issue tracker (docs/agents/issue-tracker.md)
+.scratch/

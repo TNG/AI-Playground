@@ -28,7 +28,7 @@ Image generation presets	Image editing presets	Video generation presets
 - Image Generation: From Stable Diffusion 1.5, SDXL, Flux.1, Z-Image, and ERNIE-Image—draft through Pro-quality presets with strong prompt adherence
 - Image Editing: Subscription free and private control for upscaling, inpainting, outpainting, 2D to 3D mesh or editing images in a variety of ways.  Good for editing personal photos to taking sketches and generated images to the next level with greater control.
 - Video Generation: Text- and image-guided clips (LTX, WAN, and related presets; best on discrete GPUs or high-memory Core Ultra systems)
-- Remote access — Home Agent: Run AI Playground from Telegram, Slack, or a LAN web chat on your phone while your home PC does the work
+- Remote access — Channels: Mark a Session reachable and continue it from Telegram, Slack, or a LAN web chat on your phone. Get its notifications, answer them, and start Agents while your home PC does the work
 - Help mode: Toggle contextual guidance in the UI (? icon) for presets, settings, and core areas
 
 ### UI overview
@@ -51,7 +51,7 @@ AI Playground alpha and beta installers are currently available downloadable exe
 *	AI Playground Studio: Intel Core Ultra (Series 3, Series 2 V/H, or Series 1 H) or Intel Arc discrete GPU (Series A or B) with at least 8GB of vRAM (full feature set in the [Users Guide](https://github.com/intel/AI-Playground/blob/main/AI%20Playground%20Users%20Guide.pdf))
 *	AI Playground Studio for NVIDIA CUDA: PC with NVIDIA GeForce RTX discrete GPU with 8GB+ of vRAM (experimental; OpenVINO is not supported in this mode)
 *	82GB+ of disk space recommended (application ~6GB; models require additional space)
-*	Home Agent feature requires a minimum of 32GB of system memory on Intel Core Ultra laptops, or 16GB of vRAM on discrete GPU systems
+*	Channels (remote access) require a minimum of 32GB of system memory on Intel Core Ultra laptops, or 16GB of vRAM on discrete GPU systems
 
 ## Installation - Packaged Installer: 
 This is a single packaged installer for all supported hardware mentioned above. This installer simplifies the process for end users to install AI Playground on their PCs. Please note that while this makes the installation process easier, this is open-source beta software, and there may be component and version conflicts. Refer to the Troubleshooting section for known issues.
@@ -63,7 +63,7 @@ Previous release: [AI Playground 3.1.2 beta-hf3](https://github.com/intel/AI-Pla
 
 ### Installation Process for v3.x
 1. The packaged installer targets all supported hardware above and prepares the AI Playground runtime for first launch.
-2. On first run, the AI Playground Set Up wizard appears. Choose a hardware mode (Essentials, Studio, or Studio for NVIDIA CUDA) and install backend components (Llama.cpp, OpenVINO, ComfyUI, and optional Home Agent, Hybrid Cloud, and Audio). It is recommended to keep default hardware settings and enable all components, then click Install and Continue. This step needs a clear, unfiltered internet connection (corporate VPNs often cause failures) and may **take several minutes**.
+2. On first run, the AI Playground Set Up wizard appears. Choose a hardware mode (Essentials, Studio, or Studio for NVIDIA CUDA) and install backend components (Llama.cpp, OpenVINO, ComfyUI, and optional Channels, Hybrid Cloud, and Audio). It is recommended to keep default hardware settings and enable all components, then click Install and Continue. This step needs a clear, unfiltered internet connection (corporate VPNs often cause failures) and may **take several minutes**.
 3. Download the Users Guide for full application information: [AI Playground Users Guide v3.2](https://github.com/intel/AI-Playground/blob/main/AI%20Playground%20Users%20Guide.pdf)
 
 ### Troubleshooting Installation

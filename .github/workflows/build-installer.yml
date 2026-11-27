@@ -54,7 +54,7 @@ jobs:
 
   build-linux:
     if: github.repository != 'intel/AI-Playground'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout code

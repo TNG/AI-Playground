@@ -46,6 +46,8 @@ import {
   cancelAllArtifactRuns,
   finishTextRequest,
   mediaRequestsQueued,
+  openComponentHolds,
+  prepareChatForSettlement,
   reclaimTurnPlace,
   resetOrchestratorForTest,
   runMediaRequest,
@@ -225,6 +227,45 @@ describe('the orchestrator', () => {
     expect(d.stopChatForMedia).toHaveBeenCalledTimes(1)
     expect(d.freeComfyMemory).toHaveBeenCalledTimes(1)
     expect(d.restartChatBackend).toHaveBeenCalledTimes(1)
+  })
+
+  it('hands the GPU back for a settling run without waiting for it to finish', async () => {
+    const d = deps()
+    setOrchestratorDeps(d)
+    const hold = holdNextRun()
+    const media = submitArtifactRun(payload())
+    await vi.waitFor(() => expect(d.stopChatForMedia).toHaveBeenCalled())
+
+    await prepareChatForSettlement()
+    expect(d.freeComfyMemory).toHaveBeenCalledTimes(1)
+    expect(d.restartChatBackend).toHaveBeenCalledTimes(1)
+    // The chat GPU window is open again while the run is still settling.
+    await awaitChatWindow()
+
+    hold.resolve({ state: 'completed', items: [] })
+    await media
+  })
+
+  it('does not wait for queued media before handing the GPU back to chat', async () => {
+    const d = deps()
+    setOrchestratorDeps(d)
+    const holdOne = holdNextRun()
+    const active = submitArtifactRun(payload())
+    await vi.waitFor(() => expect(d.stopChatForMedia).toHaveBeenCalled())
+    const holdTwo = holdNextRun()
+    const queued = submitArtifactRun(consented({ runId: 'run-2' }), { queue: 'queue' })
+
+    await prepareChatForSettlement()
+    expect(d.freeComfyMemory).toHaveBeenCalledTimes(1)
+    expect(d.restartChatBackend).toHaveBeenCalledTimes(1)
+
+    holdOne.resolve({ state: 'completed', items: [] })
+    await active
+    // The queued run takes the GPU back for its own media when it runs.
+    await vi.waitFor(() => expect(activeRunId).toBe('run-2'))
+    holdTwo.resolve({ state: 'completed', items: [] })
+    await queued
+    expect(d.stopChatForMedia).toHaveBeenCalledTimes(2)
   })
 
   it('does not admit a GPU chat turn while stopChatForMedia is in flight', async () => {
@@ -792,7 +833,7 @@ describe('the Turn Queue', () => {
     })
     const summary = submitTextRequest({
       runId: 'summary',
-      conversationKey: 'home-agent-summarize',
+      conversationKey: 'summarize',
       needsGpu: true,
       joinsTurnQueue: true,
       work: 'summary',
@@ -1325,6 +1366,30 @@ describe('panel runs waiting on model download consent', () => {
     expect(startArtifactRunMock).not.toHaveBeenCalled()
   })
 
+  it('says a run was declined, not just cancelled, so a tool can stop asking', async () => {
+    setOrchestratorDeps(deps())
+    prepareRunModelsMock.mockResolvedValueOnce({ state: 'declined' })
+    prepareRunModelsMock.mockResolvedValueOnce({ state: 'declined' })
+
+    const nested = await submitArtifactRun(payload({ runId: 'tool-1' }), { queue: 'queue' })
+    const panel = await submitArtifactRun(payload({ runId: 'panel-1' }))
+
+    expect(nested).toMatchObject({ state: 'cancelled', declined: true })
+    expect(panel).toMatchObject({ state: 'cancelled', declined: true })
+    expect(startArtifactRunMock).not.toHaveBeenCalled()
+  })
+
+  it('does not call a nested run stopped while the user decides declined', async () => {
+    setOrchestratorDeps(deps())
+    askNextRun()
+    const nested = submitArtifactRun(payload({ runId: 'tool-1' }), { queue: 'queue' })
+    await settle()
+    cancelArtifactRun('tool-1')
+    const result = await nested
+    expect(result.state).toBe('cancelled')
+    expect(result.declined).toBeUndefined()
+  })
+
   it('a stop while the user decides ends the run, and the answer is ignored', async () => {
     setOrchestratorDeps(deps())
     const { answer } = askNextRun()
@@ -1336,5 +1401,67 @@ describe('panel runs waiting on model download consent', () => {
     await settle()
     expect(startArtifactRunMock).not.toHaveBeenCalled()
     expect(artifactWorkOpen()).toBe(false)
+  })
+})
+
+describe('component holds', () => {
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 20))
+
+  beforeEach(() => resetOrchestratorForTest())
+
+  it("holds a local turn's Component until the turn finishes", async () => {
+    await submitTextRequest({
+      runId: 'turn-1',
+      conversationKey: 'c1',
+      needsGpu: false,
+      work: 'chat',
+      component: 'llamacpp-backend',
+    })
+
+    expect(openComponentHolds()).toEqual([{ component: 'llamacpp-backend', work: 'turn' }])
+
+    finishTextRequest('turn-1')
+    expect(openComponentHolds()).toEqual([])
+  })
+
+  it("names an Agent Run's hold as an Agent Run", async () => {
+    await submitTextRequest({
+      runId: 'agent-1',
+      conversationKey: 's1',
+      needsGpu: false,
+      work: 'agent',
+      component: 'openvino-backend',
+    })
+
+    expect(openComponentHolds()).toEqual([{ component: 'openvino-backend', work: 'agent-run' }])
+  })
+
+  it('leaves an unrelated Component out of the holds', async () => {
+    await submitTextRequest({
+      runId: 'turn-1',
+      conversationKey: 'c1',
+      needsGpu: false,
+      work: 'chat',
+      component: 'llamacpp-backend',
+    })
+
+    const held = openComponentHolds().map((entry) => entry.component)
+    expect(held).toContain('llamacpp-backend')
+    expect(held).not.toContain('comfyui-backend')
+  })
+
+  it("holds ComfyUI from a media run's submission until it settles", async () => {
+    const hold = holdNextRun()
+    const run = submitArtifactRun(consented())
+
+    expect(openComponentHolds()).toContainEqual({
+      component: 'comfyui-backend',
+      work: 'media-run',
+    })
+
+    hold.resolve({ state: 'completed', items: [] })
+    await run
+    await settle()
+    expect(openComponentHolds()).toEqual([])
   })
 })

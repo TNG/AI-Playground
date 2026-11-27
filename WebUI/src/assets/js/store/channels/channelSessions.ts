@@ -1,0 +1,217 @@
+import type { AnswerRouterCopy } from '@/lib/answerRouterWording'
+import { fillTemplate } from '@/lib/fillTemplate'
+import type { AgentAnswerOrigin } from '@/types/agentIpc'
+import type { ChannelAdapter, RawPart } from './adapter'
+import type {
+  ChannelSessionPointers,
+  DesktopView,
+  InboundChannelMessage,
+  SessionPort,
+} from './answerRouter'
+import type { ChannelCallback, ChannelCommand } from './channelCommands'
+import type { ChannelTurnMessage } from './channelQueue'
+import { inboundOrigin } from './channelInbound'
+import type { InboundMeta, KeyboardButton } from './types'
+
+// Telegram and Slack turn a tap on this prefix into `/load <value>`; LAN chat sends the callback.
+export const LOAD_SESSION_CALLBACK = 'loadConv:'
+
+const LISTED_SESSIONS = 10
+
+export type ChannelSessionDeps = {
+  port: SessionPort
+  pointers: ChannelSessionPointers
+  copy: () => AnswerRouterCopy
+  tell: (adapter: ChannelAdapter, text: string, meta?: InboundMeta) => Promise<void>
+  /** Sends into the Session, or queues while it is busy; the Channel is told either way. */
+  submit: (
+    adapter: ChannelAdapter,
+    target: { sessionRef: string },
+    message: ChannelTurnMessage,
+    origin: AgentAnswerOrigin,
+    meta?: InboundMeta,
+  ) => Promise<unknown>
+  /** Stores the message's files in the Session: the prompt to send, or null when none runs. */
+  attach: (
+    adapter: ChannelAdapter,
+    target: { sessionRef: string },
+    msg: InboundChannelMessage,
+    meta?: InboundMeta,
+  ) => Promise<string | null>
+  bringIntoView: (sessionRef: string, view: DesktopView) => void
+  log: (message: string, error: unknown) => void
+}
+
+/** Each Channel's Channel Session: plain messages go there, and the commands that pick it. */
+export function createChannelSessions(deps: ChannelSessionDeps) {
+  const { port, pointers, copy, tell } = deps
+
+  /** A new Reachable Session the Channel now points at, or null when the Channel was told why not. */
+  async function startSession(adapter: ChannelAdapter, meta?: InboundMeta): Promise<string | null> {
+    try {
+      const sessionRef = await port.create()
+      pointers.set(adapter.kind, sessionRef)
+      return sessionRef
+    } catch (e) {
+      deps.log('channelSessions: creating a Session failed:', e)
+      const reason = e instanceof Error ? e.message : String(e)
+      await tell(adapter, fillTemplate(copy().sessionNotCreated, { reason }), meta)
+      return null
+    }
+  }
+
+  /** The Channel Session, if it is still reachable; a lost one is cleared and told once. */
+  async function current(adapter: ChannelAdapter, meta?: InboundMeta): Promise<string | null> {
+    const sessionRef = pointers.get(adapter.kind)
+    if (!sessionRef) return null
+    if (await port.isReachable(sessionRef)) return sessionRef
+    pointers.set(adapter.kind, null)
+    await tell(adapter, copy().sessionLost, meta)
+    return null
+  }
+
+  async function plainMessage(
+    adapter: ChannelAdapter,
+    msg: InboundChannelMessage,
+    meta?: InboundMeta,
+  ): Promise<void> {
+    const hasFiles = !!(msg.images?.length || msg.documents?.length)
+    if (!msg.text?.trim() && !hasFiles) return
+    const sessionRef = await currentOrNew(adapter, meta)
+    if (!sessionRef) return
+    const prompt = await deps.attach(adapter, { sessionRef }, msg, meta)
+    if (prompt === null) return
+    await deps.submit(
+      adapter,
+      { sessionRef },
+      { text: prompt },
+      inboundOrigin(adapter.kind, msg),
+      meta,
+    )
+  }
+
+  /** Repaints a Channel with no history of its own (LAN chat) with the Session's transcript. */
+  async function repaint(adapter: ChannelAdapter, sessionRef: string): Promise<void> {
+    if (!adapter.replayHistory) return
+    try {
+      const transcript = await port.transcript(sessionRef)
+      await adapter.replayHistory(
+        transcript.map(({ role, parts }) => ({
+          role,
+          text: role === 'assistant' ? adapter.formatFinal(parts) : plainText(parts),
+        })),
+      )
+    } catch (e) {
+      deps.log('channelSessions: repainting the channel failed:', e)
+    }
+  }
+
+  /** The Reachable Sessions as `/sessions` lists them, the Channel Session marked; a tap sends `prefix`. */
+  async function sessionButtons(
+    adapter: ChannelAdapter,
+    prefix: string,
+  ): Promise<KeyboardButton[][]> {
+    const listed = (await port.listReachable()).slice(0, LISTED_SESSIONS)
+    const pointed = pointers.get(adapter.kind)
+    const untitled = copy().untitled
+    return listed.map(({ sessionRef, title }, index) => [
+      {
+        text: `${sessionRef === pointed ? '✅ ' : ''}${index + 1}. ${title || untitled}`,
+        callbackData: `${prefix}${sessionRef}`,
+      },
+    ])
+  }
+
+  async function listSessions(adapter: ChannelAdapter, meta?: InboundMeta): Promise<void> {
+    const buttons = await sessionButtons(adapter, LOAD_SESSION_CALLBACK)
+    const wording = copy()
+    if (buttons.length === 0) return tell(adapter, wording.sessionsNone, meta)
+    await adapter
+      .keyboard(adapter.formatMarkdown(wording.sessionsPick), buttons, meta)
+      .catch((e: unknown) => deps.log('channelSessions: listing Sessions failed:', e))
+  }
+
+  /** Points the Channel at a listed Session, as `/load` does; null when the Channel was told why not. */
+  async function moveTo(
+    adapter: ChannelAdapter,
+    choice: string,
+    meta?: InboundMeta,
+  ): Promise<string | null> {
+    const reachable = await port.listReachable()
+    const index = /^\d+$/.test(choice) ? Number(choice) - 1 : -1
+    const picked = reachable[index] ?? reachable.find((entry) => entry.sessionRef === choice)
+    if (!picked) {
+      await tell(adapter, fillTemplate(copy().sessionNotFound, { n: choice }), meta)
+      return null
+    }
+    pointers.set(adapter.kind, picked.sessionRef)
+    await repaint(adapter, picked.sessionRef)
+    deps.bringIntoView(picked.sessionRef, 'as-is')
+    return picked.sessionRef
+  }
+
+  async function load(adapter: ChannelAdapter, choice: string, meta?: InboundMeta): Promise<void> {
+    const sessionRef = await moveTo(adapter, choice, meta)
+    if (!sessionRef) return
+    const title = port.label({ sessionRef })
+    await tell(adapter, fillTemplate(copy().sessionLoaded, { title }), meta)
+  }
+
+  /** Moves the Channel to a new Session, as `/new` does; null when the Channel was told why not. */
+  async function moveToNew(adapter: ChannelAdapter, meta?: InboundMeta): Promise<string | null> {
+    const sessionRef = await startSession(adapter, meta)
+    if (sessionRef) await repaint(adapter, sessionRef)
+    return sessionRef
+  }
+
+  async function startNew(adapter: ChannelAdapter, meta?: InboundMeta): Promise<void> {
+    const sessionRef = await moveToNew(adapter, meta)
+    if (!sessionRef) return
+    deps.bringIntoView(sessionRef, 'assistant')
+    await tell(adapter, copy().sessionStarted, meta)
+  }
+
+  const commands: ChannelCommand[] = [
+    {
+      name: 'sessions',
+      usage: '/sessions',
+      describe: (wording) => wording.helpSessions,
+      run: ({ adapter, meta }) => listSessions(adapter, meta),
+    },
+    {
+      name: 'load',
+      usage: '/load <n>',
+      describe: (wording) => wording.helpLoad,
+      run: ({ adapter, meta, args }) =>
+        args ? load(adapter, args, meta) : listSessions(adapter, meta),
+    },
+    {
+      name: 'new',
+      usage: '/new',
+      describe: (wording) => wording.helpNew,
+      run: ({ adapter, meta }) => startNew(adapter, meta),
+    },
+  ]
+
+  const callbacks: ChannelCallback[] = [
+    {
+      prefix: LOAD_SESSION_CALLBACK,
+      run: ({ adapter, meta }, sessionRef) => load(adapter, sessionRef, meta),
+    },
+  ]
+
+  /** The Channel Session, or a new one when the Channel has none (as a plain message makes). */
+  async function currentOrNew(adapter: ChannelAdapter, meta?: InboundMeta) {
+    return (await current(adapter, meta)) ?? (await startSession(adapter, meta))
+  }
+
+  return { plainMessage, current, moveToNew, moveTo, sessionButtons, commands, callbacks }
+}
+
+function plainText(parts: RawPart[]): string {
+  return parts
+    .filter((part) => part.type === 'text' && part.text)
+    .map((part) => part.text)
+    .join('')
+    .trim()
+}

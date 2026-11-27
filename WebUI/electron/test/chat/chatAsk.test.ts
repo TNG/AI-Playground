@@ -13,8 +13,14 @@ vi.mock('../../kernel/kernelBus', () => ({
   getKernelEventWindow: () => currentWindow,
 }))
 
-const { askRenderer, handleChatAnswer, rejectAllChatAsks, resetChatAskForTest, chatAsksPending } =
-  await import('../../chat/chatAsk')
+const {
+  askRenderer,
+  handleChatAnswer,
+  rejectAllChatAsks,
+  resetChatAskForTest,
+  chatAsksPending,
+  isDeclinedDownload,
+} = await import('../../chat/chatAsk')
 
 function lastRequestId(): string {
   return sent[sent.length - 1].payload.requestId
@@ -43,14 +49,24 @@ describe('chatAsk', () => {
     expect(chatAsksPending()).toBe(0)
   })
 
+  it('keeps a declined model download apart from a failure', async () => {
+    const declined = askRenderer({ kind: 'speech-transcribe', audioBase64: 'QQ==' })
+    handleChatAnswer({ requestId: lastRequestId(), error: 'download cancelled', declined: true })
+    const failed = askRenderer({ kind: 'speech-transcribe', audioBase64: 'QQ==' })
+    handleChatAnswer({ requestId: lastRequestId(), error: 'disk full' })
+
+    const declinedError = await declined.catch((error: unknown) => error)
+    const failedError = await failed.catch((error: unknown) => error)
+
+    expect(isDeclinedDownload(declinedError)).toBe(true)
+    expect(isDeclinedDownload(failedError)).toBe(false)
+    expect((failedError as Error).message).toBe('disk full')
+  })
+
   it('settles a question when the turn it belongs to is cancelled', async () => {
     const controller = new AbortController()
-    const answer = askRenderer<boolean>(
-      {
-        kind: 'home-agent-confirm',
-        conversationKey: 'conv-1',
-        summaryMarkdown: 'Switch backend',
-      },
+    const answer = askRenderer<{ text: string }>(
+      { kind: 'speech-transcribe', audioBase64: 'QQ==' },
       { abortSignal: controller.signal },
     )
 
@@ -58,7 +74,7 @@ describe('chatAsk', () => {
 
     await expect(answer).rejects.toThrow(/cancelled/i)
     expect(chatAsksPending()).toBe(0)
-    // The card the user was looking at may still answer; it must find nobody.
+    // The window may still answer; it must find nobody.
     expect(() => handleChatAnswer({ requestId: lastRequestId(), result: true })).not.toThrow()
   })
 

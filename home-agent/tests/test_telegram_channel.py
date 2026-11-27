@@ -111,10 +111,14 @@ class TelegramInboundTest(unittest.TestCase):
             },
         )
 
-    def test_a_refused_document_replying_to_nothing_is_not_queued(self) -> None:
+    def test_a_refused_document_replying_to_nothing_is_queued_with_its_notice(
+        self,
+    ) -> None:
         doc = message("")
         doc.caption = None
-        self.assertIsNone(refused_document_item(doc, "Unsupported document type."))
+        item = refused_document_item(doc, "Unsupported document type.")
+        self.assertEqual(item["refused"], "Unsupported document type.")
+        self.assertNotIn("reply_to", item)
 
     def test_an_answer_tap_names_the_message_the_button_is_under(self) -> None:
         tapped = SimpleNamespace(chat_id=4242, message_id=1234)
@@ -161,6 +165,7 @@ class TelegramOutboundTest(unittest.TestCase):
         fake_telegram.ReplyParameters = ReplyParameters  # type: ignore[attr-defined]
         fake_telegram.InputFile = lambda file, filename: (file.read(), filename)  # type: ignore[attr-defined]
         fake_telegram.InlineKeyboardButton = SimpleNamespace  # type: ignore[attr-defined]
+        fake_telegram.ForceReply = SimpleNamespace  # type: ignore[attr-defined]
         fake_telegram.InlineKeyboardMarkup = lambda rows: rows  # type: ignore[attr-defined]
         self._saved = sys.modules.get("telegram")
         sys.modules["telegram"] = fake_telegram
@@ -200,6 +205,23 @@ class TelegramOutboundTest(unittest.TestCase):
         )
         self.assertEqual(result, {"status": "ok", "message_id": 501})
         self.assertEqual(self.reply_target(0)["message_id"], 77)
+
+    def test_a_start_prompt_request_opens_the_reply_box_with_its_hint(self) -> None:
+        result = self.channel.send_post(
+            {"text": "What should it do?", "force_reply_placeholder": "Start Prompt"}
+        )
+        self.assertEqual(result, {"status": "ok", "message_id": 501})
+        markup = self.bot.calls[0][1]["reply_markup"]
+        self.assertEqual(markup.input_field_placeholder, "Start Prompt")
+
+    def test_a_reply_box_hint_is_cut_to_what_telegram_accepts(self) -> None:
+        self.channel.send_post({"text": "?", "force_reply_placeholder": "x" * 80})
+        markup = self.bot.calls[0][1]["reply_markup"]
+        self.assertEqual(markup.input_field_placeholder, "x" * 64)
+
+    def test_a_post_opens_no_reply_box_unless_asked(self) -> None:
+        self.channel.send_post({"text": "Downloading…"})
+        self.assertNotIn("reply_markup", self.bot.calls[0][1])
 
     def test_a_plain_reply_answers_nothing(self) -> None:
         self.channel.send_reply({"text": "hello"})
@@ -244,6 +266,31 @@ class TelegramOutboundTest(unittest.TestCase):
         self.assertEqual(kwargs["document"], (b"glTF", "ship.glb"))
         self.assertIsNone(kwargs["caption"])
         self.assertEqual(self.reply_target(0)["message_id"], 77)
+
+    def test_every_media_caption_is_sent_in_the_parse_mode_it_was_given(self) -> None:
+        data = base64.b64encode(b"OggS").decode()
+        formatted = {"caption": "<b>done</b>", "parse_mode": "HTML"}
+        self.channel.send_photo({"photo": data, **formatted})
+        self.channel.send_video({"video": data, **formatted})
+        self.channel.send_voice({"audio": data, "mime": "audio/ogg", **formatted})
+        self.channel.send_document({"document": data, **formatted})
+        self.assertEqual(
+            [
+                (method, kwargs["caption"], kwargs["parse_mode"])
+                for method, kwargs in self.bot.calls
+            ],
+            [
+                ("send_photo", "<b>done</b>", "HTML"),
+                ("send_video", "<b>done</b>", "HTML"),
+                ("send_voice", "<b>done</b>", "HTML"),
+                ("send_document", "<b>done</b>", "HTML"),
+            ],
+        )
+
+    def test_a_caption_with_no_parse_mode_is_plain_text(self) -> None:
+        data = base64.b64encode(b"bytes").decode()
+        self.channel.send_photo({"photo": data, "caption": "*x*"})
+        self.assertIsNone(self.bot.calls[0][1]["parse_mode"])
 
 
 if __name__ == "__main__":

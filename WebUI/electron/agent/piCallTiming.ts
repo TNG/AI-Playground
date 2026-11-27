@@ -1,4 +1,6 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { appLoggerInstance } from '../observability/logger.ts'
+import type { LlamaCppTimings } from '../chat/turnEngine.ts'
 import {
   recordAgentCallStats,
   type InferenceCallStats,
@@ -11,8 +13,8 @@ import {
 // mid-token. This wrapper counts matching local calls from dispatch until the
 // body is drained (same lifetime as chatInferenceStreamsActive).
 //
-// Timings stay opt-in: Laminar's observer is layered on the same wrapper and
-// only records calls to the endpoint this session registered.
+// Timings are read off calls to the endpoint this session registered, for the
+// metrics footer of the turn that made the call and for Laminar.
 
 const logger = appLoggerInstance
 const LOG_SOURCE = 'laminar'
@@ -26,6 +28,51 @@ let occupancyEndpoint: (() => string) | null = null
 let timingsEndpoint: (() => string) | null = null
 let timingsEnabled = false
 let activeCalls = 0
+const turnCalls = new AsyncLocalStorage<LlamaCppTimings[]>()
+
+/** Runs one turn's model calls, collecting each call's timings into `calls`. */
+export function collectAgentCallTimings<T>(
+  calls: LlamaCppTimings[],
+  work: () => Promise<T>,
+): Promise<T> {
+  return turnCalls.run(calls, work)
+}
+
+/**
+ * A turn's calls in the shape of a chat answer's timings: generation summed over
+ * every call, and the first call's prefill as the time to the first token.
+ */
+export function turnTimings(calls: LlamaCppTimings[]): LlamaCppTimings | undefined {
+  const first = calls[0]
+  if (!first) return undefined
+  const sum = (key: keyof LlamaCppTimings) => calls.reduce((total, call) => total + call[key], 0)
+  const promptN = sum('prompt_n')
+  const promptMs = sum('prompt_ms')
+  return {
+    ...rates(promptN, promptMs, sum('predicted_n'), sum('predicted_ms')),
+    cache_n: sum('cache_n'),
+    prompt_ms: first.prompt_ms,
+  }
+}
+
+function rates(
+  promptN: number,
+  promptMs: number,
+  predictedN: number,
+  predictedMs: number,
+): LlamaCppTimings {
+  return {
+    cache_n: 0,
+    prompt_n: promptN,
+    prompt_ms: promptMs,
+    prompt_per_token_ms: promptN > 0 ? promptMs / promptN : 0,
+    prompt_per_second: promptMs > 0 ? (promptN / promptMs) * 1000 : 0,
+    predicted_n: predictedN,
+    predicted_ms: predictedMs,
+    predicted_per_token_ms: predictedN > 0 ? predictedMs / predictedN : 0,
+    predicted_per_second: predictedMs > 0 ? (predictedN / predictedMs) * 1000 : 0,
+  }
+}
 
 export function piAgentCallsActive(): number {
   return activeCalls
@@ -93,13 +140,14 @@ function install(): void {
     if (!occupancy && !timings) return original(input, init)
 
     if (occupancy) beginOccupancy()
+    const calls = turnCalls.getStore()
     const startedAt = Date.now()
     try {
       const response = await original(input, init)
       try {
         const timeThis = timings && response.ok && Boolean(response.body)
         if (!occupancy && !timeThis) return response
-        return wrapAgentResponse(response, { occupancy, timings: timeThis, startedAt })
+        return wrapAgentResponse(response, { occupancy, timings: timeThis, startedAt, calls })
       } catch (error) {
         logger.warn(`could not observe a model call: ${error}`, LOG_SOURCE)
         if (occupancy) endOccupancy()
@@ -120,7 +168,7 @@ function requestUrl(input: Parameters<typeof fetch>[0]): string {
 
 function wrapAgentResponse(
   response: Response,
-  opts: { occupancy: boolean; timings: boolean; startedAt: number },
+  opts: { occupancy: boolean; timings: boolean; startedAt: number; calls?: LlamaCppTimings[] },
 ): Response {
   if (!response.body) {
     if (opts.occupancy) endOccupancy()
@@ -142,8 +190,11 @@ function wrapAgentResponse(
         const { done, value } = await reader.read()
         if (done) {
           if (opts.timings) {
-            const stats = summarize(tail, opts.startedAt, firstChunkAt, Date.now())
-            if (stats) recordAgentCallStats(stats)
+            const timings = summarize(tail, opts.startedAt, firstChunkAt, Date.now())
+            if (timings) {
+              opts.calls?.push(timings)
+              recordAgentCallStats(callStats(timings))
+            }
           }
           settle()
           controller.close()
@@ -173,12 +224,16 @@ function wrapAgentResponse(
 
 type FinalChunk = {
   usage?: { prompt_tokens?: number; completion_tokens?: number }
-  timings?: {
-    cache_n?: number
-    prompt_ms?: number
-    prompt_per_second?: number
-    predicted_ms?: number
-    predicted_per_second?: number
+  timings?: Partial<LlamaCppTimings>
+}
+
+function callStats(timings: LlamaCppTimings): InferenceCallStats {
+  return {
+    prefillTokensPerSecond: timings.prompt_per_second,
+    generationTokensPerSecond: timings.predicted_per_second,
+    promptMs: timings.prompt_ms,
+    predictedMs: timings.predicted_ms,
+    cacheTokens: timings.cache_n,
   }
 }
 
@@ -193,29 +248,30 @@ function summarize(
   startedAt: number,
   firstChunkAt: number,
   endedAt: number,
-): InferenceCallStats | null {
+): LlamaCppTimings | null {
   const final = lastEvent(tail)
   if (!final) return null
-  if (final.timings?.predicted_per_second !== undefined) {
+  const own = final.timings
+  if (own?.predicted_per_second !== undefined) {
     return {
-      prefillTokensPerSecond: final.timings.prompt_per_second,
-      generationTokensPerSecond: final.timings.predicted_per_second,
-      promptMs: final.timings.prompt_ms,
-      predictedMs: final.timings.predicted_ms,
-      cacheTokens: final.timings.cache_n,
+      cache_n: own.cache_n ?? 0,
+      prompt_n: own.prompt_n ?? final.usage?.prompt_tokens ?? 0,
+      prompt_ms: own.prompt_ms ?? 0,
+      prompt_per_token_ms: own.prompt_per_token_ms ?? 0,
+      prompt_per_second: own.prompt_per_second ?? 0,
+      predicted_n: own.predicted_n ?? final.usage?.completion_tokens ?? 0,
+      predicted_ms: own.predicted_ms ?? 0,
+      predicted_per_token_ms: own.predicted_per_token_ms ?? 0,
+      predicted_per_second: own.predicted_per_second,
     }
   }
   if (!final.usage || !firstChunkAt) return null
-  const promptMs = firstChunkAt - startedAt
-  const predictedMs = endedAt - firstChunkAt
-  const perSecond = (tokens: number | undefined, ms: number) =>
-    tokens && ms > 0 ? (tokens / ms) * 1000 : undefined
-  return {
-    prefillTokensPerSecond: perSecond(final.usage.prompt_tokens, promptMs),
-    generationTokensPerSecond: perSecond(final.usage.completion_tokens, predictedMs),
-    promptMs,
-    predictedMs,
-  }
+  return rates(
+    final.usage.prompt_tokens ?? 0,
+    firstChunkAt - startedAt,
+    final.usage.completion_tokens ?? 0,
+    endedAt - firstChunkAt,
+  )
 }
 
 /** The last SSE event in the tail that parses as JSON — `[DONE]` does not. */

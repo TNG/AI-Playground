@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { acceptHMRUpdate } from 'pinia'
+import { rethrowCancellationAs } from '../errors/appError'
 import { makeFileBackedPreference } from '@/lib/fileBackedPreferences'
 import { useBackendServices } from './backendServices'
 import { useModels } from './models'
@@ -75,7 +76,7 @@ export const useTextToSpeech = defineStore('textToSpeech', () => {
   // speech I/O adapter (`speechIO.speak`); this store is engine config.
 
   // Which engine the TTS preset (and the synthesizeTextToSpeech tool) uses. Edited
-  // in SettingsTts; 'kokoro' is only selectable when `isKokoroAvailable` is true.
+  // in SettingsTtsInferencing; 'kokoro' is only selectable when `isKokoroAvailable` is true.
   const selectedEngine = ref<TtsEngine>('qwen3')
   // The Kokoro voice used for the OVMS text2speech path.
   const selectedKokoroVoice = ref<KokoroVoice>('af_heart')
@@ -86,11 +87,11 @@ export const useTextToSpeech = defineStore('textToSpeech', () => {
 
   /**
    * App-wide fallback speech endpoint. Shared by the desktop auto-play path
-   * and the Home Agent voice-reply pipeline so TTS works even without OVMS.
+   * and the Channel voice-reply pipeline so TTS works even without OVMS.
    */
   /**
    * App-wide fallback speech endpoint. Shared by the desktop auto-play path
-   * and the Home Agent voice-reply pipeline so TTS works even without OVMS.
+   * and the Channel voice-reply pipeline so TTS works even without OVMS.
    * The API key inside is a secret the user entered once — preferences.json
    * is a plain file the user can back up, same as the localStorage key was.
    */
@@ -133,7 +134,7 @@ export const useTextToSpeech = defineStore('textToSpeech', () => {
   /**
    * Whether desktop reply playback is usable: either Kokoro (OVMS) or a
    * configured external endpoint. Gates only the speech adapter's `speak()`
-   * (the Speak button and auto-speak). Home Agent voice replies do NOT use
+   * (the Speak button and auto-speak). Channel voice replies do NOT use
    * this — they synthesize through the adapter's unattended clip path,
    * which includes Qwen3.
    *
@@ -226,9 +227,9 @@ export const useTextToSpeech = defineStore('textToSpeech', () => {
     if (!modelExists) {
       const missing = await models.getMissingSpeechModel(SPEECHT5_MODEL_NAME)
       if (missing.length > 0) {
-        await requestDownload(missing).catch(() => {
-          throw new Error('Kokoro speech model download was cancelled')
-        })
+        await requestDownload(missing).catch(
+          rethrowCancellationAs('Kokoro speech model download was cancelled'),
+        )
       }
     }
 

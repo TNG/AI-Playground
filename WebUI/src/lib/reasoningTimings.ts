@@ -1,7 +1,7 @@
 // Reasoning durations are measured where the stream is produced — Chat mode in
 // `openAiCompatibleChat`, Agent Mode in the Pi stream translator — and travel as
 // `aipg` provider metadata on the reasoning part. Reading them from the part
-// keeps every surface (chat view, agent transcript, Home Agent channels) on one
+// keeps every surface (chat view, agent transcript, Channels) on one
 // set of timings that survives persistence and reload.
 
 export type ReasoningTiming = { startedAt?: number; finishedAt?: number }

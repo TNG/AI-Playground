@@ -16,6 +16,16 @@
         <span class="text-muted-foreground">Session cost</span>
         <span>{{ costFormatted }}</span>
       </div>
+      <p v-if="pickedAgent" class="pt-1 text-muted-foreground/80">
+        {{
+          fillTemplate(
+            agentTasks.usageSessionId
+              ? languages.AGENT_USAGE_PICKED_AGENT_RUN
+              : languages.AGENT_USAGE_PICKED_AGENT_NO_RUN,
+            { agent: pickedAgent.name },
+          )
+        }}
+      </p>
       <p class="pt-1 text-muted-foreground/80">
         Input and Output are the agent's most recent model call. The session total counts every step
         of the agentic run, so it grows far past the window — the agent compacts its context
@@ -29,32 +39,37 @@
 import { computed } from 'vue'
 import Context from '@/components/ui/context/Context.vue'
 import { useAgentMode } from '@/assets/js/store/agentMode'
-import { useTextInference } from '@/assets/js/store/textInference'
+import { useAgentTasks } from '@/assets/js/store/agentTasks'
+import { fillTemplate } from '@/lib/fillTemplate'
 
 // Agent Mode reuses the chat Context widget so both modes label context the same
 // way, and adds the two figures only an agentic run has: the cumulative session
 // total across all steps and its cost (see store/agentMode.ts).
 const agentMode = useAgentMode()
-const textInference = useTextInference()
+const agentTasks = useAgentTasks()
 
 const format = (value: number) =>
   new Intl.NumberFormat('en-US', { notation: 'compact' }).format(value)
 
-const contextTokens = computed(() => agentMode.contextUsage?.tokens ?? 0)
+const pickedAgent = computed(() => agentTasks.pickedAgent)
 
-// Pi only reports the window once a session exists; until then it is the same
-// window Chat would use, which is also what the next turn will hand to Pi.
+const report = computed(() =>
+  agentTasks.usageSessionId ? agentMode.usageOf(agentTasks.usageSessionId) : undefined,
+)
+
+const contextTokens = computed(() => report.value?.contextUsage?.tokens ?? 0)
+
+// Pi only reports the window once a session exists; until then it is the window the next turn
+// will hand to Pi.
 const contextWindow = computed(
-  () => agentMode.contextUsage?.contextWindow || textInference.effectiveContextWindow,
+  () => report.value?.contextUsage?.contextWindow || agentTasks.nextSendInference.contextWindow,
 )
 
 // Pi cannot estimate occupancy between a compaction and the next model response.
-const contextUnknown = computed(
-  () => !!agentMode.contextUsage && agentMode.contextUsage.tokens === null,
-)
+const contextUnknown = computed(() => report.value?.contextUsage?.tokens === null)
 
 const lastStepUsage = computed(() => {
-  const step = agentMode.lastStepUsage
+  const step = report.value?.lastStep
   if (!step) return undefined
   return {
     inputTokens: step.inputTokens,
@@ -63,10 +78,10 @@ const lastStepUsage = computed(() => {
   }
 })
 
-const sessionTokens = computed(() => agentMode.sessionTokens)
+const sessionTokens = computed(() => report.value?.totalTokens ?? 0)
 
 const costFormatted = computed(() => {
-  const cost = agentMode.sessionUsage?.costUsd
+  const cost = report.value?.usage?.costUsd
   if (!cost) return ''
   return new Intl.NumberFormat('en-US', {
     style: 'currency',

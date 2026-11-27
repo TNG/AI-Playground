@@ -6,14 +6,14 @@ import { toolDisplayLabel } from '@/assets/js/tools/toolLabels'
 // the generic "used a tool" marker must skip them to avoid duplicate notices.
 const TOOL_TYPES_RENDERED_ELSEWHERE = new Set(['tool-comfyUI', 'tool-comfyUiImageEdit'])
 
-/** Render a concise "the model is using / used a tool" marker for any tool part
- *  the adapter doesn't already render specially. Returns null for non-tool parts
- *  and for image tools (handled by renderImageToolPart). `tense` selects the
- *  streaming (draft) vs persisted (final) wording. */
-export function renderGenericToolMarker(
-  part: { type: string; toolName?: string; state?: string },
-  tense: 'using' | 'used',
-): string | null {
+/** Render a concise "the model used a tool" marker for any tool part the adapter
+ *  doesn't already render specially. Returns null for non-tool parts and for
+ *  image tools (handled by renderImageToolPart). */
+export function renderGenericToolMarker(part: {
+  type: string
+  toolName?: string
+  state?: string
+}): string | null {
   const isToolPart = part.type.startsWith('tool-') || part.type === 'dynamic-tool'
   if (!isToolPart) return null
   if (TOOL_TYPES_RENDERED_ELSEWHERE.has(part.type)) return null
@@ -22,7 +22,6 @@ export function renderGenericToolMarker(
   const label = toolDisplayLabel(rawName)
 
   if (part.state === 'output-error') return `⚠️ ${label} failed`
-  if (tense === 'using') return `🔧 Using ${label}…`
   return `🔧 Used ${label}`
 }
 
@@ -65,19 +64,3 @@ export function escapeHtml(input: string): string {
     c === '&' ? '&amp;' : c === '<' ? '&lt;' : c === '>' ? '&gt;' : c === '"' ? '&quot;' : '&#39;',
   )
 }
-
-/** Telegram requires a non-zero int draft_id; uniqueness is only needed
- *  across concurrent open drafts in the same chat. Date.now() & 0x7fffffff
- *  gives a stable monotonic 31-bit value that fits Python int and JS safe-int
- *  comfortably. */
-export function newDraftId(): number {
-  const id = Date.now() & 0x7fffffff
-  return id === 0 ? 1 : id
-}
-
-/** Draft animation throttle (ms) and Telegram preview keep-alive interval. */
-export const DRAFT_THROTTLE_MS = 800
-export const DRAFT_KEEPALIVE_MS = 25_000
-/** Rotating spinner frames used to differentiate keep-alive draft updates so
- *  the preview window doesn't lapse on identical content. */
-export const DRAFT_SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']

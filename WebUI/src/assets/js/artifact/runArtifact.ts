@@ -11,10 +11,12 @@ import { usePresets, type ComfyInput, type ComfyUiPreset, type Preset } from '..
 import { imageUrlToDataUri } from '@/lib/utils'
 import { cloneForIpc } from '@/lib/cloneForIpc'
 import { presetToMode } from '@/lib/presetModes'
+import { FALLBACK_PARAMS, presetDefault, presetDefaultResolution } from '@/lib/comfyParamDefaults'
+import { turnSummariser } from '@/lib/turnSummariser'
 
 /**
  * Renderer-side Artifact capability: one fully-resolved request in, one settled
- * result out. Callers (the Image Gen UI, the chat media tools, Home Agent
+ * result out. Callers (the Image Gen UI, the chat media tools, Channels
  * channels) never touch selection state to make a run happen — no preset
  * switch, no variant activation, no prompt-field mutation. Everything that
  * decides the output travels on the request; everything the run produces is
@@ -56,6 +58,8 @@ export type ArtifactRequest = {
     inferenceSteps?: number
     batchSize?: number
   }
+  /** Workflow input values keyed `<nodeTitle>.<nodeInput>`, in place of the saved Attributes. */
+  inputs?: Record<string, unknown>
 }
 
 export type ArtifactRunContext = {
@@ -69,6 +73,10 @@ export type ArtifactRunContext = {
   queueMode?: 'queue'
   /** The conversation this run was asked from — routes orchestrator queue events. */
   conversationKey?: string
+  /** The Session a panel run lands in. */
+  sessionId?: string
+  /** Lets the caller know the run's id before it is submitted. */
+  runId?: string
 }
 
 export type ArtifactResult = {
@@ -78,24 +86,8 @@ export type ArtifactResult = {
   error?: string
 }
 
-// Fallbacks when neither the request nor the preset declares a value. Matches
-// the create tool's historic defaults; presets normally declare their own.
-const FALLBACK_PARAMS: Omit<ComfyGenerationParams, 'prompt'> = {
-  seed: -1,
-  width: 512,
-  height: 512,
-  inferenceSteps: 6,
-  batchSize: 1,
-  negativePrompt: 'nsfw',
-}
-
 const QUEUED_PLACEHOLDER_URL =
   'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="1" height="1"%3E%3C/svg%3E'
-
-function presetDefault(preset: Preset, settingName: string): unknown {
-  return preset.settings.find((s) => 'settingName' in s && s.settingName === settingName)
-    ?.defaultValue
-}
 
 function settingIsRelevantFor(preset: Preset, settingName: string): boolean {
   const setting = preset.settings.find((s) => 'settingName' in s && s.settingName === settingName)
@@ -120,11 +112,7 @@ function resolveVariantName(preset: Preset, requested: string | undefined): stri
 function resolveParams(request: ArtifactRequest, preset: ComfyUiPreset): ComfyGenerationParams {
   const params = request.params ?? {}
   const mediaType = preset.mediaType ?? 'image'
-  const resolutionDefault = presetDefault(preset, 'resolution')
-  const [defaultWidth, defaultHeight] =
-    typeof resolutionDefault === 'string'
-      ? resolutionDefault.split('x').map(Number)
-      : [undefined, undefined]
+  const [defaultWidth, defaultHeight] = presetDefaultResolution(preset)
 
   // Batching only makes sense for images (cheap alternates); video and 3D are
   // expensive and a single result is expected, so batch is forced to 1.
@@ -152,7 +140,7 @@ type ResolvedInput = ComfyInput & { current: unknown }
 
 /**
  * Snapshot of the workflow's dynamic inputs with their resolved current
- * values, read from the same per-persisted-preset map the settings sidebar
+ * values, read from the same per-persisted-preset map the Attributes tab
  * writes into. Plain values: the run owns them, so injecting a source image
  * cannot leak back into the persisted settings.
  */
@@ -240,10 +228,10 @@ export async function runArtifact(
   const mode: WorkflowModeType = request.mode ?? (presetToMode(preset) as WorkflowModeType)
   const params = resolveParams(request, preset)
   const settingsKey = presetSettingsKey(preset.name, variantName)
-  const inputs = resolveInputs(preset, imageGen.comfyInputsPerPreset[settingsKey])
+  const inputs = resolveInputs(preset, request.inputs ?? imageGen.savedInputsFor(settingsKey))
 
   // 2. Edit kinds: inject the source image into the first required image
-  // input, matching what the settings sidebar's LoadImage field would hold.
+  // input, matching what the Attributes tab's LoadImage field would hold.
   if (request.source) {
     const imageInput = inputs.find(
       (input) =>
@@ -303,7 +291,7 @@ export async function runArtifact(
   // artifact events (the imageGenerationPresets projection), and this promise
   // settles with the run. The abort listener is armed BEFORE submit so the
   // window between item registration and queueing is covered too.
-  const runId = crypto.randomUUID()
+  const runId = ctx.runId ?? crypto.randomUUID()
   imageGen.trackArtifactRun(runId)
   const onAbort = () => {
     void window.electronAPI.artifact.cancel(runId)
@@ -332,6 +320,10 @@ export async function runArtifact(
         conversationKey: ctx.conversationKey,
         // The tool activity's id lets queue events relabel it while parked.
         activityId: typeof ctx.parentActivityId === 'string' ? ctx.parentActivityId : undefined,
+        sessionId: ctx.sessionId,
+        // A panel run has no text model of its own; the Session's summary update needs
+        // the Assistant preset's local model resolved here, where the stores are.
+        ...(ctx.sessionId ? { summariser: turnSummariser() } : {}),
       }),
       ctx.queueMode ? { queue: ctx.queueMode } : undefined,
     )

@@ -1,5 +1,11 @@
 import { z } from 'zod'
 import { repairWorkflowToolInput } from '@/lib/comfyToolRepair'
+import {
+  describeWorkflowInputs,
+  dynamicInputsSchema,
+  promptSelectableInputs,
+  type PromptInputSummary,
+} from '@/lib/comfyPromptInputs'
 import type { MediaToolSettings } from '@/lib/mediaToolSettings'
 import { usePresets, type Preset, type ComfyUiPreset } from '../store/presets'
 import { useTextInference } from '../store/textInference'
@@ -7,12 +13,16 @@ import { DEV_PRESET_NAMES, dummyWorkflowsOnly } from '../store/devPresets'
 import { DEFAULT_RESOLUTION_CONFIG, getResolutionsFromConfig } from '../store/imageGenerationUtils'
 import { tool } from 'ai'
 
+/** The workflow toggles and defaults a tool definition is built from; the live store when absent. */
+export type WorkflowSettings = Pick<MediaToolSettings, 'isWorkflowEnabled' | 'defaultWorkflow'>
+
 /** `isEnabled` defaults to the chat store's per-workflow toggles. */
 export function getAvailableWorkflows(isEnabled?: (presetName: string) => boolean): Array<{
   name: string
   mediaType?: 'image' | 'video' | 'model3d'
   description?: string
   toolInstructions?: string
+  promptInputs?: PromptInputSummary[]
   resolutions?: Array<{
     width: number
     height: number
@@ -51,14 +61,18 @@ export function getAvailableWorkflows(isEnabled?: (presetName: string) => boolea
         mediaType: preset.mediaType,
         description: preset.description,
         toolInstructions: preset.toolInstructions,
+        promptInputs: promptSelectableInputs(comfyPreset),
         resolutions,
       }
     })
 }
 
 // Helper function to get resolution examples for tool description
-function getResolutionExamplesForWorkflow(workflowName: string): string {
-  const workflows = getAvailableWorkflows()
+function getResolutionExamplesForWorkflow(
+  workflowName: string,
+  settings?: WorkflowSettings,
+): string {
+  const workflows = getAvailableWorkflows(settings?.isWorkflowEnabled)
   const workflow = workflows.find((w) => w.name === workflowName)
   if (!workflow?.resolutions || workflow.resolutions.length === 0) {
     return '512x512, 1024x1024'
@@ -150,9 +164,12 @@ export function resolveDefaultImageWorkflow(
 
 /**
  * Repair a malformed comfyUI (create-image) tool call before execution: if the
- * model omitted `workflow` or sent a value that isn't a known workflow, coerce
- * it to the default image workflow. Returns the repaired args as a JSON string,
- * or null when `workflow` is already valid (nothing to fix) or none exist.
+ * model omitted `workflow` or sent a blank value, coerce it to the default
+ * image workflow. A named-but-unknown workflow is repaired only on a
+ * near-match (case/whitespace) to that same name; anything else is left alone
+ * so the validation error reaches the model and it retries with a valid name.
+ * Returns the repaired args as a JSON string, or null when `workflow` is
+ * already valid (nothing to fix) or none exist.
  * Wired into streamText's experimental_repairToolCall so a bad workflow can't
  * surface as an "unknown" tool card / failed generation.
  */
@@ -168,18 +185,24 @@ export function repairCreateToolInput(rawInput: string): string | null {
  * executing in-process. Null when no workflow is available (no repair
  * possible — the call fails visibly).
  */
-export function createToolRepairData(): import('@/lib/comfyToolRepair').WorkflowRepairData | null {
-  const workflows = getAvailableWorkflows()
+export function createToolRepairData(
+  settings?: WorkflowSettings,
+): import('@/lib/comfyToolRepair').WorkflowRepairData | null {
+  const workflows = getAvailableWorkflows(settings?.isWorkflowEnabled)
   if (workflows.length === 0) return null
   const imageNames = workflows.filter((w) => w.mediaType !== 'video').map((w) => w.name)
   return {
     names: workflows.map((w) => w.name),
-    defaultWorkflow: resolveDefaultImageWorkflow(imageNames),
+    defaultWorkflow: resolveDefaultImageWorkflow(imageNames, settings),
   }
 }
 
-function resolveDefaultVideoWorkflow(videoNames: string[]): string | null {
-  return useTextInference().getDefaultWorkflow('comfyUI:video', videoNames)
+function resolveDefaultVideoWorkflow(
+  videoNames: string[],
+  settings?: WorkflowSettings,
+): string | null {
+  const defaultWorkflow = settings?.defaultWorkflow ?? useTextInference().getDefaultWorkflow
+  return defaultWorkflow('comfyUI:video', videoNames)
 }
 
 // Human-readable "<preset> - <Fast variant>" hint for the default image workflow,
@@ -190,17 +213,17 @@ function resolveWorkflowVariantHint(workflowName: string): string {
   return fast ? `${workflowName} - ${fast}` : workflowName
 }
 
-function getToolDefinition() {
-  const availableWorkflows = getAvailableWorkflows()
+function getToolDefinition(settings?: WorkflowSettings) {
+  const availableWorkflows = getAvailableWorkflows(settings?.isWorkflowEnabled)
 
   const imageNames = availableWorkflows.filter((w) => w.mediaType !== 'video').map((w) => w.name)
   const videoNames = availableWorkflows.filter((w) => w.mediaType === 'video').map((w) => w.name)
-  const defaultWorkflow = resolveDefaultImageWorkflow(imageNames)
-  const defaultVideoWorkflow = resolveDefaultVideoWorkflow(videoNames)
+  const defaultWorkflow = resolveDefaultImageWorkflow(imageNames, settings)
+  const defaultVideoWorkflow = resolveDefaultVideoWorkflow(videoNames, settings)
   const defaultWorkflowWithVariant = resolveWorkflowVariantHint(defaultWorkflow)
 
   // Get resolution examples for the default workflow
-  const defaultResolutionExamples = getResolutionExamplesForWorkflow(defaultWorkflow)
+  const defaultResolutionExamples = getResolutionExamplesForWorkflow(defaultWorkflow, settings)
 
   // Fallback if no workflows are available yet (presets not loaded)
   if (availableWorkflows.length === 0) {
@@ -212,6 +235,7 @@ function getToolDefinition() {
         'RESOLUTION: Specify image size using EITHER:\n' +
         '  - aspectRatio + megapixels (e.g., aspectRatio="16/9", megapixels="1.0")\n' +
         '  - OR resolution directly (e.g., resolution="1376x768")\n' +
+        'If the user asks for an exact size (e.g., "600x600"), pass it in resolution unchanged — never translate it to other parameters. The closest supported size is used and reported back in "size"/"sizeNotice".\n' +
         'Available aspect ratios: 1/1 (square), 16/9 (widescreen), 9/16 (portrait), 3/2, 2/3, 4/3, 3/4, 21/9, 9/21\n' +
         'Available megapixels: 0.25 (small), 0.5 (medium), 0.8, 1.0 (HD), 1.2, 1.5 (high-res)\n\n' +
         'CRITICAL: Do NOT include resolution, aspect ratio, dimensions, or size information in the prompt text itself. These should ONLY be passed as separate parameters (aspectRatio, megapixels, or resolution).',
@@ -219,7 +243,7 @@ function getToolDefinition() {
         workflow: z
           .enum([defaultWorkflow] as [string, ...string[]])
           .describe(
-            `Workflow name to use for generation. Use ${defaultWorkflow} (default, will automatically use "Fast" variant if available, least resource intensive) unless user specifically requests higher quality or different model.`,
+            `Workflow name to use for generation. Use ${defaultWorkflow} (default, will automatically use "Fast" variant if available, least resource intensive) unless the user names a specific workflow.`,
           ),
         variant: z
           .string()
@@ -249,7 +273,13 @@ function getToolDefinition() {
           .string()
           .optional()
           .describe(
-            `Direct resolution in WxH format (alternative to aspectRatio+megapixels). Examples: ${defaultResolutionExamples}. The closest valid resolution will be selected.`,
+            `Direct resolution in WxH format (alternative to aspectRatio+megapixels). Examples: ${defaultResolutionExamples}. The closest valid resolution will be selected; when it differs from the request, the tool result notes the size actually used in "sizeNotice".`,
+          ),
+        inferenceSteps: z
+          .number()
+          .optional()
+          .describe(
+            'Number of inference steps. Only specify when the user explicitly asks for a specific number of steps.',
           ),
         seed: z
           .number()
@@ -260,6 +290,7 @@ function getToolDefinition() {
         batchSize: z
           .number()
           .describe('Number of images to generate. Use 1 if not explicitly specified by the user.'),
+        dynamicInputs: dynamicInputsSchema,
       }),
     }
   }
@@ -290,20 +321,31 @@ function getToolDefinition() {
   description += `VARIANT SUPPORT: Presets may have variants (e.g., "Fast", "Standard", "Quality"). By default, always prefer "Fast" variants when available as they are least resource intensive. The default preset is "${defaultWorkflow}" (equivalent to "${defaultWorkflowWithVariant}"). The tool will automatically select the "Fast" variant when available. You can optionally specify a variant name in the variant parameter if the user requests a specific quality level.\n\n`
 
   // Add resolution guidance
+  const megapixelTiers = [
+    ...new Set(availableWorkflows.flatMap((w) => w.resolutions ?? []).map((r) => r.megapixels)),
+  ].sort((a, b) => parseFloat(a) - parseFloat(b))
+  const megapixelsList =
+    megapixelTiers.length > 0 ? megapixelTiers.join(', ') : '0.25, 0.5, 0.8, 1.0'
   description += 'RESOLUTION: Specify image size using EITHER:\n'
   description +=
-    '  - aspectRatio + megapixels parameters (recommended): e.g., aspectRatio="16/9", megapixels="1.0"\n'
-  description += '  - OR resolution parameter directly: e.g., resolution="1376x768"\n\n'
+    '  - aspectRatio + megapixels parameters: e.g., aspectRatio="16/9", megapixels="1.0"\n'
+  description += '  - OR resolution parameter directly: e.g., resolution="1376x768"\n'
+  description +=
+    'If the user asks for an exact size (e.g., "600x600"), pass it in the resolution parameter unchanged — never translate it to other parameters. The closest supported size is used and reported back in "size"/"sizeNotice".\n\n'
   description +=
     'Available aspect ratios: 1/1 (square), 16/9 (widescreen/landscape), 9/16 (portrait/vertical), 3/2, 2/3, 4/3, 3/4, 21/9 (ultra-wide), 9/21\n'
+  description += `Available megapixels: ${megapixelsList}\n`
   description +=
-    'Available megapixels: 0.25 (small/fast), 0.5 (medium), 0.8, 1.0 (HD), 1.2, 1.5 (high-res/slower)\n\n'
+    'Each workflow supports a fixed set of resolutions; the closest supported one is selected and every completed result reports the size actually used in "size" — when it differs from what the user asked for, tell them which size was used.\n\n'
   description +=
     'When user asks for "high resolution", "HD", or "large" image, use megapixels="1.0" or higher.\n'
   description +=
     'When user asks for specific aspect ratio (e.g., "16:9", "widescreen", "landscape"), set aspectRatio accordingly.\n\n'
   description +=
     'CRITICAL: Do NOT include resolution, aspect ratio, dimensions, or size information in the prompt text itself. These should ONLY be passed as separate parameters (aspectRatio, megapixels, or resolution).\n\n'
+  description +=
+    'SETTINGS: When the user specifies concrete settings (steps, resolution, seed, negative prompt, batch size), pass them in the corresponding parameters — never bake them into the prompt text. A named workflow input (see WORKFLOW INPUTS) goes in dynamicInputs, keyed by its label.\n\n'
+  description += describeWorkflowInputs(availableWorkflows)
 
   // Add preset-specific instructions if available
   if (presetsWithInstructions.length > 0) {
@@ -315,7 +357,7 @@ function getToolDefinition() {
   }
 
   description += `Available workflows: ${workflowOptions}. `
-  description += `IMPORTANT: You MUST use '${defaultWorkflow}' (which will automatically use the "Fast" variant, equivalent to '${defaultWorkflowWithVariant}') unless the user explicitly requests higher quality, a different model, or a different media type.\n\n`
+  description += `WORKFLOW CHOICE: If the user names a specific workflow, you MUST use exactly that workflow — never substitute the default. Otherwise use '${defaultWorkflow}' (which will automatically use the "Fast" variant, equivalent to '${defaultWorkflowWithVariant}') unless the user explicitly requests higher quality, a different model, or a different media type.\n\n`
 
   // Add explicit warnings for video workflows
   if (videoWorkflows.length > 0) {
@@ -333,7 +375,7 @@ function getToolDefinition() {
   )
 
   let workflowDescription = `Workflow name to use for generation. Available options: ${workflowOptions}. `
-  workflowDescription += `Use ${defaultWorkflow} (will automatically use "Fast" variant if available, equivalent to '${defaultWorkflowWithVariant}') unless user specifically requests higher quality or different model. `
+  workflowDescription += `If the user names a specific workflow, use exactly that one. Otherwise use ${defaultWorkflow} (will automatically use "Fast" variant if available, equivalent to '${defaultWorkflowWithVariant}') unless user specifically requests higher quality or different model. `
   if (videoWorkflows.length > 0) {
     workflowDescription += `IMPORTANT: Only use video workflows (${videoWorkflows.map((w) => w.name).join(', ')}) when the user explicitly asks for video generation. Never use video workflows for image requests.`
   }
@@ -341,10 +383,10 @@ function getToolDefinition() {
   // Build resolution description with examples from available workflows
   const resolutionExamples =
     imageWorkflows.length > 0
-      ? getResolutionExamplesForWorkflow(imageWorkflows[0].name)
+      ? getResolutionExamplesForWorkflow(imageWorkflows[0].name, settings)
       : defaultResolutionExamples
 
-  const resolutionDescription = `Direct resolution in WxH format (alternative to aspectRatio+megapixels). Examples: ${resolutionExamples}. The closest valid resolution will be selected.`
+  const resolutionDescription = `Direct resolution in WxH format (alternative to aspectRatio+megapixels). Examples: ${resolutionExamples}. The closest valid resolution will be selected; when it differs from the request, the tool result notes the size actually used in "sizeNotice".`
 
   return {
     description,
@@ -372,9 +414,15 @@ function getToolDefinition() {
         .string()
         .optional()
         .describe(
-          'Megapixel tier for image quality/size. Options: "0.25" (small/fast), "0.5" (medium), "0.8", "1.0" (HD), "1.2", "1.5" (high-res/slower). Use with aspectRatio parameter.',
+          `Megapixel tier for image quality/size. Options: ${megapixelsList}. Use with aspectRatio parameter.`,
         ),
       resolution: z.string().optional().describe(resolutionDescription),
+      inferenceSteps: z
+        .number()
+        .optional()
+        .describe(
+          'Number of inference steps. Only specify when the user explicitly asks for a specific number of steps.',
+        ),
       seed: z
         .number()
         .optional()
@@ -384,18 +432,22 @@ function getToolDefinition() {
       batchSize: z
         .number()
         .describe('Number of images to generate. Use 1 if not explicitly specified by the user.'),
+      dynamicInputs: dynamicInputsSchema,
     }),
   }
 }
 
-// Tool definition for AI SDK
 // Use getters so the tool definition is computed when accessed (after presets are loaded)
-export const comfyUI = tool({
-  get description() {
-    return getToolDefinition().description
-  },
-  get inputSchema() {
-    return getToolDefinition().inputSchema
-  },
-  outputSchema: ComfyUiToolOutputSchema,
-})
+export function comfyUIFor(settings?: WorkflowSettings) {
+  return tool({
+    get description() {
+      return getToolDefinition(settings).description
+    },
+    get inputSchema() {
+      return getToolDefinition(settings).inputSchema
+    },
+    outputSchema: ComfyUiToolOutputSchema,
+  })
+}
+
+export const comfyUI = comfyUIFor()

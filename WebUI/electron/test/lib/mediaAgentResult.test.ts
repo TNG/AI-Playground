@@ -23,6 +23,115 @@ describe('condenseMediaAgentRun', () => {
     ])
   })
 
+  it('keeps the prompt the specialist wrote on each image it produced', () => {
+    const result = condenseMediaAgentRun({
+      text: '',
+      steps: [
+        {
+          toolName: 'comfyUI',
+          input: { workflow: 'Draft Image', prompt: 'a moonlit castle' },
+          output: {
+            images: [{ id: '1', type: 'image', imageUrl: 'aipg-media://a.png', mode: 'imageGen' }],
+          },
+        },
+      ],
+    })
+    expect(slimCondensedMedia(result).images).toEqual([
+      {
+        id: '1',
+        type: 'image',
+        imageUrl: 'aipg-media://a.png',
+        settings: { prompt: 'a moonlit castle' },
+      },
+    ])
+  })
+
+  it('records the size actually used in the step line', () => {
+    const result = condenseMediaAgentRun({
+      text: '',
+      steps: [
+        {
+          toolName: 'comfyUI',
+          input: { workflow: 'Draft Image', resolution: '600x600' },
+          output: {
+            size: '512x512',
+            sizeNotice: 'Requested 600x600, but the "Draft Image" workflow used 512x512.',
+            images: [{ id: '1', type: 'image', imageUrl: 'aipg-media://a.png', mode: 'imageGen' }],
+          },
+        },
+      ],
+    })
+    expect(result.steps[0]).toContain('(512x512)')
+  })
+
+  it('falls back to the produced entry settings when the output carries no size', () => {
+    const result = condenseMediaAgentRun({
+      text: '',
+      steps: [
+        {
+          toolName: 'comfyUI',
+          input: { workflow: 'Draft Image', resolution: '2048x2048' },
+          output: {
+            images: [
+              {
+                id: '1',
+                type: 'image',
+                imageUrl: 'aipg-media://a.png',
+                mode: 'imageGen',
+                settings: { resolution: '1024x1024' },
+              },
+            ],
+          },
+        },
+      ],
+    })
+    expect(result.steps[0]).toContain('(1024x1024)')
+  })
+
+  it('keeps the workflow each image came from, so the UI can name it after the run', () => {
+    const result = condenseMediaAgentRun({
+      text: '',
+      steps: [
+        {
+          toolName: 'comfyUI',
+          input: { workflow: 'Draft Image', prompt: 'a moonlit castle' },
+          output: {
+            images: [
+              {
+                id: '1',
+                type: 'image',
+                imageUrl: 'aipg-media://a.png',
+                mode: 'imageGen',
+                settings: {
+                  prompt: 'a moonlit castle',
+                  preset: 'Draft Image',
+                  variant: 'Fast',
+                  width: 512,
+                  height: 512,
+                  bulky: 'x'.repeat(40),
+                },
+              },
+            ],
+          },
+        },
+      ],
+    })
+    expect(slimCondensedMedia(result).images).toEqual([
+      {
+        id: '1',
+        type: 'image',
+        imageUrl: 'aipg-media://a.png',
+        settings: {
+          prompt: 'a moonlit castle',
+          preset: 'Draft Image',
+          variant: 'Fast',
+          width: 512,
+          height: 512,
+        },
+      },
+    ])
+  })
+
   it('reports the last inner failure when nothing was produced', () => {
     const result = condenseMediaAgentRun({
       text: '',
@@ -82,5 +191,101 @@ describe('condenseMediaAgentRun', () => {
       ],
     })
     expect(result.images).toHaveLength(1)
+  })
+
+  it('keeps dynamicSettings and full settings in the condensed record, strips them in the slim copy', () => {
+    const dynamicSettings = [
+      {
+        type: 'number',
+        label: 'Guidance Scale',
+        nodeTitle: 'Node',
+        nodeInput: 'guidance',
+        displayed: true,
+        modifiable: true,
+        defaultValue: 7,
+        current: 7.5,
+      },
+    ]
+    const result = condenseMediaAgentRun({
+      text: '',
+      steps: [
+        {
+          toolName: 'comfyUI',
+          input: { workflow: 'Draft Image', prompt: 'a castle' },
+          output: {
+            images: [
+              {
+                id: '1',
+                type: 'image',
+                imageUrl: 'aipg-media://a.png',
+                mode: 'imageGen',
+                settings: { preset: 'Draft Image', prompt: 'a castle', seed: 42 },
+                dynamicSettings,
+              },
+            ],
+          },
+        },
+      ],
+    })
+
+    // The condensed record is the UI's source of truth: settings and dynamic inputs survive.
+    expect(result.images[0].settings).toEqual({
+      preset: 'Draft Image',
+      prompt: 'a castle',
+      seed: 42,
+    })
+    expect(result.images[0].dynamicSettings).toEqual(dynamicSettings)
+    // The slim copy is the parent model's context: only the prompt and workflow name may remain.
+    expect(slimCondensedMedia(result).images).toEqual([
+      {
+        id: '1',
+        type: 'image',
+        imageUrl: 'aipg-media://a.png',
+        settings: { preset: 'Draft Image', prompt: 'a castle' },
+      },
+    ])
+  })
+
+  it('keeps the savedFiles paths beside the URLs in the slim copy', () => {
+    const result = condenseMediaAgentRun({
+      text: 'Made a castle.',
+      steps: [
+        {
+          toolName: 'comfyUI',
+          input: { workflow: 'Draft Image', prompt: 'a castle' },
+          output: {
+            images: [
+              {
+                id: '1',
+                type: 'image',
+                imageUrl: 'aipg-media://folders/s1/folder-x/castle.png',
+                mode: 'imageGen',
+                settings: { preset: 'Draft Image', prompt: 'a castle' },
+              },
+            ],
+          },
+        },
+      ],
+    })
+    const saved = {
+      ...result,
+      savedFiles: ['generated/castle.png'],
+      savedFilesNote: 'The generated media files were saved into the workspace.',
+    }
+
+    // The slim copy keeps the URLs (the delegated tool hides them at its call site) and
+    // carries the friendly savedFiles paths, so the model can name where each file landed.
+    expect(slimCondensedMedia(saved)).toMatchObject({
+      savedFiles: ['generated/castle.png'],
+      savedFilesNote: 'The generated media files were saved into the workspace.',
+    })
+    expect(slimCondensedMedia(saved).images).toEqual([
+      {
+        id: '1',
+        type: 'image',
+        imageUrl: 'aipg-media://folders/s1/folder-x/castle.png',
+        settings: { preset: 'Draft Image', prompt: 'a castle' },
+      },
+    ])
   })
 })

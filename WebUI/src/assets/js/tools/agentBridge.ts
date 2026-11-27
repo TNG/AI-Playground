@@ -1,15 +1,19 @@
 import { asSchema } from 'ai'
 import { z } from 'zod'
-import { comfyUI, getAvailableWorkflows, resolveDefaultImageWorkflow } from './comfyUi'
-import { comfyUiImageEdit } from './comfyUiImageEdit'
+import { comfyUIFor, getAvailableWorkflows, resolveDefaultImageWorkflow } from './comfyUi'
+import { comfyUiImageEditFor, getAvailableEditWorkflows } from './comfyUiImageEdit'
 import { synthesizeTextToSpeech } from './synthesizeTextToSpeech'
 import { transcribeAudio } from './transcribeAudio'
+import { captureScreenshot } from './captureScreenshot'
 import { mediaAgentHasTools } from '../agents/mediaAgent'
 import { useTextInference } from '../store/textInference'
 import type { AgentToolSpec } from '@/types/agentIpc'
-import { isToolEnabled } from '@/lib/builtinToolEnablement'
 import type { ToolsForTurn } from '@/lib/storedSessionInference'
-import type { MediaToolSettings } from '@/lib/mediaToolSettings'
+import {
+  storeMediaToolSettings,
+  turnMediaToolSettings,
+  type MediaToolSettings,
+} from '@/lib/mediaToolSettings'
 
 // ── Agent Mode tool specs (renderer side) ────────────────────────────────────
 //
@@ -20,20 +24,21 @@ import type { MediaToolSettings } from '@/lib/mediaToolSettings'
 // (offer_game_agent), not this file.
 
 const GENERATED_FILES_NOTE =
-  '\n\nFILES: Generated media is automatically saved into the "generated/" folder of your ' +
-  'workspace. The tool result lists the workspace-relative paths in "savedFiles". The ' +
+  '\n\nFILES: Generated media is automatically saved into your workspace. The tool result' +
+  ' lists the workspace-relative paths in "savedFiles". The ' +
   'generator names those files, so a path exists only once a call has reported it — never ' +
-  'guess one, and never create the image file yourself.'
+  'guess one, and never create the image file yourself. In your reply, name an image, video ' +
+  'or audio result by its path, never by a URL.'
 
 const SOURCE_IMAGE_NOTE =
   '\n\nAGENT MODE: There is no conversation image history here. You MUST pass the image to ' +
   'edit via the required "sourceImagePath" parameter — a workspace-relative path an earlier ' +
   'call reported under "savedFiles", or a file the user attached under "attachments/".'
 
-function editImageInputSchema(): z.ZodTypeAny {
+function editImageInputSchema(editInputSchema: unknown): z.ZodTypeAny {
   // The edit tool's zod schema is preset-dependent (workflow enum), so extend
   // it lazily at spec-build time.
-  const base = comfyUiImageEdit.inputSchema as unknown as z.ZodObject
+  const base = editInputSchema as z.ZodObject
   return base.extend({
     sourceImagePath: z
       .string()
@@ -48,8 +53,13 @@ const MEDIA_SPEC_DESCRIPTION =
   'Create or transform media (images, videos, 3D models) via a media specialist. Describe the ' +
   'desired result in natural language; the specialist picks the workflow and parameters and ' +
   'can chain steps in one call (e.g. "generate an image of a castle and turn it into a 3D ' +
-  'model"). To transform an existing image, pass its workspace-relative path in ' +
-  '"sourceImagePath".' +
+  'model"). If the user names a specific workflow or preset, include its exact name in the ' +
+  'request — it must be used as asked. Forward every concrete setting the user names verbatim: ' +
+  'quality variant, exact resolution or aspect ratio + megapixels, inference steps, seed, ' +
+  'negative prompt, number of images, and any named workflow input (e.g. guidance scale, ' +
+  'sampler, model choice) — the specialist maps them to generation parameters. The inference ' +
+  'device cannot be requested. To transform an existing image, pass its ' +
+  'workspace-relative path in "sourceImagePath".' +
   GENERATED_FILES_NOTE
 
 function mediaSpecInputSchema(): z.ZodTypeAny {
@@ -59,7 +69,13 @@ function mediaSpecInputSchema(): z.ZodTypeAny {
       .describe(
         'The media request in natural language. Include everything relevant: subject, style, ' +
           'aspect ratio or size wishes, quality level, and any follow-up transformation ' +
-          '(edit / animate / convert to 3D).',
+          '(edit / animate / convert to 3D). If the user names a specific workflow or preset, ' +
+          'include its exact name — the specialist must use it as asked. Forward every concrete ' +
+          'setting the user names verbatim — quality variant, exact resolution or aspect ratio + ' +
+          'megapixels, inference steps, seed, negative prompt, number of images, and any named ' +
+          'workflow input (e.g. guidance scale, sampler, model choice) — never drop or normalize ' +
+          'them; the specialist maps them to generation parameters. The inference device cannot ' +
+          'be requested.',
       ),
     sourceImagePath: z
       .string()
@@ -75,7 +91,8 @@ function mediaSpecInputSchema(): z.ZodTypeAny {
 const TTS_FILES_NOTE =
   '\n\nFILES: The clip is written into the "generated/" folder of your workspace; the result ' +
   'gives its workspace-relative path in "savedFilePath". Reference that path in files you write ' +
-  '(e.g. an <audio src="generated/....wav"> on an HTML page).'
+  '(e.g. an <audio src="generated/....wav"> on an HTML page). In your reply, name the clip by ' +
+  'that path, never by a URL.'
 
 const STT_SOURCE_NOTE =
   '\n\nAGENT MODE: There is no conversation audio history here. Name the file to transcribe with ' +
@@ -115,34 +132,42 @@ function speechToolSpecs(enabled: (name: string) => boolean): AgentToolSpec[] {
   return specs
 }
 
-/** `tools` are the toggles stored on a session; the live ones are read when absent. */
-export function getAgentToolSpecs(tools?: ToolsForTurn): AgentToolSpec[] {
-  const textInference = useTextInference()
-  const enabled = tools
-    ? (name: string) => isToolEnabled(tools.builtinToolEnablement, name)
-    : textInference.isBuiltinToolEnabled
+/** Opt-in like Chat's; main drops it again for a model without vision. */
+function screenshotToolSpecs(enabled: (name: string) => boolean): AgentToolSpec[] {
+  if (!enabled('captureScreenshot')) return []
   return [
-    ...mediaToolSpecs(tools?.toolDelegationEnabled ?? textInference.toolDelegationEnabled),
-    ...speechToolSpecs(enabled),
+    {
+      name: 'captureScreenshot',
+      description:
+        typeof captureScreenshot.description === 'string' ? captureScreenshot.description : '',
+      inputSchema: asSchema(captureScreenshot.inputSchema).jsonSchema as Record<string, unknown>,
+    },
   ]
 }
 
-/** The tool specs a set of media tool settings yields, e.g. a draft Settings Template's. */
+/** `tools` are the settings stored on a session; the live ones are read when absent. */
+export function getAgentToolSpecs(tools?: ToolsForTurn): AgentToolSpec[] {
+  return agentToolSpecsFor(
+    tools ? turnMediaToolSettings(tools) : storeMediaToolSettings(useTextInference()),
+  )
+}
+
+/** The tool specs a set of media tool settings yields: a turn's, or a draft Settings Template's. */
 export function agentToolSpecsFor(settings: MediaToolSettings): AgentToolSpec[] {
   return [
-    ...mediaToolSpecs(settings.delegationEnabled(), settings),
+    ...mediaToolSpecs(settings),
     ...speechToolSpecs(settings.isToolEnabled),
+    ...screenshotToolSpecs(settings.isToolEnabled),
   ]
 }
 
-// `media` defaults to the chat store's live workflow toggles and default workflows.
-function mediaToolSpecs(delegationEnabled: boolean, media?: MediaToolSettings): AgentToolSpec[] {
+function mediaToolSpecs(settings: MediaToolSettings): AgentToolSpec[] {
   // With tool delegation on (the default), the agent sees a single thin
   // `media` tool backed by the nested media agent (agents/mediaAgent.ts).
   // NOTE: the tool set is part of the Pi session's configKey, so flipping the
   // toggle starts a new Pi session on the next turn.
-  if (delegationEnabled) {
-    if (!mediaAgentHasTools(media)) return []
+  if (settings.delegationEnabled()) {
+    if (!mediaAgentHasTools(settings)) return []
     return [
       {
         name: 'media',
@@ -152,23 +177,34 @@ function mediaToolSpecs(delegationEnabled: boolean, media?: MediaToolSettings): 
       },
     ]
   }
-  const imageWorkflowNames = getAvailableWorkflows(media?.isWorkflowEnabled)
-    .filter((w) => w.mediaType !== 'video')
-    .map((w) => w.name)
-  return [
-    {
+  const specs: AgentToolSpec[] = []
+  const workflows = getAvailableWorkflows(settings.isWorkflowEnabled)
+  if (settings.isToolEnabled('comfyUI') && workflows.length > 0) {
+    const imageNames = workflows.filter((w) => w.mediaType !== 'video').map((w) => w.name)
+    const generate = comfyUIFor(settings)
+    specs.push({
       name: 'generateImage',
-      description: comfyUI.description + GENERATED_FILES_NOTE,
-      inputSchema: asSchema(comfyUI.inputSchema).jsonSchema as Record<string, unknown>,
+      description: generate.description + GENERATED_FILES_NOTE,
+      inputSchema: asSchema(generate.inputSchema).jsonSchema as Record<string, unknown>,
       // Main executes this in-process and can't see the enabled-workflow list;
       // the default is what the description already tells the model to use.
-      defaultWorkflow: resolveDefaultImageWorkflow(imageWorkflowNames, media),
-    },
-    {
+      defaultWorkflow: resolveDefaultImageWorkflow(imageNames, settings),
+      allowedWorkflows: workflows.map((w) => w.name),
+    })
+  }
+  const editWorkflows = getAvailableEditWorkflows(settings.isWorkflowEnabled)
+  if (settings.isToolEnabled('comfyUiImageEdit') && editWorkflows.length > 0) {
+    const edit = comfyUiImageEditFor(settings)
+    specs.push({
       name: 'editImage',
-      description: (comfyUiImageEdit.description ?? '') + SOURCE_IMAGE_NOTE + GENERATED_FILES_NOTE,
-      inputSchema: asSchema(editImageInputSchema()).jsonSchema as Record<string, unknown>,
+      description: (edit.description ?? '') + SOURCE_IMAGE_NOTE + GENERATED_FILES_NOTE,
+      inputSchema: asSchema(editImageInputSchema(edit.inputSchema)).jsonSchema as Record<
+        string,
+        unknown
+      >,
       workspacePathInputs: ['sourceImagePath'],
-    },
-  ]
+      allowedWorkflows: editWorkflows.map((w) => w.name),
+    })
+  }
+  return specs
 }

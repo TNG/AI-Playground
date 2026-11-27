@@ -7,10 +7,20 @@ import { useI18N } from './assets/js/store/i18n'
 import { useErrors } from './assets/js/store/errors'
 import { usePromptStore } from './assets/js/store/promptArea'
 import { useConversations } from './assets/js/store/conversations'
+import { useSessions } from './assets/js/store/sessions'
+import { useSessionChat } from './assets/js/store/sessionChat'
+import { useSessionSettings } from './assets/js/store/sessionSettings'
+import { useSessionDefaultInputs } from './assets/js/store/sessionDefaultInputs'
 import { useAgentMode } from './assets/js/store/agentMode'
 import { useAgentTasks } from './assets/js/store/agentTasks'
+import { useAgentTrialRuns } from './assets/js/store/agentTrialRuns'
 import { useImageGenerationPresets } from './assets/js/store/imageGenerationPresets'
 import { useTheme } from './assets/js/store/theme'
+import { usePromptBarStyle } from './assets/js/store/promptBarStyle'
+import { useMessageHiding } from './assets/js/store/messageHiding'
+import { useChatAware } from './assets/js/store/chatAware'
+import { useMediaModes } from './assets/js/store/mediaModes'
+import { useChannelSessionPointers } from './assets/js/store/channelSessionPointers'
 import { useDeveloperSettings } from './assets/js/store/developerSettings'
 import { useModelPreferences } from './assets/js/store/modelPreferences'
 import { useTextToSpeech } from './assets/js/store/textToSpeech'
@@ -26,9 +36,15 @@ import { startCloseAskBridge } from './assets/js/lifecycle/closeAskBridge'
 import { startPermissionsAdapter } from './assets/js/permissions/permissionsAdapter'
 import { startModelDownloader } from './lib/modelDownloaderWiring'
 import { usePermissionGrants } from './assets/js/store/permissionGrants'
+import { useComponentHolds } from './assets/js/store/componentHolds'
 import { startQueueActivityProjection } from './lib/queueActivityProjection'
 import { startNotificationConfigPush } from './lib/notificationConfigPush'
 import { startKernelLedgerProjection } from './lib/kernelLedgerProjection'
+import {
+  LEGACY_HOME_AGENT_STORAGE_KEY,
+  migrateHomeAgentThreads,
+} from './lib/homeAgentThreadMigration'
+import { demoAwareStorage } from './assets/js/demoAwareStorage'
 
 const [settings, initialPage] = await Promise.all([
   window.electronAPI.getDemoModeSettings(),
@@ -62,7 +78,11 @@ app.config.errorHandler = (err, _instance, info) => {
 window.addEventListener('unhandledrejection', (event) => {
   errors.report(event.reason, { code: 'global/unhandled-rejection', severity: 'error' })
 })
+// Chromium's notice that resize notifications were deferred a frame; nothing failed.
+const RESIZE_OBSERVER_NOTICE =
+  /^ResizeObserver loop (completed with undelivered notifications|limit exceeded)/
 window.addEventListener('error', (event) => {
+  if (RESIZE_OBSERVER_NOTICE.test(event.message)) return
   errors.report(event.error ?? event.message, {
     code: 'global/uncaught-error',
     severity: 'error',
@@ -82,7 +102,7 @@ if (initialPage !== null) {
 startMediaRequestBridge()
 // Chat tools run in main and ask this side by name for the few things that are
 // genuinely the window's: the speech engine (and its download prompt),
-// Chromium's audio decoder, and the Home Agent confirmation card.
+// Chromium's audio decoder, and a Channel's spoken reply.
 startChatAskBridge()
 startCloseAskBridge()
 startModelDownloader()
@@ -94,11 +114,21 @@ startPermissionsAdapter()
 // runs on a legacy boot.
 await useConversations().init()
 
+// The Sessions panel lists what is on disk from first paint, with a Session open.
+const sessions = useSessions()
+const sessionsListed = await sessions.hydrate()
+// Non-agent chat presets write into the open Session's chat transcript.
+useSessionChat()
+
+// Before Agent Mode resumes turns, so a Trial Run's Step ending meanwhile is not missed.
+const agentTrialRuns = useAgentTrialRuns()
 // Same for agent-session records (step 8): the Sessions panel and a resumed
 // agent turn read a fully hydrated map. Instantiating the store here is safe —
 // its setup only wires IPC and chat transport, no backend work.
-await useAgentMode().init()
+const agentMode = useAgentMode()
+await agentMode.init()
 await useAgentTasks().init()
+await agentTrialRuns.init()
 
 // Same for the generated-media gallery (step 8): the history strip hydrates
 // from the record files under media/records/, and the one-shot localStorage
@@ -117,6 +147,11 @@ await useImageGenerationPresets().init()
 // any service start already sees the machine's flags.
 await Promise.all([
   useTheme().init(),
+  usePromptBarStyle().init(),
+  useMessageHiding().init(),
+  useChatAware().init(),
+  useMediaModes().init(),
+  useChannelSessionPointers().init(),
   useDeveloperSettings().init(),
   useModelPreferences().init(),
   useTextToSpeech().init(),
@@ -127,8 +162,28 @@ await Promise.all([
   usePermissionGrants().init(),
 ])
 
-// Reads the Agent preset's saved defaults, which hydrate with textInference above.
-useAgentMode().adoptNotifyCapability()
+// Needs both the agent store's persisted defaults and the hydrated Default Settings.
+agentMode.adoptDefaultCapabilities()
+const assistantDefaultCapabilities = () => agentMode.agentDefaults().capabilities
+// Only now, so a first-boot Session takes the user's Assistant defaults, not the built-in ones.
+sessions.provideDefaultCapabilities(assistantDefaultCapabilities)
+if (sessionsListed) await sessions.ensureOpenSession()
+
+// Once Default Settings and the Channel pointers have hydrated: a migrated Session takes the
+// defaults, and the pointers' live copy takes the Channel Session main set.
+await migrateHomeAgentThreads({
+  storedHomeAgentState: () => demoAwareStorage.getItem(LEGACY_HOME_AGENT_STORAGE_KEY),
+  defaultCapabilities: assistantDefaultCapabilities,
+  migrate: (input) => window.electronAPI.sessions.migrateHomeAgentThreads(input),
+  setChannelSession: (kind, sessionRef) => useChannelSessionPointers().set(kind, sessionRef),
+  report: (error) => errors.report(error),
+})
+
+// Binds every other preset's settings to the open Session once the Default Settings
+// they copy from have hydrated (ADR-0004).
+await useSessionSettings().whenLoaded()
+// Edit, Video and Speech-to-Text presets start with the Session's newest matching artifact.
+useSessionDefaultInputs()
 
 // Relabel a parked chat tool's activity with its queue position (the
 // orchestrator's queue events, step 7). Ledger events (activity / error /
@@ -136,6 +191,10 @@ useAgentMode().adoptNotifyCapability()
 startQueueActivityProjection()
 startKernelLedgerProjection()
 startNotificationConfigPush()
+
+// The in-use guard's window half: report speech/download holds to main and project
+// its own back, so the Component Manager can disable a row the moment work starts.
+useComponentHolds()
 
 const i18n = useI18N()
 i18n.init().then(() => {

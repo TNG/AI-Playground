@@ -12,7 +12,9 @@ import {
   filterEntries,
   formatBytes,
   formatModifiedAt,
+  hasActiveFilters,
   matchesSearch,
+  modelDetailsLine,
   modelEntryId,
   modelLabel,
   normalizeModelKey,
@@ -20,6 +22,7 @@ import {
   readableModelName,
   sortEntries,
   useCaseLabel,
+  usedBySummary,
   type BuildEntriesInput,
 } from './library'
 import type { ModelEntry, ScannedModel } from './types'
@@ -151,6 +154,7 @@ function input(overrides: Partial<BuildEntriesInput> = {}): BuildEntriesInput {
     scanned: [],
     requiredModels: [],
     speechModels: [],
+    cloudModels: [],
     preferences: {},
     ...overrides,
   }
@@ -216,6 +220,66 @@ describe('buildEntries', () => {
     )
 
     expect(entries[0].source).toBe('custom')
+  })
+
+  it('lists a Hybrid Cloud model as a remote LLM that needs no disk', () => {
+    const entries = buildEntries(
+      input({
+        cloudModels: [{ name: 'provider/gpt-x', supportsVision: true, maxContextSize: 128000 }],
+      }),
+    )
+
+    expect(entries).toHaveLength(1)
+    expect(entries[0]).toMatchObject({
+      id: 'cloud:provider/gpt-x',
+      name: 'provider/gpt-x',
+      useCase: 'llm',
+      pathKey: 'cloud',
+      serviceBackend: 'cloud',
+      source: 'catalog',
+      // Remote: there is nothing to download and nothing to reclaim, and the
+      // size column says "0 B" rather than nothing at all.
+      downloaded: true,
+      sizeBytes: 0,
+    })
+    expect(entries[0].absolutePath).toBeUndefined()
+    expect(entries[0].capabilities.supportsVision).toBe(true)
+    expect(entries[0].capabilities.maxContextSize).toBe(128000)
+  })
+
+  it('keys cloud rows where the chat picker keys its cloud favorites', () => {
+    const entries = buildEntries(
+      input({
+        cloudModels: [{ name: 'provider/gpt-x' }],
+        // The id a favorite star in the picker writes; the same preference has
+        // to reach the library row for the star to read the same both places.
+        preferences: { 'cloud:provider/gpt-x': { favorite: true } },
+      }),
+    )
+
+    expect(entries[0].id).toBe('cloud:provider/gpt-x')
+    expect(entries[0].favorite).toBe(true)
+  })
+
+  it('applies a capability override to a cloud row, and to nothing but it', () => {
+    const entries = buildEntries(
+      input({
+        cloudModels: [{ name: 'provider/gpt-x', supportsVision: true, supportsReasoning: true }],
+        catalogModels: [
+          { name: 'org/repo/model.gguf', type: 'llamaCPP', downloaded: true, isPredefined: true },
+        ],
+        preferences: {
+          'cloud:provider/gpt-x': { capabilities: { supportsVision: false } },
+        },
+      }),
+    )
+
+    const cloud = entries.find((entry) => entry.serviceBackend === 'cloud')
+    expect(cloud?.capabilities.supportsVision).toBe(false)
+    expect(cloud?.capabilities.supportsReasoning).toBe(true)
+    expect(cloud?.hasCapabilityOverrides).toBe(true)
+    const local = entries.find((entry) => entry.serviceBackend === 'llama_cpp')
+    expect(local?.capabilities.supportsVision).toBeUndefined()
   })
 
   it('keeps a user-added model custom after it is downloaded', () => {
@@ -623,6 +687,26 @@ describe('matchesSearch / filterEntries', () => {
   })
 })
 
+describe('hasActiveFilters', () => {
+  it('is false for the default filters, whatever use case is chosen', () => {
+    expect(hasActiveFilters(DEFAULT_FILTERS)).toBe(false)
+    expect(hasActiveFilters({ ...DEFAULT_FILTERS, useCase: 'media' })).toBe(false)
+    expect(hasActiveFilters({ ...DEFAULT_FILTERS, useCase: 'favorites' })).toBe(false)
+  })
+
+  it('is true once any other filter differs from its default', () => {
+    expect(hasActiveFilters({ ...DEFAULT_FILTERS, search: 'qwen' })).toBe(true)
+    expect(hasActiveFilters({ ...DEFAULT_FILTERS, backend: 'comfyui' })).toBe(true)
+    expect(hasActiveFilters({ ...DEFAULT_FILTERS, capabilities: ['vision'] })).toBe(true)
+    expect(hasActiveFilters({ ...DEFAULT_FILTERS, downloadState: 'downloaded' })).toBe(true)
+    expect(hasActiveFilters({ ...DEFAULT_FILTERS, fitsOnly: true })).toBe(true)
+  })
+
+  it('does not count a search of only whitespace, which filters nothing', () => {
+    expect(hasActiveFilters({ ...DEFAULT_FILTERS, search: '   ' })).toBe(false)
+  })
+})
+
 describe('sortEntries', () => {
   it('pins favorites above everything else', () => {
     const entries = [
@@ -770,5 +854,53 @@ describe('formatBytes / formatModifiedAt', () => {
   it('labels use cases from the locale', () => {
     expect(useCaseLabel('media', english)).toBe('Media creation')
     expect(useCaseLabel('speech', { tag: 'it', strings: { ...enUS, ...italian } })).toBe('Voce')
+  })
+})
+
+describe('modelDetailsLine', () => {
+  const now = Date.UTC(2026, 0, 10)
+  const onDisk = entry({
+    id: '1',
+    name: 'black-forest-labs/FLUX.1/ae.safetensors',
+    useCase: 'media',
+    serviceBackend: 'comfyui',
+    downloaded: true,
+    sizeBytes: 2 * 1024 ** 3,
+    modifiedAt: now - 2 * 86_400_000,
+  })
+
+  it('names use case, repository, backend, size and age under All and Favorites', () => {
+    for (const category of ['all', 'favorites'] as const) {
+      expect(modelDetailsLine(onDisk, category, english, now)).toBe(
+        'Media creation · black-forest-labs/FLUX.1 · ComfyUI · 2.0 GB · 2d ago',
+      )
+    }
+  })
+
+  it('leaves the use case out inside a single use case', () => {
+    expect(modelDetailsLine(onDisk, 'media', english, now)).toBe(
+      'black-forest-labs/FLUX.1 · ComfyUI · 2.0 GB · 2d ago',
+    )
+  })
+
+  it('gives no date for a model that is not on disk, and no size when unknown', () => {
+    const missing = { ...onDisk, downloaded: false, sizeBytes: undefined }
+    expect(modelDetailsLine(missing, 'media', english, now)).toBe(
+      'black-forest-labs/FLUX.1 · ComfyUI',
+    )
+  })
+
+  it('skips the repository when the name has none', () => {
+    const bare = entry({ id: '2', name: 'model.gguf', downloaded: false })
+    expect(modelDetailsLine(bare, 'llm', english, now)).toBe('Llama.cpp')
+  })
+})
+
+describe('usedBySummary', () => {
+  it('names up to two users and counts the rest', () => {
+    expect(usedBySummary([])).toBe('')
+    expect(usedBySummary(['Flux'])).toBe('Flux')
+    expect(usedBySummary(['Flux', 'SDXL'])).toBe('Flux, SDXL')
+    expect(usedBySummary(['Flux', 'SDXL', 'Wan', 'LTX'])).toBe('Flux, SDXL +2')
   })
 })

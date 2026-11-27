@@ -7,8 +7,9 @@ export type ErrorCategory =
   | 'inference' // LLM chat / streaming / tool calling
   | 'generation' // ComfyUI image/video generation
   | 'setup' // first-run wizard / installation
-  | 'channel' // Home Agent / Telegram / Slack (reserved for deferred phase 4)
+  | 'channel' // Channels / Telegram / Slack (reserved for deferred phase 4)
   | 'validation' // user input / preconditions
+  | 'file' // OS actions on the user's session files: open, reveal, drag
   | 'model' // model files on disk: scanning, revealing, deleting
   | 'unknown'
 

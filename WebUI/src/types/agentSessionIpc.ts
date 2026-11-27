@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { ChannelKindSchema } from '@/assets/js/store/channels/types'
 import { llmBackendTypes } from './shared'
 
 /**
@@ -9,6 +10,37 @@ import { llmBackendTypes } from './shared'
  * same record; `messages` travels as an opaque array both ways.
  */
 
+export const MountedFolderAccessSchema = z.enum(['read-only', 'read-write'])
+export type MountedFolderAccess = z.infer<typeof MountedFolderAccessSchema>
+
+/** A folder on the user's machine the agent sees at `/mnt/<name>`; read-only unless stated. */
+export const MountedFolderSchema = z.object({
+  hostPath: z.string().min(1),
+  name: z.string().optional(),
+  access: MountedFolderAccessSchema.optional(),
+})
+export type MountedFolder = z.infer<typeof MountedFolderSchema>
+
+/** A folder an Agent brings, with a stable id and its sandbox slug. */
+export const AgentFolderEntrySchema = z.object({
+  id: z.string().min(1),
+  hostPath: z.string().min(1),
+  slug: z.string().min(1),
+  access: MountedFolderAccessSchema,
+})
+export type AgentFolderEntry = z.infer<typeof AgentFolderEntrySchema>
+
+/** An Agent's own Workspace: always read-write. */
+export const AgentWorkspaceEntrySchema = AgentFolderEntrySchema.omit({ access: true })
+export type AgentWorkspaceEntry = z.infer<typeof AgentWorkspaceEntrySchema>
+
+/** What an Agent puts in place of its Session's folders (ADR 0014); an absent part is inherited. */
+export const AgentFolderOverridesSchema = z.object({
+  workspace: AgentWorkspaceEntrySchema.optional(),
+  folders: z.array(AgentFolderEntrySchema).optional(),
+})
+export type AgentFolderOverrides = z.infer<typeof AgentFolderOverridesSchema>
+
 /**
  * An Agent Session's own model and capability choices. Every field is optional so a
  * file written before a field existed still parses; the store fills gaps from the
@@ -17,6 +49,7 @@ import { llmBackendTypes } from './shared'
 export const AgentSessionSettingsSchema = z.object({
   backend: z.enum(llmBackendTypes).optional(),
   cloudProviderId: z.string().optional(),
+  /** Stored before the device became a Machine Setting; ignored on read. */
   device: z.object({ id: z.string(), uuid: z.string().nullable().optional() }).optional(),
   model: z.string().optional(),
   contextSize: z.number().optional(),
@@ -29,6 +62,19 @@ export const AgentSessionSettingsSchema = z.object({
   builtinToolEnablement: z.record(z.string(), z.boolean()).optional(),
   builtinToolPresetEnablement: z.record(z.string(), z.boolean()).optional(),
   builtinToolDefaultPresets: z.record(z.string(), z.string()).optional(),
+  /** Only on an Agent's Settings Template. */
+  folderOverrides: AgentFolderOverridesSchema.optional(),
+  maxTokens: z.number().optional(),
+  temperature: z.number().optional(),
+  /** The model recommendation `temperature` was last set to, so a model switch may replace it. */
+  temperatureFromModel: z.number().optional(),
+  reasoningEffort: z.string().optional(),
+  reasoningEffortFromModel: z.string().optional(),
+  /** The user's own system prompt; empty means the preset's. */
+  systemPrompt: z.string().optional(),
+  metricsEnabled: z.boolean().optional(),
+  numAssistantTokens: z.number().optional(),
+  speakReplies: z.boolean().optional(),
 })
 export type AgentSessionSettings = z.infer<typeof AgentSessionSettingsSchema>
 
@@ -37,6 +83,32 @@ export const AgentTaskStepSchema = z.object({
   prompt: z.string(),
 })
 export type AgentTaskStep = z.infer<typeof AgentTaskStepSchema>
+
+/** Marks a Harness Session as one Agent Run of its Session. */
+export const AgentRunTagSchema = z.object({
+  /** The saved Agent that ran; absent on a Trial Run. */
+  taskId: z.string().optional(),
+  taskName: z.string(),
+  startedAt: z.number(),
+  trigger: z.enum(['manual', 'scheduled', 'channel']).optional(),
+  /** The Channel a `channel` run was started from. */
+  channel: ChannelKindSchema.optional(),
+  /** What the user typed for this run, folded into Step 1. */
+  input: z.string().optional(),
+  end: z.object({ kind: z.enum(['failed', 'stopped']), message: z.string().optional() }).optional(),
+})
+export type AgentRunTag = z.infer<typeof AgentRunTagSchema>
+
+/** Marks a turn as a Follow-up to a saved Agent's latest Agent Run. */
+export const AgentFollowUpTagSchema = z.object({
+  agentId: z.string().min(1),
+  agentName: z.string(),
+})
+export type AgentFollowUpTag = z.infer<typeof AgentFollowUpTagSchema>
+
+/** Marks a Harness Session as the chat with one saved Agent; only records from before Follow-ups. */
+export const AgentChatTagSchema = AgentFollowUpTagSchema
+export type AgentChatTag = AgentFollowUpTag
 
 export const AgentSessionFileSchema = z.object({
   schemaVersion: z.literal(1),
@@ -49,10 +121,16 @@ export const AgentSessionFileSchema = z.object({
   presetName: z.string().optional(),
   responseLocale: z.string().optional(),
   settings: AgentSessionSettingsSchema.optional(),
-  /** The Agent this session was loaded from or saved as. */
+  /** The Agent this Harness Session is a run of; on older records, the one loaded into it. */
   taskId: z.string().optional(),
-  /** The Steps a prompt is carried out in; edited in the settings panel like any setting. */
+  /** The Steps a Trial Run carries out; on older records, those the in-Session editor held. */
   steps: z.array(AgentTaskStepSchema).optional(),
+  /** The Session this Harness Session belongs to. */
+  sessionRef: z.string().optional(),
+  /** Set when this Harness Session is one Task Run of its Session. */
+  taskRun: AgentRunTagSchema.optional(),
+  /** Set when this Harness Session is the chat with a saved Agent, from before Follow-ups. */
+  agentChat: AgentChatTagSchema.optional(),
   messages: z.array(z.unknown()),
 })
 export type AgentSessionFile = z.infer<typeof AgentSessionFileSchema>

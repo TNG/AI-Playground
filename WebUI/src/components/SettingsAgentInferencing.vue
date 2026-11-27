@@ -1,0 +1,297 @@
+<template>
+  <SettingsTabLayout
+    :read-only="locked"
+    :read-only-note="readOnlyNote ?? languages.AGENT_TASK_SESSION_SETTINGS_READ_ONLY"
+    :template="!!template"
+    @reset="template || panel.onPresetReset()"
+  >
+    <!-- Agent Presets are chat presets, so this is also the way back to a plain chat preset. -->
+    <template v-if="!template" #picker>
+      <PresetSelector
+        type="chat"
+        :model-value="presetsStore.activePresetName || undefined"
+        @update:model-value="changePreset"
+      />
+    </template>
+
+    <SettingsRow
+      role="group"
+      :aria-label="languages.AGENT_SETTING_BACKEND"
+      :class="problemClass('backend')"
+      :label="languages.AGENT_SETTING_BACKEND"
+    >
+      <drop-down-new
+        :title="languages.AGENT_SETTINGS_SELECT_BACKEND"
+        :value="binding.backend"
+        :items="binding.backendItems"
+        @change="binding.setBackend"
+      ></drop-down-new>
+    </SettingsRow>
+    <SettingsRow
+      v-if="binding.backend === 'cloud'"
+      :class="problemClass('cloudProvider')"
+      :label="languages.AGENT_SETTING_PROVIDER"
+    >
+      <ProviderSelector
+        v-if="binding.template"
+        bound
+        :model-value="binding.template.cloudProviderId"
+        @update:model-value="binding.template.setCloudProviderId"
+      />
+      <ProviderSelector v-else />
+    </SettingsRow>
+    <!-- The picker's trigger is named after the selected model, so the row carries the
+         stable name saying what the control is for. -->
+    <SettingsRow
+      role="group"
+      :aria-label="languages.MODEL"
+      :class="problemClass('model')"
+      :label="languages.MODEL"
+    >
+      <div class="flex items-center gap-2 min-w-0">
+        <div class="flex-1 min-w-0">
+          <ModelSelector
+            v-if="binding.template"
+            bound
+            :backend="binding.backend"
+            :model-value="binding.template.model"
+            @update:model-value="binding.template.setModel"
+          />
+          <ModelSelector v-else auto-select />
+        </div>
+        <CapabilityIcons v-if="binding.currentModel" :model="binding.currentModel" />
+      </div>
+    </SettingsRow>
+    <SettingsRow
+      v-if="binding.contextSizeSupported"
+      :label="languages.ANSWER_CONTEXT_SIZE"
+      label-for="agent-context-size"
+    >
+      <div class="flex items-center gap-3">
+        <input
+          id="agent-context-size"
+          type="text"
+          inputmode="numeric"
+          autocomplete="off"
+          :value="contextSizeField.draft"
+          class="rounded-sm text-foreground text-center h-[30px] w-24 leading-[30px] p-0 bg-transparent border border-border disabled:opacity-50"
+          @focus="contextSizeField.onFocus"
+          @input="contextSizeField.onInput"
+          @blur="contextSizeField.commit"
+          @keydown.enter="contextSizeField.commit"
+        />
+        <span v-if="binding.contextSize < 16384" class="text-xs text-warning">
+          {{ languages.AGENT_SETTINGS_CONTEXT_HINT }}
+        </span>
+      </div>
+    </SettingsRow>
+    <template v-if="binding.sections.sampling">
+      <SettingsRow :label="languages.ANSWER_MAX_TOKENS" label-for="agent-max-tokens">
+        <div class="flex flex-col gap-1">
+          <input
+            id="agent-max-tokens"
+            type="number"
+            :value="binding.maxTokens"
+            min="0"
+            max="32768"
+            step="1"
+            class="rounded-sm text-foreground text-center h-[30px] w-20 leading-[30px] p-0 bg-transparent border border-border"
+            @change="setMaxTokens"
+          />
+          <span
+            v-if="binding.effectiveMaxTokens < binding.maxTokens"
+            class="text-xs text-muted-foreground"
+          >
+            {{
+              languages.SETTINGS_MAX_TOKENS_CAPPED.replace(
+                '{tokens}',
+                String(binding.effectiveMaxTokens),
+              )
+            }}
+          </span>
+        </div>
+      </SettingsRow>
+      <SettingsRow
+        :label="languages.SETTINGS_TEMPERATURE.replace('{value}', binding.temperature.toFixed(1))"
+      >
+        <Slider
+          :model-value="binding.temperature"
+          :min="0"
+          :max="2"
+          :step="0.1"
+          @update:model-value="setTemperature"
+        />
+      </SettingsRow>
+    </template>
+    <p v-if="binding.sharedWithChat" class="text-xs text-muted-foreground">
+      {{ languages.AGENT_SETTINGS_SHARED_WITH_CHAT }}
+    </p>
+
+    <div v-if="binding.thinkingToggleSupported" class="flex flex-col gap-2">
+      <Label class="whitespace-nowrap">{{ languages.AGENT_SETTINGS_THINKING }}</Label>
+      <label class="flex items-start gap-2 text-sm">
+        <input
+          type="checkbox"
+          class="mt-0.5"
+          :checked="binding.thinkingEnabled"
+          @change="binding.setThinkingEnabled(!binding.thinkingEnabled)"
+        />
+        <span class="flex flex-col">
+          <span class="text-foreground">{{ languages.AGENT_SETTINGS_THINK_BEFORE_ACTING }}</span>
+          <span v-if="binding.sharedWithChat" class="text-xs text-muted-foreground">
+            {{ languages.AGENT_SETTINGS_THINKING_SHARED }}
+          </span>
+        </span>
+      </label>
+      <label v-if="binding.planningPhaseSupported" class="flex items-start gap-2 text-sm">
+        <input
+          type="checkbox"
+          class="mt-0.5"
+          :disabled="!binding.thinkingEnabled"
+          :checked="binding.planningThinkingOnly"
+          @change="binding.setPlanningThinkingOnly(!binding.planningThinkingOnly)"
+        />
+        <span class="flex flex-col">
+          <span class="text-foreground" :class="{ 'opacity-50': !binding.thinkingEnabled }">
+            {{ languages.AGENT_SETTINGS_PLANNING_ONLY }}
+          </span>
+          <span class="text-xs text-muted-foreground">
+            {{ languages.AGENT_SETTINGS_PLANNING_ONLY_HINT }}
+          </span>
+        </span>
+      </label>
+    </div>
+
+    <template v-if="binding.sections.sampling">
+      <SettingsRow
+        v-if="binding.reasoningEffortSupported"
+        :label="languages.SETTINGS_REASONING_EFFORT"
+      >
+        <drop-down-new
+          :title="languages.SETTINGS_REASONING_EFFORT"
+          :value="binding.reasoningEffort ?? ''"
+          :items="reasoningEffortItems"
+          @change="binding.setReasoningEffort"
+        ></drop-down-new>
+      </SettingsRow>
+      <SettingsRow
+        v-if="binding.mtpSupported"
+        :label="languages.SETTINGS_MTP_DRAFT_TOKENS"
+        label-for="agent-mtp-assistant-tokens"
+      >
+        <input
+          id="agent-mtp-assistant-tokens"
+          type="number"
+          :value="binding.mtpDraftTokens"
+          :min="OVMS_MTP_ASSISTANT_TOKENS_MIN"
+          :max="OVMS_MTP_ASSISTANT_TOKENS_MAX"
+          step="1"
+          class="rounded-sm text-foreground text-center h-[30px] w-20 leading-[30px] p-0 bg-transparent border border-border"
+          @change="setMtpDraftTokens"
+        />
+      </SettingsRow>
+      <label class="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          :checked="binding.metricsEnabled"
+          @change="binding.setMetricsEnabled(!binding.metricsEnabled)"
+        />
+        <span class="text-foreground">{{ languages.ANSWER_METRICS }}</span>
+      </label>
+    </template>
+
+    <p v-if="!template" class="text-xs text-warning">
+      {{ languages.AGENT_SETTINGS_NEXT_TURN }}
+    </p>
+
+    <template v-if="!template && binding.backend !== 'cloud'" #machine>
+      <SettingsRow role="group" :aria-label="languages.DEVICE" :label="languages.DEVICE">
+        <DeviceSelector :backend="deviceServiceName" />
+      </SettingsRow>
+    </template>
+
+    <template v-if="!template" #reset-fallback>
+      <AgentPresetDefaultsActions @reset="template || panel.refreshCapabilityCatalog()" />
+    </template>
+  </SettingsTabLayout>
+</template>
+
+<script setup lang="ts">
+import { computed } from 'vue'
+import { Label } from '@/components/ui/label'
+import { Slider } from '@/components/ui/slider'
+import { backendToService, useTextInference } from '@/assets/js/store/textInference'
+import { useI18N } from '@/assets/js/store/i18n'
+import { usePresets } from '@/assets/js/store/presets'
+import AgentPresetDefaultsActions from '@/components/AgentPresetDefaultsActions.vue'
+import CapabilityIcons from '@/components/CapabilityIcons.vue'
+import DeviceSelector from '@/components/DeviceSelector.vue'
+import DropDownNew from '@/components/DropDownNew.vue'
+import ModelSelector from '@/components/ModelSelector.vue'
+import PresetSelector from '@/components/PresetSelector.vue'
+import ProviderSelector from '@/components/ProviderSelector.vue'
+import SettingsRow from '@/components/SettingsRow.vue'
+import SettingsTabLayout from '@/components/SettingsTabLayout.vue'
+import { useAgentSettingsPanel } from '@/assets/js/agentSettingsPanel'
+import type { AgentSettingsBinding } from '@/lib/agentSettingsBinding'
+import { useContextSizeField } from '@/assets/js/contextSizeField'
+import { useSettingsProblemMarks } from '@/assets/js/settingsProblemMarks'
+import { usePresetPicker } from '@/assets/js/presetPicker'
+import { OVMS_MTP_ASSISTANT_TOKENS_MAX, OVMS_MTP_ASSISTANT_TOKENS_MIN } from '@/lib/ovmsMtp'
+import { reasoningEfforts } from '@/types/shared'
+
+const languages = useI18N().state
+const textInference = useTextInference()
+const presetsStore = usePresets()
+
+const props = defineProps<{
+  /** An Agent's Settings Template instead of the open Session's settings. */
+  template?: AgentSettingsBinding
+  readOnly?: boolean
+  readOnlyNote?: string
+}>()
+
+const panel = useAgentSettingsPanel()
+const binding = computed(() => props.template ?? panel.binding)
+const locked = computed(() => (props.template ? props.readOnly : panel.readOnly.value))
+const { changePreset } = usePresetPicker({})
+const { problemClass } = useSettingsProblemMarks(() => binding.value.problems)
+
+const contextSize = computed<number>({
+  get: () => binding.value.contextSize,
+  set: (value) => binding.value.setContextSize(value),
+})
+const contextSizeField = useContextSizeField(contextSize)
+
+const reasoningEffortItems = computed(() =>
+  reasoningEfforts.map((effort) => ({
+    label: effort,
+    value: effort,
+    active: effort === binding.value.reasoningEffort,
+  })),
+)
+
+function numberInput(event: Event): number | undefined {
+  const value = Number((event.target as HTMLInputElement).value)
+  return Number.isFinite(value) ? value : undefined
+}
+
+function setMaxTokens(event: Event): void {
+  const value = numberInput(event)
+  if (value !== undefined && value >= 0) binding.value.setMaxTokens(Math.floor(value))
+}
+
+function setTemperature(value: number | number[]): void {
+  binding.value.setTemperature(Array.isArray(value) ? (value[0] ?? 0) : value)
+}
+
+function setMtpDraftTokens(event: Event): void {
+  const value = numberInput(event)
+  if (value !== undefined) binding.value.setMtpDraftTokens(value)
+}
+
+// Only rendered for local backends, so the fallback is inert.
+const deviceServiceName = computed(
+  () => backendToService[textInference.backend] ?? 'llamacpp-backend',
+)
+</script>

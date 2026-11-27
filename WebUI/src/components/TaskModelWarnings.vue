@@ -4,10 +4,10 @@
     v-model:open="expanded"
     role="group"
     :aria-label="i18n.AGENT_TASK_MODELS_REGION"
-    class="flex flex-col gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 py-1.5 text-xs"
+    class="flex flex-col gap-2 rounded-md border border-warning/40 bg-warning/10 px-2.5 py-1.5 text-xs"
   >
     <div v-if="state.missingCount.value > 0" class="flex items-center gap-2">
-      <ExclamationTriangleIcon class="size-4 shrink-0 text-amber-500" aria-hidden="true" />
+      <ExclamationTriangleIcon class="size-4 shrink-0 text-warning" aria-hidden="true" />
       <span class="flex-1 text-foreground">{{ summary }}</span>
       <CollapsibleTrigger
         class="flex items-center gap-0.5 text-muted-foreground hover:text-foreground cursor-pointer"

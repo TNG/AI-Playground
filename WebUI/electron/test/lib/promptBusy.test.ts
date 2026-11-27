@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { promptBusy, promptOnBusyChange } from '@/lib/promptBusy'
 
-const idle = { agentSession: false, conversation: false, panelRun: false }
+const idle = { agentSession: false, conversation: false, panelRun: false, audioTurn: false }
 
 describe('prompt bar busy state', () => {
   it('follows only the target of the current mode', () => {
@@ -13,7 +13,7 @@ describe('prompt bar busy state', () => {
 
     const conversationBusy = { ...idle, conversation: true }
     expect(promptBusy('chat', conversationBusy)).toBe(true)
-    expect(promptBusy('audio', conversationBusy)).toBe(true)
+    expect(promptBusy('audio', conversationBusy)).toBe(false)
     expect(promptBusy('agent', conversationBusy)).toBe(false)
     expect(promptBusy('video', conversationBusy)).toBe(false)
 
@@ -22,6 +22,17 @@ describe('prompt bar busy state', () => {
     expect(promptBusy('imageEdit', panelBusy)).toBe(true)
     expect(promptBusy('video', panelBusy)).toBe(true)
     expect(promptBusy('chat', panelBusy)).toBe(false)
+
+    const audioBusy = { ...idle, audioTurn: true }
+    expect(promptBusy('audio', audioBusy)).toBe(true)
+    expect(promptBusy('chat', audioBusy)).toBe(false)
+  })
+
+  it('is busy in every mode while the open Session has a turn in flight', () => {
+    const sessionBusy = { ...idle, sessionTurn: true }
+    for (const mode of ['chat', 'agent', 'audio', 'imageGen', 'imageEdit', 'video'] as const) {
+      expect(promptBusy(mode, sessionBusy)).toBe(true)
+    }
   })
 })
 
@@ -42,9 +53,9 @@ describe('prompt field on a busy change', () => {
     ).toBe(false)
   })
 
-  it('keeps the prompt after an image run, only ending the submitted state', () => {
+  it('clears the prompt once an image run is accepted, ending the submitted state after it', () => {
     expect(promptOnBusyChange('imageGen', { busy: true, wasBusy: false, submitted: true })).toEqual(
-      { clearPrompt: false, resetSubmitted: false },
+      { clearPrompt: true, resetSubmitted: false },
     )
     expect(promptOnBusyChange('imageGen', { busy: false, wasBusy: true, submitted: true })).toEqual(
       { clearPrompt: false, resetSubmitted: true },

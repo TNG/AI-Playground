@@ -90,6 +90,24 @@ describe('artifactRunProjection', () => {
     expect(view.items.map((item) => item.id)).toEqual(['i1'])
   })
 
+  it('remembers whether a run began generating before it settled', () => {
+    const owner = tool('call-1')
+    const early = apply(
+      emptyArtifactRuns(),
+      { type: 'artifact-item', runId: 'early', owner, item: image('e1', 'queued') },
+      { type: 'artifact-item', runId: 'early', owner, item: image('e1', 'failed') },
+      { type: 'artifact-done', runId: 'early', owner, state: 'failed', error: 'no backend' },
+    )
+    const late = apply(
+      emptyArtifactRuns(),
+      { type: 'artifact-item', runId: 'late', owner, item: image('l1', 'generating') },
+      { type: 'artifact-item', runId: 'late', owner, item: image('l1', 'failed') },
+      { type: 'artifact-done', runId: 'late', owner, state: 'failed', error: 'oom' },
+    )
+    expect(early.runs.early.started).toBeUndefined()
+    expect(late.runs.late.started).toBe(true)
+  })
+
   it('aggregates specialist runs under the delegating media call, in call order', () => {
     const state = apply(
       emptyArtifactRuns(),

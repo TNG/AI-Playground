@@ -14,12 +14,12 @@ export type MainSendChannelName = {
   [K in SendChannelName]: ChannelManifest[K]['owner'] extends 'main' ? K : never
 }[SendChannelName]
 
-export type HomeAgentInvokeChannelName = {
-  [K in InvokeChannelName]: ChannelManifest[K]['owner'] extends 'homeAgent' ? K : never
+export type ChannelsInvokeChannelName = {
+  [K in InvokeChannelName]: ChannelManifest[K]['owner'] extends 'channels' ? K : never
 }[InvokeChannelName]
 
-export type HomeAgentSendChannelName = {
-  [K in SendChannelName]: ChannelManifest[K]['owner'] extends 'homeAgent' ? K : never
+export type ChannelsSendChannelName = {
+  [K in SendChannelName]: ChannelManifest[K]['owner'] extends 'channels' ? K : never
 }[SendChannelName]
 
 export type InvokeHandlerMap<Names extends InvokeChannelName> = {
@@ -75,6 +75,8 @@ export type CameraCaptureInvokeName = Extract<MainInvokeChannelName, `cameraCapt
 export type CameraCaptureSendName = Extract<MainSendChannelName, `cameraCapture:${string}`>
 export type DemoModeInvokeName = Extract<MainInvokeChannelName, `demoMode:${string}`>
 export type DemoModeSendName = Extract<MainSendChannelName, `demoMode:${string}`>
+export type SessionsInvokeName = Extract<MainInvokeChannelName, `sessions:${string}`>
+export type SessionsSendName = Extract<MainSendChannelName, `sessions:${string}`>
 
 /** The core registry's names (batch D): every main channel no prefix domain claims. */
 export type CoreInvokeName = Exclude<
@@ -99,6 +101,7 @@ export type CoreInvokeName = Exclude<
   | KernelInvokeName
   | CameraCaptureInvokeName
   | DemoModeInvokeName
+  | SessionsInvokeName
 >
 
 export type CoreSendName = Exclude<
@@ -123,6 +126,7 @@ export type CoreSendName = Exclude<
   | KernelSendName
   | CameraCaptureSendName
   | DemoModeSendName
+  | SessionsSendName
 >
 
 export function registerInvokeHandlers<Names extends InvokeChannelName>(

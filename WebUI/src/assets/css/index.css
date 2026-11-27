@@ -7,7 +7,9 @@
 @import './svg.css';
 @import 'tw-animate-css';
 
-@custom-variant dark (&:is(.dark *));
+/* Tailwind gates hover on `hover: hover`, which Chromium on Linux often reports false with a mouse. */
+@custom-variant hover (&:hover);
+@custom-variant can-hover (@media (any-hover: hover));
 
 /**
  * Theme Variable Mapping Reference:
@@ -27,6 +29,7 @@
  */
 
 @layer base {
+  /* Built-in Theme colours must equal src/lib/builtInThemes.ts (builtInThemeStylesheet.test.ts). */
   /* Light Theme (default) */
   :root {
     --background: 0 0% 100%;
@@ -48,6 +51,8 @@
     --border: 214.3 31.8% 91.4%;
     --input: 214.3 31.8% 91.4%;
     --ring: 209 100% 60%;
+    --warning: 30.1 100% 44.1%;
+    --success: 160 100% 30%;
     --radius: 0.5rem;
 
     /* Demo mode variables - light theme overrides */
@@ -88,6 +93,8 @@
     --border: 280 30% 18%;
     --input: 280 30% 18%;
     --ring: 280 98.4% 50.6%;
+    --warning: 47 100% 59.4%;
+    --success: 161.3 100% 41.6%;
     --radius: 0.5rem;
 
     /* Demo mode variables */
@@ -122,6 +129,8 @@
     --border: 209 30% 25%;
     --input: 209 30% 25%;
     --ring: 209 100% 60%;
+    --warning: 30.1 100% 44.1%;
+    --success: 160 100% 30%;
     --radius: 0.5rem;
 
     /* Demo mode variables */
@@ -156,6 +165,8 @@
     --border: 280 30% 18%;
     --input: 280 30% 18%;
     --ring: 280 98.4% 50.6%;
+    --warning: 30.1 100% 44.1%;
+    --success: 160 100% 30%;
     --radius: 0.5rem;
 
     /* Demo mode variables */

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { currentPresetName, renamePresetKeys } from './presetRenames'
+import { currentPresetName, renamePresetKeys, renamePresetSettings } from './presetRenames'
 
 describe('currentPresetName', () => {
   it('follows a renamed preset and leaves every other name alone', () => {
@@ -39,5 +39,37 @@ describe('renamePresetKeys', () => {
   it('returns the same object when nothing was renamed', () => {
     const entries = { Assistant: 1 }
     expect(renamePresetKeys(entries)).toBe(entries)
+  })
+})
+
+describe('renamePresetSettings', () => {
+  it('merges a renamed preset’s Default Settings into the current ones, which win', () => {
+    expect(
+      renamePresetSettings({
+        Agent: {
+          backend: 'llamaCPP',
+          contextSize: 131072,
+          agentCapabilities: ['media', 'notify'],
+          agentPlanningThinkingOnly: true,
+          agentMountedFolders: [{ hostPath: '/notes' }],
+        },
+        Assistant: { backend: 'openVINO', contextSize: 32768, temperature: 0.7 },
+      }),
+    ).toEqual({
+      Assistant: {
+        backend: 'openVINO',
+        contextSize: 32768,
+        temperature: 0.7,
+        agentCapabilities: ['media', 'notify'],
+        agentPlanningThinkingOnly: true,
+        agentMountedFolders: [{ hostPath: '/notes' }],
+      },
+    })
+  })
+
+  it('moves a renamed preset’s settings when the current name has none', () => {
+    expect(renamePresetSettings({ Agent: { backend: 'llamaCPP' } })).toEqual({
+      Assistant: { backend: 'llamaCPP' },
+    })
   })
 })

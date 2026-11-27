@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import type { ChatPreset } from '@/assets/js/store/presets'
 import type { AgentTurnSnapshot, KernelEvent, KernelSnapshot } from '@/types/kernelEvents'
 
@@ -171,6 +171,7 @@ beforeEach(() => {
           }),
       ),
       agentMode: {
+        sessionDocuments: vi.fn(async () => []),
         startTurn,
         cancel,
         saveSession,
@@ -402,7 +403,7 @@ describe('one turn runtime per Agent Session', () => {
   })
 })
 
-describe('games presets keep stop-on-switch', () => {
+describe('games presets never stop a turn by leaving it', () => {
   const GAME: ChatPreset = {
     type: 'chat',
     category: 'chat',
@@ -416,7 +417,7 @@ describe('games presets keep stop-on-switch', () => {
     activePreset.value = AGENT
   })
 
-  it('stops the running turn when another game session is opened', async () => {
+  it('keeps the running turn when another game session is opened', async () => {
     activePreset.value = GAME
     const gameRecord = (id: string) => ({
       ...record(id, `game ${id}`),
@@ -441,13 +442,14 @@ describe('games presets keep stop-on-switch', () => {
     const turnId = startTurn.mock.calls[0][0]
 
     await store.switchSession('game-2')
-    await sent
 
-    expect(cancel).toHaveBeenCalledWith('game-1', turnId)
-    expect(store.anyTurnOpen).toBe(false)
-    // A turn the user stopped by leaving it is not a new result.
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(store.unseenTurns).toEqual({})
+    expect(cancel).not.toHaveBeenCalled()
+    expect(store.anyTurnOpen).toBe(true)
+    expect(store.sessionTurns['game-1']).toBeDefined()
+
+    pushEvent({ type: 'agent-turn-done', sessionId: 'game-1', turnId })
+    await sent
+    await vi.waitFor(() => expect(store.unseenTurns).toEqual({ 'game-1': 'done' }))
   })
 })
 
@@ -599,6 +601,166 @@ describe('Paused Sessions', () => {
     store.setViewShown(true)
     await prompt
     expect(shown).toBe(true)
+  })
+
+  it('holds a prompt for the open session while the Agent Library covers Agent Mode', async () => {
+    const store = await storeWithBackgroundTurn()
+    const { whenSessionInView } = await import('@/assets/js/permissions/sessionPromptPort')
+    store.setViewShown(true)
+    await store.switchSession('session-b')
+    store.setLibraryShowing({ library: 'agent', trialRunSessionId: null })
+
+    let shown = false
+    void whenSessionInView('session-b').then(() => {
+      shown = true
+    })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(shown).toBe(false)
+  })
+
+  it('toasts a pause of the open session while the Agent Library covers Agent Mode', async () => {
+    const store = await storeWithBackgroundTurn()
+    store.setViewShown(true)
+    await store.switchSession('session-b')
+    store.setLibraryShowing({ library: 'agent', trialRunSessionId: null })
+
+    pause()
+    expect(toastShow).toHaveBeenCalledTimes(1)
+    expect(toastShow.mock.calls[0][0]).toBe("Session 'task B' needs your input")
+  })
+
+  it('shows the held prompt once the Agent Library closes over the open session', async () => {
+    const store = await storeWithBackgroundTurn()
+    const { whenSessionInView } = await import('@/assets/js/permissions/sessionPromptPort')
+    store.setViewShown(true)
+    await store.switchSession('session-b')
+    store.setLibraryShowing({ library: 'agent', trialRunSessionId: null })
+
+    let shown = false
+    const prompt = whenSessionInView('session-b').then(() => {
+      shown = true
+    })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(shown).toBe(false)
+
+    store.setLibraryHidden('agent')
+    await prompt
+    expect(shown).toBe(true)
+  })
+
+  it('names the Trial Run In View for main only while the Agent Library shows its pane', async () => {
+    const store = await storeWithBackgroundTurn()
+    expect(store.trialRunInView).toBeNull()
+    store.setLibraryShowing({ library: 'agent', trialRunSessionId: 'trial-b' })
+    expect(store.trialRunInView).toBe('trial-b')
+    store.setLibraryHidden('agent')
+    expect(store.trialRunInView).toBeNull()
+  })
+
+  it('holds a prompt for the open session while App Settings shows, until it closes', async () => {
+    const store = await storeWithBackgroundTurn()
+    const { whenSessionInView } = await import('@/assets/js/permissions/sessionPromptPort')
+    store.setViewShown(true)
+    await store.switchSession('session-b')
+    store.setSettingsShowing(true)
+
+    let shown = false
+    const prompt = whenSessionInView('session-b').then(() => {
+      shown = true
+    })
+    pause()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(shown).toBe(false)
+    expect(toastShow).toHaveBeenCalledTimes(1)
+
+    store.setSettingsShowing(false)
+    await prompt
+    expect(shown).toBe(true)
+  })
+
+  it("holds a Trial Run's prompt while App Settings covers the Agent Library", async () => {
+    const store = await storeWithBackgroundTurn()
+    const { whenSessionInView } = await import('@/assets/js/permissions/sessionPromptPort')
+    store.setLibraryShowing({ library: 'agent', trialRunSessionId: 'session-b' })
+    store.setSettingsShowing(true)
+
+    let shown = false
+    void whenSessionInView('session-b').then(() => {
+      shown = true
+    })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(shown).toBe(false)
+  })
+
+  it('says a session has a held question until that question is shown', async () => {
+    const store = await storeWithBackgroundTurn()
+    const { whenSessionInView } = await import('@/assets/js/permissions/sessionPromptPort')
+    const waiting = computed(() => store.hasHeldPrompt('session-b'))
+    expect(waiting.value).toBe(false)
+
+    const prompt = whenSessionInView('session-b')
+    expect(waiting.value).toBe(true)
+    expect(store.hasHeldPrompt('session-a')).toBe(false)
+
+    store.setViewShown(true)
+    await store.switchSession('session-b')
+    await prompt
+    expect(waiting.value).toBe(false)
+  })
+
+  it('stops saying a session has a held question once its turn ends', async () => {
+    const store = await storeWithBackgroundTurn()
+    const { whenSessionInView } = await import('@/assets/js/permissions/sessionPromptPort')
+    const prompt = whenSessionInView('session-b').catch(() => undefined)
+    expect(store.hasHeldPrompt('session-b')).toBe(true)
+
+    pushEvent({ type: 'agent-turn-done', sessionId: 'session-b', turnId: 'turn-b' })
+    await prompt
+    expect(store.hasHeldPrompt('session-b')).toBe(false)
+  })
+
+  it("shows a Trial Run's held prompt once the Agent Library puts its pane on screen", async () => {
+    const store = await storeWithBackgroundTurn()
+    const { whenSessionInView } = await import('@/assets/js/permissions/sessionPromptPort')
+
+    let shown = false
+    const prompt = whenSessionInView('session-b').then(() => {
+      shown = true
+    })
+    store.setLibraryShowing({ library: 'agent', trialRunSessionId: null })
+    store.setLibraryShowing({ library: 'agent', trialRunSessionId: 'session-other-trial' })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(shown).toBe(false)
+
+    store.setLibraryShowing({ library: 'agent', trialRunSessionId: 'session-b' })
+    await prompt
+    expect(shown).toBe(true)
+  })
+
+  it('shows a prompt at once, with no toast, for a Trial Run already on screen', async () => {
+    const store = await storeWithBackgroundTurn()
+    const { whenSessionInView } = await import('@/assets/js/permissions/sessionPromptPort')
+    store.setLibraryShowing({ library: 'agent', trialRunSessionId: 'session-b' })
+
+    pause()
+    await whenSessionInView('session-b')
+    expect(toastShow).not.toHaveBeenCalled()
+  })
+
+  it('holds a Trial Run prompt again once the Agent Library closes', async () => {
+    const store = await storeWithBackgroundTurn()
+    const { whenSessionInView } = await import('@/assets/js/permissions/sessionPromptPort')
+    store.setLibraryShowing({ library: 'agent', trialRunSessionId: 'session-b' })
+    store.setLibraryHidden('agent')
+
+    let shown = false
+    void whenSessionInView('session-b').then(() => {
+      shown = true
+    })
+    pause()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(shown).toBe(false)
+    expect(toastShow).toHaveBeenCalledTimes(1)
   })
 
   it('drops a held prompt once its turn ends', async () => {

@@ -75,6 +75,7 @@ describe('a window reloaded while the close question is open', () => {
       showRefreshedQuestion: showRefreshedCloseQuestion,
       whileAsking: () => () => {},
       quit,
+      relaunch: () => {},
       minimizeWindow: () => {},
       suspendSchedules: () => {},
       resumeSchedules: () => {},

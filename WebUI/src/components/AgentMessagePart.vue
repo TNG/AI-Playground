@@ -1,5 +1,10 @@
 <template>
-  <MarkdownRenderer v-if="part.type === 'text'" :content="part.text ?? ''" />
+  <MarkdownRenderer
+    v-if="part.type === 'text'"
+    role="region"
+    :aria-label="languages.AGENT_REPLY_ARIA"
+    :content="answerText"
+  />
   <ChatReasoningDisplay
     v-else-if="part.type === 'reasoning'"
     :text="part.text"
@@ -24,42 +29,50 @@
   <!-- Media delegation tool: the nested specialist runs in main; live steps
        reach mediaAgentRuns via kernel events (keyed by toolCallId). -->
   <div v-else-if="mediaToolNameOf(part)" class="flex flex-col gap-2">
-    <ChatToolDisplay :part="toolPart" :state="toolPart.state" :input="toolPart.input" />
-    <MediaAgentTimeline :tool-call-id="toolPart.toolCallId" :fallback-steps="mediaToolSteps" />
-    <ChatWorkflowResult
-      :images="mediaToolImages"
-      :phase="mediaToolPhase"
-      :progress="mediaLive.progress"
-      hide-mode-switch
-      :file-handlers="workspaceFileHandlers"
-    />
+    <template v-if="section !== 'result'">
+      <ChatToolDisplay :part="toolPart" :state="toolPart.state" :input="toolPart.input" />
+      <MediaAgentTimeline :tool-call-id="toolPart.toolCallId" :fallback-steps="mediaToolSteps" />
+    </template>
+    <template v-if="section !== 'details'">
+      <ChatWorkflowResult v-if="!hideMediaGrid" :artifacts="gridArtifacts ?? mediaToolArtifacts" />
+      <TurnFailureLine v-if="mediaToolFailure" :failure="mediaToolFailure" />
+    </template>
   </div>
-  <!-- Chat's audio player reads the app-folder copy, never the workspace. -->
-  <div v-else-if="generatedMedia?.audio" class="flex flex-col gap-2">
-    <ChatToolDisplay :part="toolPart" :state="toolPart.state" :input="toolPart.input" />
-    <ChatTtsToolResult
-      :output="generatedMedia.audio"
-      :caption="workspaceCaption(generatedMedia.audio.workspacePath)"
-      :download="() => fileAction(generatedMedia!.audio!, 'saveAs')"
-      :reveal="() => fileAction(generatedMedia!.audio!, 'reveal')"
+  <div v-else-if="audioArtifacts.length > 0" class="flex flex-col gap-2">
+    <ChatToolDisplay
+      v-if="section !== 'result'"
+      :part="toolPart"
+      :state="toolPart.state"
+      :input="toolPart.input"
     />
+    <template v-if="section !== 'details'">
+      <AudioArtifactCard
+        v-for="artifact in audioArtifacts"
+        :key="artifact.id"
+        :artifact="artifact"
+      />
+    </template>
   </div>
   <div v-else-if="isToolUIPart(part)" class="flex flex-col gap-1">
-    <ChatToolDisplay :part="toolPart" :state="toolPart.state" :input="toolPart.input" />
+    <ChatToolDisplay
+      v-if="section !== 'result'"
+      :part="toolPart"
+      :state="toolPart.state"
+      :input="toolPart.input"
+    />
     <!-- Live output while the tool is still running (Pi streams partial results,
          e.g. a long-running bash command). -->
     <pre
       v-if="toolProgressText"
       class="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground"
       >{{ toolProgressText }}</pre>
-    <!-- What the tool saw: a browser screenshot never reaches the model as
-         pixels, so this is the only place it is visible. -->
-    <figure v-for="image in toolImages" :key="image.dataUri" class="flex flex-col gap-1">
-      <img
-        :src="image.dataUri"
-        :alt="`Screenshot: ${image.label}`"
-        class="max-h-96 w-auto self-start rounded-md border border-border"
-      />
+    <!-- The screenshot never reaches the model as pixels, so this is where it is shown. -->
+    <ChatWorkflowResult
+      v-if="section !== 'details' && screenshotArtifacts.length > 0"
+      :artifacts="screenshotArtifacts"
+    />
+    <figure v-for="image in bareToolImages" :key="image.dataUri" class="flex flex-col gap-1">
+      <LetterboxImage :src="image.dataUri" :alt="`Screenshot: ${image.label}`" />
       <figcaption class="text-xs text-muted-foreground">{{ image.label }}</figcaption>
     </figure>
   </div>
@@ -69,46 +82,53 @@
 import { computed, watch } from 'vue'
 import { isToolUIPart, type UIDataTypes, type UIMessagePart, type UITools } from 'ai'
 import type { DynamicToolUIPart, ToolUIPart } from 'ai'
+import { useI18N } from '@/assets/js/store/i18n'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useMediaAgentRuns } from '@/assets/js/store/mediaAgentRuns'
 import { useArtifactRuns } from '@/assets/js/store/artifactRuns'
-import { useErrors } from '@/assets/js/store/errors'
-import { useI18N } from '@/assets/js/store/i18n'
+import { useSessions } from '@/assets/js/store/sessions'
 import type { AipgTools } from '@/assets/js/tools/tools'
-import type { MediaItem } from '@/assets/js/store/imageGenerationPresets'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
 import ChatToolDisplay from '@/components/ChatToolDisplay.vue'
 import ChatReasoningDisplay from '@/components/ChatReasoningDisplay.vue'
 import ChatWorkflowResult from '@/components/ChatWorkflowResult.vue'
-import ChatTtsToolResult from '@/components/ChatTtsToolResult.vue'
+import AudioArtifactCard from '@/components/AudioArtifactCard.vue'
+import LetterboxImage from '@/components/LetterboxImage.vue'
+import TurnFailureLine from '@/components/TurnFailureLine.vue'
 import MediaAgentTimeline from '@/components/MediaAgentTimeline.vue'
+import { compactionOutputOf, generatedMediaOf, mediaToolNameOf } from '@/lib/agentTranscript'
+import { ttsToolArtifacts } from '@/lib/audioArtifacts'
 import {
-  compactionOutputOf,
-  generatedMediaOf,
-  mediaFileRefOf,
-  mediaToolNameOf,
-  transcriptMediaItems,
-} from '@/lib/agentTranscript'
-import type {
-  AgentMediaFileAction,
-  AgentMediaItem,
-  AgentSpeechClip,
-} from '@/types/agentMediaDetails'
-import type { MediaFileHandlers } from '@/types/mediaItem'
+  toolCallArtifacts,
+  screenshotToolArtifacts,
+  toolCallResultFailure,
+  type TurnArtifact,
+} from '@/lib/turnArtifacts'
 import { reasoningTimingOf } from '@/lib/reasoningTimings'
 import { ArchiveBoxArrowDownIcon } from '@heroicons/vue/24/outline'
 
 // One part of an assistant message in Agent Mode: text, a reasoning block, a
 // compaction notice, or a tool call — with whatever the call produced under it
-// (streamed output, browser screenshots, generated media).
+// (streamed output, web screenshots, generated media).
 
-const props = defineProps<{ part: UIMessagePart<UIDataTypes, UITools> }>()
+const props = defineProps<{
+  part: UIMessagePart<UIDataTypes, UITools>
+  section?: 'details' | 'result'
+  /** Consecutive media parts share one grid: merged artifacts for the run's first part. */
+  gridArtifacts?: TurnArtifact[]
+  /** Consecutive media parts share one grid: non-first parts render no grid of their own. */
+  hideMediaGrid?: boolean
+}>()
 
+const languages = useI18N().state
 const agentMode = useAgentMode()
 const mediaRuns = useMediaAgentRuns()
 const artifactRuns = useArtifactRuns()
-const errors = useErrors()
-const i18nState = useI18N().state
+const sessions = useSessions()
+
+const answerText = computed(() =>
+  props.part.type === 'text' ? ((props.part as { text?: string }).text ?? '') : '',
+)
 
 // Pi's tool parts (tool-bash, tool-read, …) are not part of AipgTools, but the
 // generic ChatToolDisplay only reads name/state/input/output — cast for reuse.
@@ -143,6 +163,14 @@ const toolImages = computed<AgentToolImage[]>(
   () => agentMode.toolImages[toolPart.value.toolCallId] ?? [],
 )
 
+const screenshotArtifacts = computed(() =>
+  screenshotToolArtifacts(props.part, sessions.openDeletedFiles),
+)
+
+const bareToolImages = computed(() =>
+  screenshotArtifacts.value.length > 0 ? [] : toolImages.value,
+)
+
 const compaction = computed(() => compactionOutputOf(props.part))
 const reasoningTiming = computed(() => reasoningTimingOf(props.part))
 
@@ -161,47 +189,22 @@ const generatedMedia = computed(() => generatedMediaOf(props.part))
 /** Step lines from a finished result, for runs no longer in the store. */
 const mediaToolSteps = computed(() => generatedMedia.value?.steps)
 
-const mediaLive = computed(() => artifactRuns.viewFor(toolPart.value.toolCallId))
-
-const mediaToolImages = computed<MediaItem[]>(() =>
-  transcriptMediaItems(props.part, mediaLive.value.items),
+const mediaToolArtifacts = computed(() =>
+  toolCallArtifacts(props.part, artifactRuns.state, sessions.openDeletedFiles),
 )
 
-const mediaToolPhase = computed(() => {
-  const state = toolPart.value.state
-  return state === 'output-available' || state === 'output-error'
-    ? undefined
-    : mediaLive.value.phase
-})
+const mediaToolFailure = computed(() => toolCallResultFailure(props.part))
 
-// The card shows the app copy; what the user opens or takes away is the agent's working file.
-async function fileAction(target: AgentMediaItem | AgentSpeechClip, action: AgentMediaFileAction) {
-  try {
-    const ref = mediaFileRefOf(agentMode.openSessionId, target)
-    const result = await window.electronAPI.agentMode.mediaFileAction(ref, action)
-    if (!result.success) throw new Error(result.error)
-  } catch (error) {
-    errors.report(error)
-  }
-}
-
-function workspaceCaption(workspacePath: string | undefined): string | undefined {
-  return workspacePath
-    ? i18nState.AGENT_MEDIA_IN_WORKSPACE.replace('{path}', workspacePath)
-    : undefined
-}
-
-const workspaceFileHandlers: MediaFileHandlers = {
-  open: (item) => fileAction(item, 'open'),
-  reveal: (item) => fileAction(item, 'reveal'),
-  drag: (item) => fileAction(item, 'drag'),
-  caption: (item) => workspaceCaption((item as AgentMediaItem).workspacePath),
-}
+const audioArtifacts = computed(() => ttsToolArtifacts(props.part, sessions.openDeletedFiles))
 
 watch(
-  () => [mediaToolNameOf(props.part), toolPart.value.toolCallId, toolPart.value.state] as const,
+  [
+    () => mediaToolNameOf(props.part),
+    () => toolPart.value.toolCallId,
+    () => toolPart.value.state,
+  ] as const,
   ([isMedia, id, state]) => {
-    if (!isMedia) return
+    if (!isMedia || props.section === 'details') return
     if (state === 'output-available' && toolPart.value.output != null) {
       mediaRuns.endRun(id, 'done')
     }

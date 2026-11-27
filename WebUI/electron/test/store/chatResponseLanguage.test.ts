@@ -12,20 +12,29 @@ const conversation = vi.hoisted(() => ({
   list: {} as Record<string, unknown[]>,
 }))
 
+// Mutable per-test inference state: the delivery test at the bottom flips the
+// tool-calling and tool-enablement fields without re-mocking the module.
+const inference = vi.hoisted(() => ({
+  systemPrompt: 'You are helpful.',
+  backend: 'cloud',
+  activeModel: 'test-model',
+  modelSupportsToolCalling: false,
+  modelSupportsVision: false,
+  aipgToolsEnabled: true,
+  toolDelegationEnabled: true,
+  isBuiltinToolEnabled: (_name: string): boolean => true,
+  screenshotWindow: null,
+  mcpToolsEnabled: false,
+  mcpServerIds: [] as string[],
+  ensureGlobalsMatchConversation: vi.fn(),
+  stampMetaForConversation: vi.fn(),
+  checkModelAvailability: vi.fn(async () => {}),
+  startBackendPreparation: vi.fn(),
+  completeBackendPreparation: vi.fn(),
+}))
+
 vi.mock('@/assets/js/store/textInference', () => ({
-  useTextInference: () => ({
-    systemPrompt: 'You are helpful.',
-    backend: 'cloud',
-    activeModel: 'test-model',
-    modelSupportsToolCalling: false,
-    modelSupportsVision: false,
-    mcpToolsEnabled: false,
-    ensureGlobalsMatchConversation: vi.fn(),
-    stampMetaForConversation: vi.fn(),
-    checkModelAvailability: vi.fn(async () => {}),
-    startBackendPreparation: vi.fn(),
-    completeBackendPreparation: vi.fn(),
-  }),
+  useTextInference: () => inference,
 }))
 
 vi.mock('@/assets/js/store/conversations', () => ({
@@ -101,6 +110,14 @@ beforeEach(() => {
   conversation.list = {}
   submitted.length = 0
   seq = 0
+  inference.modelSupportsToolCalling = false
+  inference.modelSupportsVision = false
+  inference.aipgToolsEnabled = true
+  inference.toolDelegationEnabled = true
+  inference.isBuiltinToolEnabled = (_name: string): boolean => true
+  inference.screenshotWindow = null
+  inference.mcpToolsEnabled = false
+  inference.mcpServerIds = []
   const storage = new Map<string, string>()
   globalThis.localStorage = {
     getItem: (key: string) => storage.get(key) ?? null,
@@ -151,7 +168,8 @@ describe('the reply-language line on a chat turn', () => {
 
     expect(submitted[0].systemPrompt).toContain('You are helpful.')
     expect(submitted[0].systemPrompt).toContain(REPLY_LANGUAGE)
-    expect(submitted[1].systemPrompt).toBe('You are helpful.')
+    expect(submitted[1].systemPrompt).toContain('You are helpful.')
+    expect(submitted[1].systemPrompt).not.toContain(REPLY_LANGUAGE)
   })
 
   it('is left out with Chat Aware off', async () => {
@@ -160,6 +178,37 @@ describe('the reply-language line on a chat turn', () => {
 
     await chat.generate('hi')
 
-    expect(submitted[0].systemPrompt).toBe('You are helpful.')
+    expect(submitted[0].systemPrompt).toContain('You are helpful.')
+    expect(submitted[0].systemPrompt).not.toContain(REPLY_LANGUAGE)
+  })
+})
+
+describe('the tool-availability block on a chat turn', () => {
+  it('tells the model a disabled tool exists and where the user can enable it', async () => {
+    inference.modelSupportsToolCalling = true
+    inference.isBuiltinToolEnabled = (name: string) =>
+      name !== 'comfyUI' && name !== 'comfyUiImageEdit'
+    const chat = useOpenAiCompatibleChat()
+
+    await chat.generate('hi')
+
+    const prompt = submitted[0].systemPrompt ?? ''
+    expect(prompt).toContain('Tool availability:')
+    // The directive a weak model must not miss.
+    expect(prompt).toContain('do not just say you cannot do it')
+    // The disabled tool, spelled out with its enable location.
+    expect(prompt).toContain('Media generation')
+    expect(prompt).toContain("enable it in the preset's Built-in tools settings")
+  })
+
+  it('names the tools the app supports when the model cannot call tools at all', async () => {
+    const chat = useOpenAiCompatibleChat()
+
+    await chat.generate('hi')
+
+    const prompt = submitted[0].systemPrompt ?? ''
+    expect(prompt).toContain('does not support tool calling')
+    expect(prompt).toContain('media generation')
+    expect(prompt).toContain('tell them the app supports it')
   })
 })

@@ -57,6 +57,15 @@ import { HARNESS_CHAT_PRESET } from '@/lib/harnessChatPreset'
 import { hasChatAffordances } from '@/lib/chatAffordances'
 import { runPrompt, stepPrompts } from '@/lib/taskSteps'
 import { harnessInstructions } from '@/lib/presetPrompt'
+import { toolAvailabilitySection, withToolAvailability } from '@/lib/toolAvailabilityPrompt'
+import {
+  storeMediaToolSettings,
+  turnMediaToolSettings,
+  type MediaToolSettings,
+} from '@/lib/mediaToolSettings'
+import { getAvailableWorkflows } from '../tools/comfyUi'
+import { getAvailableEditWorkflows } from '../tools/comfyUiImageEdit'
+import { synthesizeToolAvailable, transcriptionAvailable } from '../speech/speechIO'
 import {
   describeSettingsProblems,
   sessionSettingsProblems,
@@ -79,6 +88,7 @@ import {
   OFFER_GAME_AGENT_TOOL,
   RAG_PREPARE_EMBEDDING_MODEL,
   SCREENSHOT_WINDOW_QUERY,
+  mcpServerIdOf,
 } from '@/types/agentCapabilities'
 import { harnessTurnRefusal, type AgentAnswerOrigin, type GameLibraryEntry } from '@/types/agentIpc'
 import type { AgentTurnState, PauseReason } from '@/types/kernelEvents'
@@ -1010,6 +1020,47 @@ export const useAgentMode = defineStore(
       return harnessSessionRefs[harnessSessionId] ?? sessions.value[harnessSessionId]?.sessionRef
     }
 
+    // The tool-availability block for an Agent Mode turn's instructions: the
+    // media / speech / screenshot tool gates plus the session's attached MCP
+    // servers, so the agent can suggest enabling one when a request matches
+    // (gates mirror getAgentToolSpecs and the media capability in main).
+    function agentToolAvailability(
+      media: MediaToolSettings,
+      turnCapabilities: readonly string[],
+      modelSupportsVision: boolean,
+    ): string {
+      try {
+        if (!mcp.serversLoaded) {
+          // Server names make the block mention configured-but-unattached
+          // servers; loaded in the background so a turn never waits on the
+          // listing — the next turn's block carries the names.
+          void mcp.refreshAvailableServers().catch(() => {})
+        }
+        return toolAvailabilitySection({
+          surface: 'agent',
+          builtinToolsEnabled: true,
+          isToolEnabled: media.isToolEnabled,
+          delegationEnabled: media.delegationEnabled(),
+          modelSupportsVision,
+          generateWorkflowsAvailable: getAvailableWorkflows(media.isWorkflowEnabled).length > 0,
+          editWorkflowsAvailable: getAvailableEditWorkflows(media.isWorkflowEnabled).length > 0,
+          ttsAvailable: synthesizeToolAvailable(),
+          transcriptionAvailable: transcriptionAvailable(),
+          mediaCapabilityEnabled: turnCapabilities.includes('media'),
+          mcpEnabled: true,
+          mcpServers: mcp.allServers.map((server) => ({ id: server.id, name: server.name })),
+          mcpSelectedIds: turnCapabilities.flatMap((id) => {
+            const serverId = mcpServerIdOf(id)
+            return serverId ? [serverId] : []
+          }),
+        })
+      } catch (error) {
+        // The block is advisory: a turn must never fail over it.
+        console.error('Failed to build the tool-availability block:', error)
+        return ''
+      }
+    }
+
     function requestTurnDeletion(
       harnessSessionId: string,
       turnIds: string[],
@@ -1025,16 +1076,24 @@ export const useAgentMode = defineStore(
     }
 
     function liveTurnConfig(sessionId: string) {
+      // The remembered agent preset, not the active one: a media call
+      // switches the active preset to an image-gen one mid-turn.
+      const availability = agentToolAvailability(
+        storeMediaToolSettings(textInference),
+        capabilities.value,
+        textInference.modelSupportsVision,
+      )
       return buildTurnConfig({
         sessionId,
         sessionRef: sessionRefOf(sessionId),
         workspaceDir: workspaceDir.value,
-        // The remembered agent preset, not the active one: a media call
-        // switches the active preset to an image-gen one mid-turn.
         presetName: agentPresetName.value,
-        instructions: withResponseLanguage(
-          harnessInstructions(activeAgentPreset.value, textInference.systemPrompt),
-          chatAware.responseLanguage(sessionResponseLocale(sessionId)),
+        instructions: withToolAvailability(
+          withResponseLanguage(
+            harnessInstructions(activeAgentPreset.value, textInference.systemPrompt),
+            chatAware.responseLanguage(sessionResponseLocale(sessionId)),
+          ),
+          availability,
         ),
         ownsPrompt: activeAgentPreset.value?.agentOwnsPrompt === true,
         userSampling: hasChatAffordances(activeAgentPreset.value),
@@ -1068,14 +1127,22 @@ export const useAgentMode = defineStore(
       const chatPreset = preset?.type === 'chat' ? (preset as ChatPreset) : undefined
       const settings = context.settings ?? {}
       const stored = textInference.inferenceForSettings(context.presetName, settings)
+      const availability = agentToolAvailability(
+        turnMediaToolSettings(stored.tools),
+        context.capabilities,
+        stored.inference.modelSupportsVision,
+      )
       return buildTurnConfig({
         sessionId,
         sessionRef: sessionRefOf(sessionId),
         workspaceDir: context.workspaceDir,
         presetName: context.presetName,
-        instructions: withResponseLanguage(
-          harnessInstructions(chatPreset, stored.systemPrompt),
-          chatAware.responseLanguage(sessionResponseLocale(sessionId)),
+        instructions: withToolAvailability(
+          withResponseLanguage(
+            harnessInstructions(chatPreset, stored.systemPrompt),
+            chatAware.responseLanguage(sessionResponseLocale(sessionId)),
+          ),
+          availability,
         ),
         ownsPrompt: chatPreset?.agentOwnsPrompt === true,
         userSampling: hasChatAffordances(chatPreset),

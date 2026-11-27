@@ -43,10 +43,8 @@ import { JSONSchema7 } from '@ai-sdk/provider'
 import { dynamicTool, jsonSchema } from '@ai-sdk/provider-utils'
 import { synthesizeToolAvailable, transcriptionAvailable } from '../speech/speechIO'
 import { conversationLabelForTtsFile } from '@/lib/ttsAudioFileName'
-
-// Web tools that share browseWeb's single "Browse the web" enablement toggle:
-// they all act on the same background browser browseWeb drives.
-const WEB_COMPANION_TOOLS = new Set(['searchWeb', 'interactWithWebPage', 'screenshotWebPage'])
+import { enablementKeyOf } from '@/lib/builtinToolCatalog'
+import { toolAvailabilitySection, withToolAvailability } from '@/lib/toolAvailabilityPrompt'
 
 // Map opaque GPU/driver faults from the local inference backend to an actionable
 // hint. A Vulkan `ErrorDeviceLost` (a.k.a. device-lost / TDR reset) means the GPU
@@ -275,7 +273,7 @@ export const useOpenAiCompatibleChat = defineStore(
         // searchWeb/interactWithWebPage/screenshotWebPage are companions to
         // browseWeb (they search for, act on, or capture a page in the same
         // background browser), so they all share the single "Browse the web" toggle.
-        const enablementKey = WEB_COMPANION_TOOLS.has(name) ? 'browseWeb' : name
+        const enablementKey = enablementKeyOf(name)
         // Per-tool enablement (off by default for opt-in tools like captureScreenshot).
         if (!textInference.isBuiltinToolEnabled(enablementKey)) continue
         // The screenshot tool needs a user-bound window and a vision-capable model
@@ -393,6 +391,40 @@ export const useOpenAiCompatibleChat = defineStore(
       return resolvedTools
     }
 
+    // The tool-availability block for this turn's system prompt: which built-in
+    // tools and MCP servers exist, and which are unavailable and why, so the
+    // model can suggest enabling one when a request matches (gates mirror
+    // resolveBuiltinTools / resolveMcpTools above).
+    async function chatToolAvailabilitySection(): Promise<string> {
+      let mcpServers: { id: string; name: string }[] = mcp.serversLoaded
+        ? mcp.allServers.map((server) => ({ id: server.id, name: server.name }))
+        : []
+      if (!mcp.serversLoaded) {
+        try {
+          mcpServers = await window.electronAPI.mcp.listServers()
+        } catch {
+          // Names are a nicety: without them the block just omits the
+          // configured-but-unselected servers.
+        }
+      }
+      return toolAvailabilitySection({
+        surface: 'chat',
+        modelSupportsToolCalling: textInference.modelSupportsToolCalling,
+        builtinToolsEnabled: textInference.aipgToolsEnabled,
+        isToolEnabled: textInference.isBuiltinToolEnabled,
+        delegationEnabled: textInference.toolDelegationEnabled,
+        modelSupportsVision: textInference.modelSupportsVision,
+        generateWorkflowsAvailable: getAvailableWorkflows().length > 0,
+        editWorkflowsAvailable: getAvailableEditWorkflows().length > 0,
+        screenshotWindowSelected: !!textInference.screenshotWindow,
+        ttsAvailable: synthesizeToolAvailable(),
+        transcriptionAvailable: transcriptionAvailable(),
+        mcpEnabled: textInference.mcpToolsEnabled,
+        mcpServers,
+        mcpSelectedIds: textInference.mcpToolsEnabled ? textInference.mcpServerIds : [],
+      })
+    }
+
     // ── Chunk observation (was customFetch's onChunk) ─────────────────────
     //
     // The turn engine in main owns the AI SDK call now; what the renderer still
@@ -496,6 +528,7 @@ export const useOpenAiCompatibleChat = defineStore(
           : {}),
       }
       const rag = ragQuery ? buildChatRagRequest(ragQuery) : undefined
+      const toolAvailability = await chatToolAvailabilitySection()
       const mediaAgent = specs.some((spec) => spec.name === 'media')
         ? (await import('../agents/mediaAgent')).serializeMediaAgentInner()
         : undefined
@@ -503,10 +536,13 @@ export const useOpenAiCompatibleChat = defineStore(
       const languageMessages = outgoingUser ? [...existing, { role: 'user' as const }] : existing
       return {
         model: buildChatModelConfig(),
-        systemPrompt: withResponseLanguageAtStart(
-          textInference.systemPrompt,
-          chatAware.responseLanguage(i18n.langName),
-          languageMessages,
+        systemPrompt: withToolAvailability(
+          withResponseLanguageAtStart(
+            textInference.systemPrompt,
+            chatAware.responseLanguage(i18n.langName),
+            languageMessages,
+          ),
+          toolAvailability,
         ),
         tools: specs,
         ...(hasTools ? { repairData } : {}),

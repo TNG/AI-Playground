@@ -354,6 +354,10 @@ import ScreenshotWindowDialog from '@/components/ScreenshotWindowDialog.vue'
 import { useTextInference } from '@/assets/js/store/textInference'
 import { usePresets, type Preset } from '@/assets/js/store/presets'
 import { storeMediaToolSettings, type MediaToolSettings } from '@/lib/mediaToolSettings'
+import {
+  builtinToolsCatalog as allBuiltinTools,
+  speechToolsCatalog as speechChildren,
+} from '@/lib/builtinToolCatalog'
 import { fillTemplate } from '@/lib/fillTemplate'
 
 // `media` is the Agent Mode slice: the media tools and their workflows, without
@@ -514,57 +518,9 @@ function chooseDefault(toolName: string, workflow: ToolWorkflow) {
 // agent can do is a capability of its own.
 const MEDIA_TOOLS = ['comfyUI', 'comfyUiImageEdit', 'captureScreenshot']
 
-// User-facing descriptors for the built-in (internal) tools. Keys must match the
-// tool names registered in `aipgTools`.
-const allBuiltinTools: Array<{ name: string; label: string; description: string }> = [
-  {
-    name: 'comfyUI',
-    label: 'Generate media',
-    description: 'Create images, videos, or 3D models from text prompts.',
-  },
-  {
-    name: 'comfyUiImageEdit',
-    label: 'Transform image',
-    description:
-      'Edit, upscale, colorize, or convert an existing image into a new image, video, or 3D model.',
-  },
-  {
-    name: 'visualizeObjectDetections',
-    label: 'Visualize detections',
-    description: 'Draw bounding boxes and labels on a detected image.',
-  },
-  {
-    name: 'captureScreenshot',
-    label: 'Capture screenshot',
-    description:
-      'Let the assistant capture a single user-selected window to visually debug other apps.',
-  },
-  {
-    name: 'browseWeb',
-    label: 'Browse the web',
-    description:
-      'Let the assistant search the web, open pages in a background browser to read their ' +
-      'content, and (on vision models) capture a screenshot of a page.',
-  },
-]
-
-// Speech is presented as a single "Speech" group (like "Generate media") whose
-// children are the two independent speech tools. The group's master checkbox
-// enables/disables both; the sub-toggles control each tool individually.
-const speechChildren: Array<{ name: string; label: string; description: string }> = [
-  {
-    name: 'synthesizeTextToSpeech',
-    label: 'Text To Speech',
-    description:
-      'Let the assistant turn text into spoken audio with a choice of voices and languages.',
-  },
-  {
-    name: 'transcribeAudio',
-    label: 'Speech To Text',
-    description:
-      'Let the assistant transcribe an attached voice message or audio file into text with Whisper.',
-  },
-]
+// User-facing descriptors for the built-in (internal) tools live in
+// `builtinToolCatalog` (shared with the model-facing availability prompt);
+// keys must match the tool names registered in `aipgTools`.
 
 const builtinTools = computed(() =>
   isMediaVariant.value

@@ -502,7 +502,9 @@ describe('Agent Session Settings', () => {
     store.setCapabilityEnabled('mcp:blender', true)
     store.setPlanningThinkingOnly(false)
 
-    const config = turnConfig.build?.(store.openSessionId) as unknown as { capabilities: string[] }
+    const config = (await turnConfig.build?.(store.openSessionId)) as unknown as {
+      capabilities: string[]
+    }
     expect(config.capabilities).toContain('mcp:blender')
     expect(turnConfig.lastInput?.planningThinkingOnly).toBe(false)
   })

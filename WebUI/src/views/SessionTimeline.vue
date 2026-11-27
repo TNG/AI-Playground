@@ -161,6 +161,7 @@ const items = computed(() => {
     },
     { deletedUrls: sessions.openDeletedFiles },
     atTrueEnd.value,
+    sessions.openOverviewUpdates,
   )
   // Hiding is off: no Hide button, and no trace that it exists at all.
   // Already hidden messages stay hidden — that is the Session file's doing.

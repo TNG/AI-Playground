@@ -44,6 +44,8 @@ export type TimelineMessage = {
   role: 'user' | 'assistant'
   createdAt: number
   parts: TimelinePart[]
+  /** The History Entry this turn settled as; the details row attaches its outcome exactly. */
+  metadata?: { historyEntryId?: string }
 }
 
 export type { AgentRunTag }

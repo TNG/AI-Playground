@@ -62,6 +62,8 @@ import type {
   SessionTurn,
   ShowMore,
   ShowMoreSection,
+  Summariser,
+  OverviewSummaryUpdateRow,
 } from './sessionIpc'
 import type { PresetSessionSettings, SessionSettingsMap } from './sessionSettings'
 import type { SpeechSynthesisRequest } from './speechIpc'
@@ -318,6 +320,59 @@ export const CHANNELS = {
     owner: 'main',
     args: [] as unknown as readonly [string, boolean],
     result: null as unknown as IpcOkWith<{ session: SessionSummary }>,
+  },
+  /**
+   * Include a Session in Overviews or not. With a request, enabling starts the first Overview
+   * Summary update from the whole history and opting out cancels it and deletes the summary;
+   * without one it only records consent, as before. Pushes `session-changed`.
+   */
+  'sessions:setIncludedInOverviews': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, boolean, Summariser?],
+    result: null as unknown as IpcOkWith<{ session: SessionSummary }>,
+  },
+  /**
+   * Run the Overview Summary update again without a new turn, after a failure or on a refresh.
+   * The request carries the renderer-resolved local model and the Session's reply language.
+   * Pushes `session-changed` when it settles.
+   */
+  'sessions:refreshOverviewSummary': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, Summariser],
+    result: null as unknown as IpcOkWith<{ session: SessionSummary }>,
+  },
+  /**
+   * Retry the Overview Summary update a settled turn's details row names, without a new turn,
+   * and write the new outcome back onto that same History Entry. Pushes `session-changed`.
+   */
+  'sessions:retryOverviewUpdate': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string, Summariser],
+    result: null as unknown as IpcOkWith<{ session: SessionSummary }>,
+  },
+  /**
+   * Resume the pending update markers an interrupted run left behind, on launch. Only pending
+   * entries are rerun; a failed update is left for its Retry or a later turn. Pushes
+   * `session-changed` for each Session it resumes.
+   */
+  'sessions:resumePendingOverviewUpdates': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [Summariser],
+    result: null as unknown as IpcDataResult<{ resumed: string[] }>,
+  },
+  /**
+   * The per-turn Overview Summary update outcomes of a Session's History Entries, which a
+   * settled chat or agent turn's details row shows. `pending` is a durable marker.
+   */
+  'sessions:overviewUpdates': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as IpcDataResult<{ updates: OverviewSummaryUpdateRow[] }>,
   },
   /**
    * Add a host folder to a Session's folder list, read-only; `refusal` says why it was not added

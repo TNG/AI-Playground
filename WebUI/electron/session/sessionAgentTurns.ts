@@ -5,11 +5,11 @@ import { onGeneratedMedia } from '../agent/generatedMedia'
 import type { AgentTurnEnd } from '../agent/agentTurnOutcome'
 import { artifactReferenceOf } from './historyArtifacts'
 import { readSessionFolders } from './sessionFolders'
-import { appendHistoryEntry } from './sessionHistory'
+import { settleTurn } from './sessionSettlement'
 import { mutateSession, sessionDocumentOf } from './sessions'
 import { afterTurn } from './sessionTitle'
 import type { AgentFollowUpTag } from '@/types/agentSessionIpc'
-import type { ArtifactMediaType, HistoryArtifact } from '@/types/sessionIpc'
+import type { ArtifactMediaType, HistoryArtifact, Summariser } from '@/types/sessionIpc'
 
 const MEDIA_TYPES: Record<string, ArtifactMediaType> = {
   '.png': 'image',
@@ -41,6 +41,10 @@ export type AgentTurnInSession = {
   turnId: string
   taskRun?: { taskName: string; input?: string }
   followUp?: AgentFollowUpTag
+  /** The renderer-resolved local model and reply language for the Session's summary. */
+  summariser?: Summariser
+  /** The turn ran on a cloud model: the summary waits for the next local turn. */
+  cloudTurn?: boolean
 }
 
 /** An Agent Run is recorded as what was run, not as the run prompt holding every Step. */
@@ -81,18 +85,22 @@ export function trackAgentTurnInSession(turn: AgentTurnInSession): {
       stop()
       try {
         const artifacts = await artifactsOf(turn.sessionRef, files)
-        await appendHistoryEntry(turn.sessionRef, {
-          preset: turn.presetName,
-          kind: 'agent',
-          prompt,
-          status: end.outcome,
-          artifacts,
-          ...(end.outcome === 'completed' && end.reply ? { response: end.reply } : {}),
-          harnessSessionId: turn.harnessSessionId,
-          turnId: turn.turnId,
-          ...(turn.taskRun ? { taskName: turn.taskRun.taskName } : {}),
-          ...(turn.followUp ? { ...turn.followUp, followUp: true } : {}),
-        })
+        await settleTurn(
+          turn.sessionRef,
+          {
+            preset: turn.presetName,
+            kind: 'agent',
+            prompt,
+            status: end.outcome,
+            artifacts,
+            ...(end.outcome === 'completed' && end.reply ? { response: end.reply } : {}),
+            harnessSessionId: turn.harnessSessionId,
+            turnId: turn.turnId,
+            ...(turn.taskRun ? { taskName: turn.taskRun.taskName } : {}),
+            ...(turn.followUp ? { ...turn.followUp, followUp: true } : {}),
+          },
+          { summariser: turn.summariser, ...(turn.cloudTurn ? { cloudTurn: true } : {}) },
+        )
         const file = await mutateSession(turn.sessionRef, (current) => ({
           ...current,
           ...afterTurn(current, { kind: 'agent', preset: turn.presetName, prompt }),

@@ -5,6 +5,9 @@ import { useErrors } from '@/assets/js/store/errors'
 import { requestMissingWorkspace } from '@/assets/js/permissions/permissions'
 import type {
   MissingWorkspace,
+  OverviewSummary,
+  Summariser,
+  OverviewSummaryUpdateRow,
   SessionDeletePreview,
   SessionDocument,
   SessionFolderList,
@@ -60,6 +63,10 @@ export const useSessions = defineStore('sessions', () => {
   const showMore = ref<ShowMore>({ pinned: false, older: false })
   const openSessionId = ref<string | null>(null)
   const openTimeline = ref<unknown[]>([])
+  /** The open Session's Overview Summary text and picture; the panel rows carry only its state. */
+  const openOverviewSummary = ref<OverviewSummary | undefined>()
+  /** The open Session's per-turn Overview Summary update outcomes, for the turn details rows. */
+  const openOverviewUpdates = ref<OverviewSummaryUpdateRow[]>([])
   // Ids a regenerate dropped from the view before main's file did; a stale `session-changed` must not restore them.
   const forgottenTimelineIds = new Set<string>()
   /** Artifact URLs of the open Session whose file was deleted; their cards say so. */
@@ -95,9 +102,10 @@ export const useSessions = defineStore('sessions', () => {
   }
 
   function applyChanged(document: SessionDocument): void {
-    const { timeline, ...summary } = document
+    const { timeline, overviewSummary, ...summary } = document
     remember(summary)
     if (openSessionId.value !== document.id) return
+    openOverviewSummary.value = overviewSummary
     openHiddenIds.value = summary.hiddenMessageIds
     const stored = new Set(timeline.map(timelineIdOf))
     for (const id of forgottenTimelineIds) {
@@ -107,6 +115,25 @@ export const useSessions = defineStore('sessions', () => {
       ? timelineWithout(timeline, forgottenTimelineIds)
       : timeline
     refreshDeletedFiles(document.id)
+    void loadOverviewUpdates(document.id)
+  }
+
+  let overviewUpdatesSeq = 0
+
+  /** Reads the per-turn update outcomes after a session change; a stale reply is dropped. */
+  async function loadOverviewUpdates(id: string): Promise<void> {
+    const seq = ++overviewUpdatesSeq
+    try {
+      const result = await window.electronAPI.sessions.overviewUpdates(id)
+      if (seq !== overviewUpdatesSeq || openSessionId.value !== id) return
+      if (result.success) openOverviewUpdates.value = result.data.updates
+    } catch (error) {
+      errors.report(error, {
+        code: 'sessions/overview-updates-failed',
+        category: 'backend',
+        surface: 'silent',
+      })
+    }
   }
 
   function applyGroups(state: SessionGroupsState): void {
@@ -337,6 +364,7 @@ export const useSessions = defineStore('sessions', () => {
     remember(result.session)
     openSessionId.value = result.session.id
     openTimeline.value = []
+    openOverviewSummary.value = undefined
     openHiddenIds.value = []
     openDeletedFiles.value = []
     revealInGroup(result.session)
@@ -358,13 +386,16 @@ export const useSessions = defineStore('sessions', () => {
   ): Promise<SessionLastPreset | null> {
     const result = await call('sessions/open-failed', () => window.electronAPI.sessions.open(id))
     if (!result) return null
-    const { timeline, ...summary } = result.session
+    const { timeline, overviewSummary, ...summary } = result.session
     remember(summary)
     openSessionId.value = id
     forgottenTimelineIds.clear()
     openTimeline.value = timeline
+    openOverviewSummary.value = overviewSummary
     openHiddenIds.value = summary.hiddenMessageIds
     openDeletedFiles.value = result.missingFiles
+    openOverviewUpdates.value = []
+    void loadOverviewUpdates(id)
     if (reveal) revealInGroup(summary)
     return result.lastPreset
   }
@@ -387,6 +418,52 @@ export const useSessions = defineStore('sessions', () => {
     )
     if (result) remember(result.session)
     return !!result
+  }
+
+  /**
+   * Include the Session in Overviews. With a request, enabling starts the first summary and
+   * opting out deletes it; false when the change was not kept.
+   */
+  async function setIncludedInOverviews(
+    id: string,
+    included: boolean,
+    request?: Summariser,
+  ): Promise<boolean> {
+    const result = await call('sessions/set-included-in-overviews-failed', () =>
+      window.electronAPI.sessions.setIncludedInOverviews(id, included, request),
+    )
+    if (result) remember(result.session)
+    return !!result
+  }
+
+  /** Ask main to write the Overview Summary again without a new turn (the chip's Retry). */
+  async function refreshOverviewSummary(id: string, request: Summariser): Promise<boolean> {
+    const result = await call('sessions/refresh-overview-summary-failed', () =>
+      window.electronAPI.sessions.refreshOverviewSummary(id, request),
+    )
+    if (result) remember(result.session)
+    return !!result
+  }
+
+  /** Retry one turn's failed Overview Summary update and write its new outcome to that entry. */
+  async function retryOverviewUpdate(
+    id: string,
+    entryId: string,
+    request: Summariser,
+  ): Promise<boolean> {
+    const result = await call('sessions/retry-overview-update-failed', () =>
+      window.electronAPI.sessions.retryOverviewUpdate(id, entryId, request),
+    )
+    if (result) remember(result.session)
+    return !!result
+  }
+
+  /** Resume the pending updates an interrupted run left behind; returns the Session ids. */
+  async function resumePendingOverviewUpdates(request: Summariser): Promise<string[]> {
+    const result = await call('sessions/resume-pending-overview-updates-failed', () =>
+      window.electronAPI.sessions.resumePendingOverviewUpdates(request),
+    )
+    return result?.data.resumed ?? []
   }
 
   /** The Agent picked in the Session's prompt bar, `null` for Assistant; false when not kept. */
@@ -716,6 +793,8 @@ export const useSessions = defineStore('sessions', () => {
     openSessionId.value = null
     forgottenTimelineIds.clear()
     openTimeline.value = []
+    openOverviewSummary.value = undefined
+    openOverviewUpdates.value = []
     openHiddenIds.value = []
     openDeletedFiles.value = []
     await openNewestOrCreate()
@@ -727,6 +806,8 @@ export const useSessions = defineStore('sessions', () => {
     showMore,
     openSessionId,
     openTimeline,
+    openOverviewSummary,
+    openOverviewUpdates,
     openHiddenIds,
     openVisibleTimeline,
     sessionsWithHiddenMessages,
@@ -763,6 +844,10 @@ export const useSessions = defineStore('sessions', () => {
     workspaceDirOf,
     pickAgent,
     setReachable,
+    setIncludedInOverviews,
+    refreshOverviewSummary,
+    retryOverviewUpdate,
+    resumePendingOverviewUpdates,
     createGroup,
     moveToGroup,
     renameGroup,

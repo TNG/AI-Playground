@@ -182,6 +182,7 @@ import {
   openArtifactRuns,
   openComponentHolds,
   openTextRequests,
+  prepareChatForSettlement,
   setOrchestratorDeps,
   submitArtifactRun,
 } from './kernel/orchestrator'
@@ -275,6 +276,7 @@ import {
   setShowMore,
   renameSession,
   pinSession,
+  setSessionIncludedInOverviews,
   pickSessionAgent,
   setSessionDeps,
   wipeDemoSessions,
@@ -326,7 +328,9 @@ import {
 import { saveChatTranscript } from './session/sessionChatTurn'
 import { setAppMediaPathResolver } from './agent/piCustomTools'
 import { readSessionSettings, writePresetSettings } from './session/sessionSettings'
-import { lastTurnPreset } from './session/sessionHistory'
+import { historyOverviewUpdates, lastTurnPreset } from './session/sessionHistory'
+import { setOverviewSummaryComplete } from './session/overviewSummary'
+import { runOverviewSummaryCompletion } from './session/overviewSummaryRunner'
 import { claimSessionTurn, inSessionTurn, releaseSessionTurn } from './session/sessionTurns'
 import { buildAgentModeRegistry } from './kernel/registries/agentMode'
 import { buildChatRegistry } from './kernel/registries/chat'
@@ -1516,6 +1520,7 @@ function wireChatEngine(): void {
     ensureBackendReadiness: (args) => ensureChatBackendReady(args),
     readCloudProviderKey,
   })
+  setOverviewSummaryComplete(runOverviewSummaryCompletion)
   // Reuses the main-side aipg-media reader the agent attachments already use;
   // the engine contract throws on failure (the ported customFetch behavior).
   setChatEngineDeps({
@@ -1599,6 +1604,7 @@ function wireArtifactRunner(settings: LocalSettings): void {
     getPlatform: () => process.platform,
     devPresetsEnabled: () => isDeveloperMode(),
     localPathOf: getLocalPathFromAipgMediaUrl,
+    prepareChatForSettlement,
   })
 
   // The orchestrator owns GPU policy (step 7): every run — panel, chat tool,
@@ -1934,6 +1940,7 @@ function initEventHandle() {
       openSession,
       renameSession,
       pinSession,
+      setSessionIncludedInOverviews,
       addSessionFolder,
       removeSessionFolder,
       setSessionFolderAccess,
@@ -1974,6 +1981,7 @@ function initEventHandle() {
       readSessionSettings,
       writePresetSettings,
       lastTurnPreset,
+      historyOverviewUpdates,
       claimSessionTurn,
       releaseSessionTurn,
       newestArtifact,

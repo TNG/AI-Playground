@@ -1,7 +1,7 @@
 import type { InvokeHandlerMap, SessionsInvokeName } from '../ipcRegistries'
 import { ipcFail } from '../typedIpc'
 import type { recordAudioTurn } from '../../session/sessionAudioTurn'
-import type { lastTurnPreset } from '../../session/sessionHistory'
+import type { historyOverviewUpdates, lastTurnPreset } from '../../session/sessionHistory'
 import {
   SESSION_BUSY_MESSAGE,
   type claimSessionTurn,
@@ -11,10 +11,17 @@ import {
   ArtifactMediaTypeSchema,
   AudioTurnRequestSchema,
   HarnessGameWorkspaceSchema,
+  SummariserSchema,
   SessionTurnSchema,
   type AssistantCapabilityDefaults,
   type SessionCreateOptions,
 } from '@/types/sessionIpc'
+import {
+  applyOverviewInclusion,
+  refreshOverviewSummary,
+  resumePendingOverviewUpdates,
+  retryOverviewUpdate,
+} from '../../session/overviewSummary'
 import type {
   createSession,
   createSessionGroup,
@@ -28,6 +35,7 @@ import type {
   readShowMore,
   setShowMore,
   pinSession,
+  setSessionIncludedInOverviews,
   pickSessionAgent,
   renameSession,
   renameSessionGroup,
@@ -75,6 +83,7 @@ export type SessionsDeps = {
   openSession: typeof openSession
   renameSession: typeof renameSession
   pinSession: typeof pinSession
+  setSessionIncludedInOverviews: typeof setSessionIncludedInOverviews
   setSessionReachable: typeof setSessionReachable
   setRealShellFolders: typeof setRealShellFolders
   migrateHomeAgentThreads: typeof migrateHomeAgentThreads
@@ -116,6 +125,7 @@ export type SessionsDeps = {
   clearHiddenMessages: typeof clearHiddenMessages
   clearAllHiddenMessages: typeof clearAllHiddenMessages
   lastTurnPreset: typeof lastTurnPreset
+  historyOverviewUpdates: typeof historyOverviewUpdates
   claimSessionTurn: typeof claimSessionTurn
   releaseSessionTurn: typeof releaseSessionTurn
   saveChatTranscript: typeof saveChatTranscript
@@ -348,6 +358,63 @@ export function buildSessionsRegistry(deps: SessionsDeps) {
         if (typeof pinned !== 'boolean') throw new Error('pinned must be a boolean')
         const session = await deps.pinSession(requireString(id, 'session id'), pinned)
         return { success: true as const, session }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
+    'sessions:setIncludedInOverviews': async (_event, id, included, request) => {
+      try {
+        if (typeof included !== 'boolean') throw new Error('included must be a boolean')
+        const sessionId = requireString(id, 'session id')
+        if (request === undefined) {
+          const session = await deps.setSessionIncludedInOverviews(sessionId, included)
+          return { success: true as const, session }
+        }
+        const changed = await applyOverviewInclusion(
+          sessionId,
+          included,
+          SummariserSchema.parse(request),
+        )
+        return { success: true as const, session: changed }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
+    'sessions:refreshOverviewSummary': async (_event, id, request) => {
+      try {
+        const session = await refreshOverviewSummary(
+          requireString(id, 'session id'),
+          SummariserSchema.parse(request),
+        )
+        return { success: true as const, session }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
+    'sessions:retryOverviewUpdate': async (_event, id, entryId, request) => {
+      try {
+        const session = await retryOverviewUpdate(
+          requireString(id, 'session id'),
+          requireString(entryId, 'entry id'),
+          SummariserSchema.parse(request),
+        )
+        return { success: true as const, session }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
+    'sessions:resumePendingOverviewUpdates': async (_event, request) => {
+      try {
+        const resumed = await resumePendingOverviewUpdates(SummariserSchema.parse(request))
+        return { success: true as const, data: { resumed } }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
+    'sessions:overviewUpdates': async (_event, id) => {
+      try {
+        const updates = await deps.historyOverviewUpdates(requireString(id, 'session id'))
+        return { success: true as const, data: { updates } }
       } catch (e) {
         return ipcFail(e)
       }

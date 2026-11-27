@@ -37,6 +37,12 @@
             :settings="part.settings"
             :inputs="part.inputs"
           />
+          <TurnOverviewUpdate
+            v-else-if="part.kind === 'overview-update'"
+            :entry-id="part.entryId"
+            :update="part.update"
+            :covered="part.covered"
+          />
           <template v-else-if="answerOf(part.messageId)">
             <ChatMessageParts
               v-if="item.kind === 'chat'"
@@ -166,6 +172,7 @@ import SessionTurnFooter from '@/components/SessionTurnFooter.vue'
 import SessionTurnPrompt from '@/components/SessionTurnPrompt.vue'
 import TurnDetails from '@/components/TurnDetails.vue'
 import TurnFailureLine from '@/components/TurnFailureLine.vue'
+import TurnOverviewUpdate from '@/components/TurnOverviewUpdate.vue'
 import TurnWorkflowParameters from '@/components/TurnWorkflowParameters.vue'
 import { fillTemplate } from '@/lib/fillTemplate'
 import { agentRunControls } from '@/lib/sessionTimeline'

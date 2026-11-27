@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { isLocalSummaryModel } from '@/lib/summariser'
 import { z } from 'zod'
 import {
   APICallError,
@@ -1309,7 +1310,7 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
   } finally {
     if (turnQueueHolder() === turnId) setTurnChatBackendLoad(null)
     finishTextRequest(turnId)
-    await sessionTurn?.settle({
+    const written = await sessionTurn?.settle({
       preset: request.presetName ?? 'Chat',
       variant: request.variant,
       prompt: lastUserText(turnMessages),
@@ -1317,7 +1318,34 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
       response: assistantMessage
         ? textOfMessage(assistantMessage as unknown as ChatTranscriptMessage)
         : undefined,
+      ...(isLocalSummaryModel(request.model)
+        ? {
+            summariser: {
+              model: request.model,
+              language: request.responseLocale ?? 'en-US',
+            },
+          }
+        : {}),
+      cloudTurn: request.model.backend === 'cloud',
+      abortSignal: turn.controller.signal,
     })
+    if (written?.overviewUpdate && request.sessionRef) {
+      const promptMessage = [...turnMessages]
+        .reverse()
+        .find((message) => (message as { role?: string }).role === 'user')
+      const stamp = (message: unknown) => ({
+        ...(message as object),
+        metadata: {
+          ...((message as { metadata?: object }).metadata ?? {}),
+          historyEntryId: written.id,
+        },
+      })
+      const messages: unknown[] = turnMessages.map((message) =>
+        message === promptMessage ? stamp(message) : message,
+      )
+      if (assistantMessage) messages.push(stamp(withRagSource(assistantMessage, ragSourceText)))
+      await persistChatTurn(request, messages)
+    }
     activeTurns.delete(conversationKey)
     if (request.sessionRef) releaseSessionTurn(request.sessionRef, turnId)
     endChatTurn(conversationKey, turnId)

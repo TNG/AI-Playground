@@ -572,6 +572,7 @@ describe('Agent Session Settings', () => {
           renamed: false,
           pinned: false,
           reachable: false,
+          includedInOverviews: false,
           createdAt: 1,
           updatedAt: 1,
           presetsUsed: [],

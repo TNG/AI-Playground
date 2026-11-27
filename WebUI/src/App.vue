@@ -352,6 +352,7 @@ import { usesSessionSettings } from '@/lib/agentSessionSettings'
 import { useModePromptHandlers } from '@/lib/useModePromptHandlers'
 import { useSessions } from '@/assets/js/store/sessions'
 import { useSessionTabs } from '@/assets/js/store/sessionTabs'
+import { useSessionOverviews } from '@/lib/useSessionOverviews'
 
 const theme = useTheme()
 
@@ -380,6 +381,21 @@ const oemBranding = useOemBranding()
 const agentMode = useAgentMode()
 const sessions = useSessions()
 const sessionTabs = useSessionTabs()
+const sessionOverviews = useSessionOverviews()
+
+// Once the app is actually running, pick up the pending Overview Summary markers an
+// interrupted run left behind. Waiting for `running` keeps a half-installed app from
+// failing a summary whose backend is not set up yet.
+let resumedOverviewUpdates = false
+watch(
+  () => globalSetup.loadingState,
+  (state) => {
+    if (state !== 'running' || resumedOverviewUpdates) return
+    resumedOverviewUpdates = true
+    void sessionOverviews.resumePending()
+  },
+  { immediate: true },
+)
 
 // A kiosk never keeps an editor open, nor a half-made theme applied.
 watch(

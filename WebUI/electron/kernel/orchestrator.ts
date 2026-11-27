@@ -1194,6 +1194,42 @@ async function considerRelease(): Promise<void> {
 }
 
 /**
+ * Hands the GPU back to chat for a panel media run's Overview Summary update.
+ * The run still holds the Turn Queue's place, so this skips `considerRelease`'s
+ * skip-when-queued rule: queued media waits for its own admission, and the run
+ * that needs the summary gets the chat model before it settles.
+ */
+export async function prepareChatForSettlement(): Promise<void> {
+  if (!orchestratorDeps || gpuWindow !== 'media') return
+  if (swapBackInFlight) {
+    await swapBackInFlight.catch(() => {})
+    return
+  }
+  const deps = orchestratorDeps
+  gpuWindow = 'chat'
+  swapBackInFlight = (async () => {
+    try {
+      await deps.freeComfyMemory()
+    } catch (error) {
+      appLogger.warn(`Freeing image models failed: ${String(error)}`, 'electron-backend')
+    }
+    try {
+      await deps.restartChatBackend()
+    } catch (error) {
+      appLogger.warn(
+        `Could not load the chat model again after generating: ${String(error)}`,
+        'electron-backend',
+      )
+    }
+  })()
+  try {
+    await swapBackInFlight
+  } finally {
+    swapBackInFlight = null
+  }
+}
+
+/**
  * Resolves once the GPU window is back on chat and no swap-back is running.
  * Chat and Agent wait here via `submitTextRequest`.
  * No proceed-anyway bound: abort the signal (cancel the turn) to give up.

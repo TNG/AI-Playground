@@ -14,6 +14,7 @@ import {
 } from '@/assets/js/speech/speechIO'
 import { base64ToBytes, bytesToBase64 } from '@/lib/synthesizeSpeech'
 import { formatTtsAudioTimestamp } from '@/lib/ttsAudioFileName'
+import { turnSummariser } from '@/lib/turnSummariser'
 import { sessionMediaPathOf } from '@/lib/comfyWorkflow'
 import { cloneForIpc } from '@/lib/cloneForIpc'
 import type { AudioTurnRequest } from '@/types/sessionIpc'
@@ -195,7 +196,7 @@ export const useSessionAudio = defineStore('sessionAudio', () => {
     if (!started) return
     forgetReplacedTurn(started.sessionId, rerun)
     const { sessionId, preset } = started
-    const base = { sessionId, kind: 'tts' as const, preset, prompt }
+    const base = { sessionId, kind: 'tts' as const, preset, prompt, summariser: turnSummariser() }
     try {
       let request: AudioTurnRequest
       try {
@@ -244,7 +245,13 @@ export const useSessionAudio = defineStore('sessionAudio', () => {
     if (!started) return
     forgetReplacedTurn(started.sessionId, rerun)
     const { sessionId, preset } = started
-    const base = { sessionId, kind: 'stt' as const, preset, prompt: source.label }
+    const base = {
+      sessionId,
+      kind: 'stt' as const,
+      preset,
+      prompt: source.label,
+      summariser: turnSummariser(),
+    }
     try {
       const audio = {
         base64: await base64Of(blob),

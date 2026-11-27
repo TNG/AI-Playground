@@ -21,6 +21,7 @@ import type {
   AssistantCapabilityDefaults,
   AudioTurnRequest,
   HarnessGameWorkspace,
+  Summariser,
   SessionCreateOptions,
   SessionTurn,
   ShowMoreSection,
@@ -316,6 +317,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
     migrateHomeAgentThreads: (input: { routingKey: string | null } & AssistantCapabilityDefaults) =>
       invoke('sessions:migrateHomeAgentThreads', cloneForIpc(input)),
     pin: (id: string, pinned: boolean) => invoke('sessions:pin', id, pinned),
+    setIncludedInOverviews: (id: string, included: boolean, request?: Summariser) =>
+      request === undefined
+        ? invoke('sessions:setIncludedInOverviews', id, included)
+        : invoke('sessions:setIncludedInOverviews', id, included, cloneForIpc(request)),
+    refreshOverviewSummary: (id: string, request: Summariser) =>
+      invoke('sessions:refreshOverviewSummary', id, cloneForIpc(request)),
+    retryOverviewUpdate: (id: string, entryId: string, request: Summariser) =>
+      invoke('sessions:retryOverviewUpdate', id, entryId, cloneForIpc(request)),
+    resumePendingOverviewUpdates: (request: Summariser) =>
+      invoke('sessions:resumePendingOverviewUpdates', cloneForIpc(request)),
+    overviewUpdates: (id: string) => invoke('sessions:overviewUpdates', id),
     addFolder: (id: string, hostPath: string) => invoke('sessions:addFolder', id, hostPath),
     removeFolder: (id: string, folderId: string) => invoke('sessions:removeFolder', id, folderId),
     setFolderAccess: (id: string, folderId: string, access: MountedFolderAccess) =>

@@ -93,10 +93,11 @@ describe('shipped agent presets', () => {
     (entry) => entry.preset.type === 'chat' && (entry.preset as ChatPreset).agentPreset,
   )
 
-  it('ships Assistant, Game Agent and Quick Coder on the harness, and no Agent Maker', () => {
+  it('ships Assistant, Game Agent, Overview Agent and Quick Coder, and no Agent Maker', () => {
     expect(agentPresets.map((entry) => entry.preset.name).sort()).toEqual([
       'Assistant',
       'Game Agent',
+      'Overview Agent',
       'Quick Coder',
     ])
   })

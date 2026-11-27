@@ -9,7 +9,12 @@ import * as filesystem from 'fs-extra'
 import { app, type BrowserWindow } from 'electron'
 import { appLoggerInstance } from '../../observability/logger.ts'
 import { packagedResourcesRoot } from '../../kernel/aipgRoot.ts'
-import { createEnhancedErrorDetails, type ApiService, type ErrorDetails } from './service.ts'
+import {
+  createEnhancedErrorDetails,
+  type ApiService,
+  type DeviceProbe,
+  type ErrorDetails,
+} from './service.ts'
 import { emitServiceUpdate } from '../../kernel/kernelBus.ts'
 import { createApplicationControlWatch } from './applicationControl.ts'
 import { fetchInstallArtifact } from '../install/fetchInstallArtifact.ts'
@@ -563,80 +568,103 @@ export class LlamaCppBackendService implements ApiService {
     void this.refreshDualVariantVersionCaches().then(() => this.updateStatus())
   }
 
-  async detectDevices() {
+  /** Read-only device enumeration for the debug panel; never selects or persists. */
+  async probeDevices(): Promise<DeviceProbe> {
+    if (!filesystem.existsSync(this.getActiveLlamaCppExePath())) {
+      return { devices: withCpuDevice([]), source: 'llama-server not installed' }
+    }
     try {
-      // Check if llama-server.exe exists
-      if (!filesystem.existsSync(this.getActiveLlamaCppExePath())) {
-        this.appLogger.warn('llama-server.exe not found, using default device', this.name)
-        this.devices = withSelectedDevice(
-          withCpuDevice([]).map((d) => ({ ...d, selected: false })),
-          this.settings.lastSelectedDevicePerBackend[this.name],
-          (ds) => ds[0],
-        )
-        return
+      return {
+        devices: withCpuDevice(await this.probeAvailableDevices()),
+        source: 'llama-server --list-devices',
+      }
+    } catch (error) {
+      return {
+        devices: withCpuDevice([]),
+        source: 'llama-server --list-devices (failed)',
+        error: String(error),
+      }
+    }
+  }
+
+  private async probeAvailableDevices(): Promise<Array<{ id: string; name: string }>> {
+    this.appLogger.info('Detecting devices using llama-server --list-devices', this.name)
+
+    const { stdout, stderr } = await execAsync(
+      `"${this.getActiveLlamaCppExePath()}" --list-devices`,
+      {
+        cwd: this.getActiveLlamaCppDir(),
+        env: {
+          ...process.env,
+        },
+        timeout: 10000, // 10 second timeout
+      },
+    )
+
+    const availableDevices: Array<{ id: string; name: string }> = []
+    // Phison's llama-server fork (and recent upstream builds) write "Available devices:" + entries
+    // to stderr, not stdout. Parse both streams so detection is robust across build flavors.
+    // Device entries always end with a memory tuple like `(<N> MiB, <N> MiB free)` — log lines
+    // emitted on stderr after the header (`build:`, `load_backend:`, etc.) don't, so use that
+    // as the device-row discriminator. Works across Vulkan / CUDA / SYCL / HIP / MTL / BLAS / etc.
+    const lines = `${stdout}\n${stderr}`
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line !== '')
+
+    let foundDevicesSection = false
+    for (const line of lines) {
+      if (line.startsWith('Available devices:')) {
+        foundDevicesSection = true
+        continue
       }
 
-      this.appLogger.info('Detecting devices using llama-server --list-devices', this.name)
+      if (foundDevicesSection && line.includes(':')) {
+        const colonIndex = line.indexOf(':')
+        if (colonIndex <= 0) continue
 
-      const { stdout, stderr } = await execAsync(
-        `"${this.getActiveLlamaCppExePath()}" --list-devices`,
-        {
-          cwd: this.getActiveLlamaCppDir(),
-          env: {
-            ...process.env,
-          },
-          timeout: 10000, // 10 second timeout
-        },
-      )
-
-      const availableDevices: Array<{ id: string; name: string }> = []
-      // Phison's llama-server fork (and recent upstream builds) write "Available devices:" + entries
-      // to stderr, not stdout. Parse both streams so detection is robust across build flavors.
-      // Device entries always end with a memory tuple like `(<N> MiB, <N> MiB free)` — log lines
-      // emitted on stderr after the header (`build:`, `load_backend:`, etc.) don't, so use that
-      // as the device-row discriminator. Works across Vulkan / CUDA / SYCL / HIP / MTL / BLAS / etc.
-      const lines = `${stdout}\n${stderr}`
-        .split('\n')
-        .map((line) => line.trim())
-        .filter((line) => line !== '')
-
-      let foundDevicesSection = false
-      for (const line of lines) {
-        if (line.startsWith('Available devices:')) {
-          foundDevicesSection = true
+        const deviceInfo = line.substring(colonIndex + 1).trim()
+        const lastParenIndex = deviceInfo.lastIndexOf('(')
+        if (lastParenIndex <= 0) continue
+        const memoryInfo = deviceInfo.substring(lastParenIndex)
+        if (
+          !memoryInfo.includes('MiB') &&
+          !memoryInfo.includes('GiB') &&
+          !memoryInfo.includes('free')
+        ) {
           continue
         }
 
-        if (foundDevicesSection && line.includes(':')) {
-          const colonIndex = line.indexOf(':')
-          if (colonIndex <= 0) continue
-
-          const deviceInfo = line.substring(colonIndex + 1).trim()
-          const lastParenIndex = deviceInfo.lastIndexOf('(')
-          if (lastParenIndex <= 0) continue
-          const memoryInfo = deviceInfo.substring(lastParenIndex)
-          if (
-            !memoryInfo.includes('MiB') &&
-            !memoryInfo.includes('GiB') &&
-            !memoryInfo.includes('free')
-          ) {
-            continue
-          }
-
-          let deviceId = line.substring(0, colonIndex).trim()
-          // Strip the alpha backend prefix when followed by a numeric suffix so id stays consistent
-          // with the prior Vulkan-only behavior (`Vulkan0` → `0`, `MTL0` → `0`, `CUDA0` → `0`).
-          // Backends without a numeric suffix (e.g. `BLAS`) keep their id as-is.
-          const numericSuffixMatch = deviceId.match(/(\d+)$/)
-          if (numericSuffixMatch && /^[A-Za-z]+\d+$/.test(deviceId)) {
-            deviceId = numericSuffixMatch[1]
-          }
-
-          const deviceName = deviceInfo.substring(0, lastParenIndex).trim()
-          availableDevices.push({ id: deviceId, name: deviceName })
+        let deviceId = line.substring(0, colonIndex).trim()
+        // Strip the alpha backend prefix when followed by a numeric suffix so id stays consistent
+        // with the prior Vulkan-only behavior (`Vulkan0` → `0`, `MTL0` → `0`, `CUDA0` → `0`).
+        // Backends without a numeric suffix (e.g. `BLAS`) keep their id as-is.
+        const numericSuffixMatch = deviceId.match(/(\d+)$/)
+        if (numericSuffixMatch && /^[A-Za-z]+\d+$/.test(deviceId)) {
+          deviceId = numericSuffixMatch[1]
         }
-      }
 
+        const deviceName = deviceInfo.substring(0, lastParenIndex).trim()
+        availableDevices.push({ id: deviceId, name: deviceName })
+      }
+    }
+    return availableDevices
+  }
+
+  async detectDevices() {
+    // Check if llama-server.exe exists
+    if (!filesystem.existsSync(this.getActiveLlamaCppExePath())) {
+      this.appLogger.warn('llama-server.exe not found, using default device', this.name)
+      this.devices = withSelectedDevice(
+        withCpuDevice([]).map((d) => ({ ...d, selected: false })),
+        this.settings.lastSelectedDevicePerBackend[this.name],
+        (ds) => ds[0],
+      )
+      return
+    }
+
+    try {
+      const availableDevices = await this.probeAvailableDevices()
       const deviceChoices = withCpuDevice(availableDevices)
       this.appLogger.info(`detected devices: ${JSON.stringify(deviceChoices, null, 2)}`, this.name)
 

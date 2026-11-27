@@ -80,6 +80,7 @@ import type { ModelLibraryScan } from '@/assets/js/models/types'
 import type { ModelLists, ModelPaths } from '@/assets/js/store/models'
 import type { DocumentEmbedding, EmbedInquiry, IndexedDocument } from '@/types/rag'
 import type { PhisonKmIngestConfig, WarmupRequest } from './phisonKmRag'
+import type { DeviceDebugSnapshot } from './deviceDebug'
 
 export type IpcOwner = 'main' | 'channels'
 export type IpcKind = 'invoke' | 'send' | 'push'
@@ -1301,6 +1302,13 @@ export const CHANNELS = {
     owner: 'main',
     args: [] as const,
     result: null as unknown as HardwareRecommendationResult,
+  },
+  /** TEMPORARY: fresh OS + per-backend device probe for the device-list debug panel. */
+  'deviceDebug:probe': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as DeviceDebugSnapshot,
   },
   /** Whether a Phison SSD is installed (Windows probe; a settings flag can force it). */
   detectPhisonSsd: {

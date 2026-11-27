@@ -138,6 +138,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   updateLocalSettings: (updates: Partial<LocalSettings>) => invoke('updateLocalSettings', updates),
   getLocalSettings: () => invoke('getLocalSettings'),
   detectHardwareForModeRecommendation: () => invoke('detectHardwareForModeRecommendation'),
+  deviceDebug: {
+    probe: () => invoke('deviceDebug:probe'),
+  },
   getWinSize: () => invoke('getWinSize'),
   setWinSize: (width: number, height: number) => invoke('setWinSize', width, height),
   showSaveDialog: (options: SaveDialogOptions) => invoke('showSaveDialog', options),

@@ -492,6 +492,14 @@ export class ServiceNotInstalledError extends Error {
   }
 }
 
+/** A read-only device enumeration, split out of detectDevices() for debugging. */
+export type DeviceProbe = {
+  devices: Array<{ id: string; name: string; uuid?: string | null }>
+  /** Where the list came from, e.g. `llama-server --list-devices`. */
+  source: string
+  error?: string
+}
+
 export interface ApiService {
   readonly name: string
   readonly baseUrl: string
@@ -507,6 +515,12 @@ export interface ApiService {
 
   selectDevice(deviceId: string): Promise<void>
   detectDevices(): Promise<void>
+  /**
+   * Re-run this backend's device enumeration without applying or persisting a
+   * selection. Optional: services without a pure probe are shown with their
+   * applied list in the debug panel instead.
+   */
+  probeDevices?(): Promise<DeviceProbe>
   set_up(): AsyncIterable<SetupProgress>
   start(): Promise<BackendStatus>
   stop(): Promise<BackendStatus>

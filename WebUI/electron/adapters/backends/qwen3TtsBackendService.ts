@@ -6,7 +6,12 @@ import { promisify } from 'node:util'
 import { BrowserWindow } from 'electron'
 import type { LocalSettings } from '../../kernel/localSettings.ts'
 import { getSharedModelDir } from '../../kernel/pathsManager.ts'
-import { GitService, LongLivedPythonApiService, createEnhancedErrorDetails } from './service.ts'
+import {
+  GitService,
+  LongLivedPythonApiService,
+  createEnhancedErrorDetails,
+  type DeviceProbe,
+} from './service.ts'
 import {
   aipgBaseDir,
   checkBackend,
@@ -120,37 +125,48 @@ export class Qwen3TtsBackendService extends LongLivedPythonApiService {
    * since CPU is always shown and a concrete default is clearer. Falls back to
    * CPU-only when the env isn't set up or the probe fails.
    */
-  async detectDevices(): Promise<void> {
-    const cpuDevice: InferenceDevice = { id: 'cpu', name: 'CPU', selected: false }
-    let available: InferenceDevice[] = [{ ...cpuDevice }]
+  /** Read-only enumeration for the debug panel; never selects or persists. */
+  async probeDevices(): Promise<DeviceProbe> {
+    if (!this.isSetUp) {
+      return { devices: [{ id: 'cpu', name: 'CPU' }], source: 'not installed (CPU placeholder)' }
+    }
     try {
-      if (this.isSetUp) {
-        const { stdout, stderr } = await execFileAsync(this.pythonBinary, ['list_devices.py'], {
-          cwd: this.serviceDir,
-          env: {
-            ...process.env,
-            ...this.venvProcessEnv,
-            ...levelZeroDeviceSelectorEnv('*'),
-            SYCL_ENABLE_DEFAULT_CONTEXTS: '1',
-            SYCL_CACHE_PERSISTENT: '1',
-          },
-          timeout: 30000,
-        })
-        // The probe logs its enumeration reasoning to stderr — keep it in the
-        // backend log so a missing GPU can be diagnosed from the driver probe.
-        if (stderr.trim()) this.appLogger.info(`device probe: ${stderr.trim()}`, this.name)
-        const probed = JSON.parse(stdout.trim()) as Array<{ id: string; name: string }>
-        if (probed.length > 0) available = probed.map((d) => ({ ...d, selected: false }))
-        this.appLogger.info(`detected TTS devices: ${JSON.stringify(probed)}`, this.name)
+      const { stdout, stderr } = await execFileAsync(this.pythonBinary, ['list_devices.py'], {
+        cwd: this.serviceDir,
+        env: {
+          ...process.env,
+          ...this.venvProcessEnv,
+          ...levelZeroDeviceSelectorEnv('*'),
+          SYCL_ENABLE_DEFAULT_CONTEXTS: '1',
+          SYCL_CACHE_PERSISTENT: '1',
+        },
+        timeout: 30000,
+      })
+      // The probe logs its enumeration reasoning to stderr — keep it in the
+      // backend log so a missing GPU can be diagnosed from the driver probe.
+      if (stderr.trim()) this.appLogger.info(`device probe: ${stderr.trim()}`, this.name)
+      const probed = JSON.parse(stdout.trim()) as Array<{ id: string; name: string }>
+      this.appLogger.info(`detected TTS devices: ${JSON.stringify(probed)}`, this.name)
+      return {
+        devices: probed.length > 0 ? probed : [{ id: 'cpu', name: 'CPU' }],
+        source: 'list_devices.py',
       }
     } catch (e) {
       this.appLogger.warn(`qwen3-tts device detection failed, defaulting to CPU: ${e}`, this.name)
-      available = [{ ...cpuDevice }]
+      return {
+        devices: [{ id: 'cpu', name: 'CPU' }],
+        source: 'list_devices.py (failed)',
+        error: String(e),
+      }
     }
+  }
+
+  async detectDevices(): Promise<void> {
+    const probe = await this.probeDevices()
     // Restore the user's persisted choice; otherwise default to the best device
     // (probe orders GPUs before CPU, so the first entry is the preferred one).
     this.devices = withSelectedDevice(
-      available,
+      probe.devices.map((d) => ({ ...d, selected: false })),
       this.settings.lastSelectedDevicePerBackend[this.name],
       (ds) => ds[0],
     )

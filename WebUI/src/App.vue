@@ -259,6 +259,8 @@
     <ThemePanel v-if="uiStore.themePanelOpen && !demoMode.enabled" />
   </div>
 
+  <DeviceDebugPanel v-if="globalSetup.loadingState === 'running'" />
+
   <footer
     class="flex-none px-4 py-1 flex justify-end items-center gap-4 text-xs text-muted-foreground select-none"
     :class="{
@@ -332,6 +334,7 @@ import ModeSettingsTab from '@/components/ModeSettingsTab.vue'
 import SessionArtifacts from '@/components/SessionArtifacts.vue'
 import SessionAgentSchedules from '@/components/SessionAgentSchedules.vue'
 import AppSettingsDialog from '@/components/AppSettingsDialog.vue'
+import DeviceDebugPanel from '@/components/DeviceDebugPanel.vue'
 import ThemeMenu from '@/components/ThemeMenu.vue'
 import ThemePanel from '@/components/ThemePanel.vue'
 import { useDialogStore } from '@/assets/js/store/dialogs.ts'

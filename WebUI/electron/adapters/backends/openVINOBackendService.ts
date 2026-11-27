@@ -4,7 +4,12 @@ import * as filesystem from 'fs-extra'
 import { app, BrowserWindow, dialog } from 'electron'
 import { appLoggerInstance } from '../../observability/logger.ts'
 import { packagedResourcesRoot } from '../../kernel/aipgRoot.ts'
-import { ApiService, createEnhancedErrorDetails, ErrorDetails } from './service.ts'
+import {
+  ApiService,
+  createEnhancedErrorDetails,
+  type DeviceProbe,
+  ErrorDetails,
+} from './service.ts'
 import { emitServiceUpdate, getKernelEventWindow } from '../../kernel/kernelBus.ts'
 import { fetchFirstInstallArtifact } from '../install/fetchInstallArtifact.ts'
 import { buildOvmsCandidates, parseUbuntuMajor, ubuntuDistroTargets } from './ovmsDownloadUrls.ts'
@@ -919,6 +924,30 @@ export class OpenVINOBackendService implements ApiService {
     }
   }
 
+  /** Read-only device enumeration for the debug panel; never selects or persists. */
+  async probeDevices(): Promise<DeviceProbe> {
+    if (!this.isSetUp) {
+      return { devices: [], source: 'OpenVINO not installed' }
+    }
+    try {
+      // Python-based detection first, because it provides the full device names.
+      const pythonDevices = await this.detectDevicesWithPython()
+      if (pythonDevices) {
+        return { devices: pythonDevices, source: 'OpenVINO Python (detect_devices.py)' }
+      }
+    } catch (error) {
+      this.appLogger.warn(
+        `Python-based device detection failed: ${error}. Falling back to OVMS detection.`,
+        this.name,
+      )
+    }
+    try {
+      return { devices: await this.detectDevicesWithOvms(), source: 'ovms --rest_port probe' }
+    } catch (error) {
+      return { devices: [], source: 'OpenVINO (failed)', error: String(error) }
+    }
+  }
+
   async detectDevices() {
     const defaultDevices: InferenceDevice[] = [
       { id: 'AUTO', name: 'Auto select device', selected: true },
@@ -932,29 +961,14 @@ export class OpenVINOBackendService implements ApiService {
       return
     }
 
-    try {
-      // Try Python-based detection first (provides full device names)
-      const pythonDevices = await this.detectDevicesWithPython()
-      if (pythonDevices) {
-        await this.applyDetectedDevices(pythonDevices)
-        await this.warnIfNpuSiliconMissingDriver(pythonDevices)
-        this.updateStatus()
-        return
-      }
-    } catch (error) {
-      this.appLogger.warn(
-        `Python-based device detection failed: ${error}. Falling back to OVMS detection.`,
-        this.name,
-      )
+    const probe = await this.probeDevices()
+    if (probe.error) {
+      this.appLogger.error(`Failed to detect devices: ${probe.error}`, this.name)
     }
-
-    // Fallback to OVMS-based detection
-    try {
-      const ovmsDevices = await this.detectDevicesWithOvms()
-      await this.applyDetectedDevices(ovmsDevices)
-      await this.warnIfNpuSiliconMissingDriver(ovmsDevices)
-    } catch (error) {
-      this.appLogger.error(`Failed to detect devices: ${error}`, this.name)
+    if (probe.devices.length > 0) {
+      await this.applyDetectedDevices(probe.devices)
+      await this.warnIfNpuSiliconMissingDriver(probe.devices)
+    } else {
       // Fallback to default device on error
       this.devices = defaultDevices
       this.sttDevices = [...defaultDevices]

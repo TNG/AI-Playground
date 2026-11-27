@@ -47,6 +47,7 @@ import type {
   classifyDetectedDevices,
   detectGpuHardwareDevices,
 } from '../../adapters/hardware/hardwareDiscovery'
+import { captureDeviceDebugSnapshot } from '../../adapters/hardware/deviceDebug'
 import type { detectOem } from '../../adapters/hardware/oemDetection'
 import type { DemoProfile, loadDemoProfile } from '../../persist/demoProfile'
 import type { getAudioDir } from '../../persist/userDataPaths'
@@ -366,6 +367,12 @@ export function buildCoreInvokeRegistry(deps: CoreDeps) {
         hasNvidiaGpu: hasNvidia,
         modeCatalog,
       }
+    },
+
+    'deviceDebug:probe': async () => {
+      const registry = deps.getServiceRegistry() ?? deps.peekApiServiceRegistry()
+      if (!registry) return captureDeviceDebugSnapshot([], deps.settings)
+      return captureDeviceDebugSnapshot(registry.getRegistered(), deps.settings)
     },
 
     getWinSize: () => {

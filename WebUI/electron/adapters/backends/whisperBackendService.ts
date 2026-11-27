@@ -5,7 +5,12 @@ import { promisify } from 'node:util'
 import { BrowserWindow } from 'electron'
 import type { LocalSettings } from '../../kernel/localSettings.ts'
 import { getSharedModelDir } from '../../kernel/pathsManager.ts'
-import { GitService, LongLivedPythonApiService, createEnhancedErrorDetails } from './service.ts'
+import {
+  GitService,
+  LongLivedPythonApiService,
+  createEnhancedErrorDetails,
+  type DeviceProbe,
+} from './service.ts'
 import {
   aipgBaseDir,
   checkBackend,
@@ -110,34 +115,45 @@ export class WhisperBackendService extends LongLivedPythonApiService {
     }
   }
 
-  /** Enumerate torch accelerators (XPU / CUDA / CPU) via list_devices.py. */
-  async detectDevices(): Promise<void> {
-    const cpuDevice: InferenceDevice = { id: 'cpu', name: 'CPU', selected: false }
-    let available: InferenceDevice[] = [{ ...cpuDevice }]
+  /** Read-only enumeration for the debug panel; never selects or persists. */
+  async probeDevices(): Promise<DeviceProbe> {
+    if (!this.isSetUp) {
+      return { devices: [{ id: 'cpu', name: 'CPU' }], source: 'not installed (CPU placeholder)' }
+    }
     try {
-      if (this.isSetUp) {
-        const { stdout, stderr } = await execFileAsync(this.pythonBinary, ['list_devices.py'], {
-          cwd: this.serviceDir,
-          env: {
-            ...process.env,
-            ...this.venvProcessEnv,
-            ...levelZeroDeviceSelectorEnv('*'),
-            SYCL_ENABLE_DEFAULT_CONTEXTS: '1',
-            SYCL_CACHE_PERSISTENT: '1',
-          },
-          timeout: 30000,
-        })
-        if (stderr.trim()) this.appLogger.info(`device probe: ${stderr.trim()}`, this.name)
-        const probed = JSON.parse(stdout.trim()) as Array<{ id: string; name: string }>
-        if (probed.length > 0) available = probed.map((d) => ({ ...d, selected: false }))
-        this.appLogger.info(`detected Whisper devices: ${JSON.stringify(probed)}`, this.name)
+      const { stdout, stderr } = await execFileAsync(this.pythonBinary, ['list_devices.py'], {
+        cwd: this.serviceDir,
+        env: {
+          ...process.env,
+          ...this.venvProcessEnv,
+          ...levelZeroDeviceSelectorEnv('*'),
+          SYCL_ENABLE_DEFAULT_CONTEXTS: '1',
+          SYCL_CACHE_PERSISTENT: '1',
+        },
+        timeout: 30000,
+      })
+      if (stderr.trim()) this.appLogger.info(`device probe: ${stderr.trim()}`, this.name)
+      const probed = JSON.parse(stdout.trim()) as Array<{ id: string; name: string }>
+      this.appLogger.info(`detected Whisper devices: ${JSON.stringify(probed)}`, this.name)
+      return {
+        devices: probed.length > 0 ? probed : [{ id: 'cpu', name: 'CPU' }],
+        source: 'list_devices.py',
       }
     } catch (e) {
       this.appLogger.warn(`whisper device detection failed, defaulting to CPU: ${e}`, this.name)
-      available = [{ ...cpuDevice }]
+      return {
+        devices: [{ id: 'cpu', name: 'CPU' }],
+        source: 'list_devices.py (failed)',
+        error: String(e),
+      }
     }
+  }
+
+  /** Enumerate torch accelerators (XPU / CUDA / CPU) via list_devices.py. */
+  async detectDevices(): Promise<void> {
+    const probe = await this.probeDevices()
     this.devices = withSelectedDevice(
-      available,
+      probe.devices.map((d) => ({ ...d, selected: false })),
       this.settings.lastSelectedDevicePerBackend[this.name],
       (ds) => ds[0],
     )

@@ -154,6 +154,7 @@ function input(overrides: Partial<BuildEntriesInput> = {}): BuildEntriesInput {
     scanned: [],
     requiredModels: [],
     speechModels: [],
+    cloudModels: [],
     preferences: {},
     ...overrides,
   }
@@ -219,6 +220,66 @@ describe('buildEntries', () => {
     )
 
     expect(entries[0].source).toBe('custom')
+  })
+
+  it('lists a Hybrid Cloud model as a remote LLM that needs no disk', () => {
+    const entries = buildEntries(
+      input({
+        cloudModels: [{ name: 'provider/gpt-x', supportsVision: true, maxContextSize: 128000 }],
+      }),
+    )
+
+    expect(entries).toHaveLength(1)
+    expect(entries[0]).toMatchObject({
+      id: 'cloud:provider/gpt-x',
+      name: 'provider/gpt-x',
+      useCase: 'llm',
+      pathKey: 'cloud',
+      serviceBackend: 'cloud',
+      source: 'catalog',
+      // Remote: there is nothing to download and nothing to reclaim, and the
+      // size column says "0 B" rather than nothing at all.
+      downloaded: true,
+      sizeBytes: 0,
+    })
+    expect(entries[0].absolutePath).toBeUndefined()
+    expect(entries[0].capabilities.supportsVision).toBe(true)
+    expect(entries[0].capabilities.maxContextSize).toBe(128000)
+  })
+
+  it('keys cloud rows where the chat picker keys its cloud favorites', () => {
+    const entries = buildEntries(
+      input({
+        cloudModels: [{ name: 'provider/gpt-x' }],
+        // The id a favorite star in the picker writes; the same preference has
+        // to reach the library row for the star to read the same both places.
+        preferences: { 'cloud:provider/gpt-x': { favorite: true } },
+      }),
+    )
+
+    expect(entries[0].id).toBe('cloud:provider/gpt-x')
+    expect(entries[0].favorite).toBe(true)
+  })
+
+  it('applies a capability override to a cloud row, and to nothing but it', () => {
+    const entries = buildEntries(
+      input({
+        cloudModels: [{ name: 'provider/gpt-x', supportsVision: true, supportsReasoning: true }],
+        catalogModels: [
+          { name: 'org/repo/model.gguf', type: 'llamaCPP', downloaded: true, isPredefined: true },
+        ],
+        preferences: {
+          'cloud:provider/gpt-x': { capabilities: { supportsVision: false } },
+        },
+      }),
+    )
+
+    const cloud = entries.find((entry) => entry.serviceBackend === 'cloud')
+    expect(cloud?.capabilities.supportsVision).toBe(false)
+    expect(cloud?.capabilities.supportsReasoning).toBe(true)
+    expect(cloud?.hasCapabilityOverrides).toBe(true)
+    const local = entries.find((entry) => entry.serviceBackend === 'llama_cpp')
+    expect(local?.capabilities.supportsVision).toBeUndefined()
   })
 
   it('keeps a user-added model custom after it is downloaded', () => {

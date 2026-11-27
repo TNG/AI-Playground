@@ -11,8 +11,9 @@ const props = withDefaults(
   defineProps<{
     /**
      * Defaults to the active model; pass one to judge a model in a list. Already
-     * narrowed to llama.cpp by the caller (`llamaCppFitTarget`), since only the
-     * caller knows which backend the row it is rendering belongs to.
+     * narrowed to a backend the estimator speaks for by the caller
+     * (`vramFitTarget`), since only the caller knows which backend the row it
+     * is rendering belongs to.
      */
     model?: VramFitTarget
     /** Defaults to the chat store's context size. */
@@ -35,7 +36,7 @@ const props = withDefaults(
 )
 
 const i18nState = useI18N().state
-const { summary, verdict } = useLlamaCppVramFit(
+const { summary, verdict, isCloud } = useLlamaCppVramFit(
   props.model ? computed(() => props.model) : undefined,
   computed(() => props.contextSize),
 )
@@ -104,10 +105,10 @@ const budgetLine = computed(() =>
         class="max-w-xs bg-card border border-border text-foreground px-3 py-2 z-[200]"
       >
         <p class="text-sm font-semibold">{{ levelLabel }}</p>
-        <!-- Nothing was measured, so there is no breakdown to show — only why the
-             estimate is missing. -->
+        <!-- Nothing was measured, so there is no breakdown to show — why the
+             estimate is missing, or why a cloud model never needed one. -->
         <p v-if="!summary" class="text-xs text-muted-foreground">
-          {{ t('VRAM_FIT_UNKNOWN_EXPLANATION') }}
+          {{ isCloud ? t('VRAM_FIT_CLOUD_EXPLANATION') : t('VRAM_FIT_UNKNOWN_EXPLANATION') }}
         </p>
         <template v-else>
           <p class="text-xs text-muted-foreground">{{ breakdownLine }}</p>

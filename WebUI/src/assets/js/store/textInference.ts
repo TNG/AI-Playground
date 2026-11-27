@@ -73,6 +73,7 @@ import {
 } from '@/assets/js/phisonKmRag'
 import { useModelPreferences } from './modelPreferences'
 import { pathKeyForCatalogModel } from '../models/library'
+import { CLOUD_MODEL_PATH_KEY } from '../models/types'
 import { withPreferenceFlags } from '../models/favorites'
 import {
   contextSizeSettingSupported as contextSizeSupportedFor,
@@ -125,9 +126,11 @@ export type LlmModel = {
 
 /**
  * Cloud model ids are remote and have no model directory, but favoriting one
- * should still work, so their preferences are keyed under this synthetic path key.
+ * should still work, so their preferences are keyed under this synthetic path
+ * key. Defined in `models/types.ts` (pure) so the model library can build the
+ * same id without importing this store; re-exported for existing importers.
  */
-export const CLOUD_MODEL_PATH_KEY = 'cloud'
+export { CLOUD_MODEL_PATH_KEY }
 
 // Thinking model markers for different models
 export const thinkingModels: Record<string, string> = {
@@ -331,23 +334,30 @@ export const useTextInference = defineStore(
           // claim the thinking toggle for cloud models (reasoning still surfaces
           // via the <think> extraction middleware in the chat store).
           const caps = cloudMode.capabilitiesFor(name)
+          // The provider's word can be corrected per model: an override saved in
+          // the model library (Edit Capabilities) is keyed under the same
+          // CLOUD_MODEL_PATH_KEY id and lands here, so the pickers and the chat
+          // follow it. The mapping below is field-by-field on purpose — the
+          // thinking toggle is never overridden, since `enable_thinking` is a
+          // local-template kwarg remote providers may reject.
+          const overrides = modelPreferences.capabilityOverridesFor(CLOUD_MODEL_PATH_KEY, name)
           newModels.push({
             name,
             mmproj: undefined,
             type: 'cloud',
             downloaded: true, // remote — nothing to download
             active: name === selectedCloud || (!hasValidCloudSelection && index === 0),
-            supportsToolCalling: caps.supportsToolCalling,
-            supportsVision: caps.supportsVision,
-            supportsReasoning: caps.supportsReasoning,
+            supportsToolCalling: overrides?.supportsToolCalling ?? caps.supportsToolCalling,
+            supportsVision: overrides?.supportsVision ?? caps.supportsVision,
+            supportsReasoning: overrides?.supportsReasoning ?? caps.supportsReasoning,
             // Remote providers say nothing about coding fitness; the picker does
             // not filter cloud models on capability anyway.
-            supportsCoding: undefined,
-            supportsAgentic: undefined,
+            supportsCoding: overrides?.supportsCoding,
+            supportsAgentic: overrides?.supportsAgentic,
             supportsThinkingToggle: false,
             // From the provider's `context_length`; undefined when it stays
             // silent, in which case consumers fall back to their own defaults.
-            maxContextSize: caps.contextLength,
+            maxContextSize: overrides?.maxContextSize ?? caps.contextLength,
             // Sampling recommendations come from our own catalog, which only
             // describes local models.
             inferenceDefaults: undefined,

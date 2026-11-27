@@ -8,9 +8,12 @@ import type { ModelEntry, ModelServiceBackend } from './types'
  * Qwen3-TTS and the standalone Whisper sidecar run on their own services but their
  * weights live in the OpenVINO tree, so that is what decides where they are
  * fetched to — the same `type`/`backend` pair the features themselves download
- * with (`models.getMissingTranscriptionModel`).
+ * with (`models.getMissingTranscriptionModel`). Hybrid Cloud owns no directory
+ * and is never downloadable, so it never reaches here.
  */
-function downloadBackendOf(backend: ModelServiceBackend): 'comfyui' | 'llama_cpp' | 'openvino' {
+function downloadBackendOf(
+  backend: Exclude<ModelServiceBackend, 'cloud'>,
+): 'comfyui' | 'llama_cpp' | 'openvino' {
   return backend === 'qwen3_tts' || backend === 'whisper' ? 'openvino' : backend
 }
 
@@ -34,6 +37,9 @@ export function entriesToDownloadParams(
   const seen = new Set<string>()
 
   const add = (repoId: string, entry: ModelEntry) => {
+    // A remote id has no directory to resolve a download path for, so no state
+    // of a Hybrid Cloud row can turn into a download that cannot work.
+    if (entry.serviceBackend === 'cloud') return
     if (seen.has(repoId)) return
     seen.add(repoId)
     const backend = downloadBackendOf(entry.serviceBackend)

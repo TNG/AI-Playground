@@ -6,6 +6,7 @@ import { hasCapabilityOverrides, mergeCapabilities } from './overrides'
 import type { InferenceDefaults, SamplingProfile } from '@/types/shared'
 import type { VramFitVerdict } from '@/lib/vram/types'
 import {
+  CLOUD_MODEL_PATH_KEY,
   type ModelCapabilityValues,
   type ModelEntry,
   type ModelServiceBackend,
@@ -142,6 +143,15 @@ export type ModelPreferencesInput = {
   capabilities?: Partial<ModelCapabilityValues>
 }
 
+/**
+ * A Hybrid Cloud model as the library consumes it: the provider's id plus the
+ * capabilities the chat store already resolved for it. Structurally an
+ * `LlmModel` of type 'cloud', so the store can pass those through unchanged.
+ */
+export type CloudModelInput = ModelCapabilityValues & {
+  name: string
+}
+
 export type BuildEntriesInput = {
   /** LLM + embedding models from `store/models.ts` (already merged and downloaded-checked). */
   catalogModels: CatalogModelInput[]
@@ -151,6 +161,8 @@ export type BuildEntriesInput = {
   requiredModels: RequiredModelInput[]
   /** The speech models the STT/TTS features load. */
   speechModels: SpeechModelInput[]
+  /** Hybrid Cloud models from the chat store — remote, so never on disk. */
+  cloudModels: CloudModelInput[]
   /** User preferences keyed by `ModelEntry.id`. */
   preferences: Record<string, ModelPreferencesInput>
 }
@@ -174,7 +186,10 @@ function indexScan(scanned: ScannedModel[]): ScanIndex {
  * LLM and embedding rows come from the chat catalog, which already computes
  * `downloaded` correctly, and are only *enriched* with size/mtime/path from the
  * scan. Media and speech rows are built from the scan plus preset
- * `requiredModels`, since no catalog file describes them.
+ * `requiredModels`, since no catalog file describes them. Hybrid Cloud rows
+ * come from the chat store's provider list: remote, always "downloaded" (there
+ * is nothing to fetch), and keyed under `CLOUD_MODEL_PATH_KEY` so a favorite or
+ * capability override written here is the same one the chat pickers read.
  */
 export function buildEntries(input: BuildEntriesInput): ModelEntry[] {
   const scanIndex = indexScan(input.scanned)
@@ -246,6 +261,25 @@ export function buildEntries(input: BuildEntriesInput): ModelEntry[] {
       enableMtp: model.enableMtp,
       // Through `mergeCapabilities` rather than field by field, so a capability
       // added to `CAPABILITY_KEYS` reaches the row without a second edit here.
+      baseCapabilities: mergeCapabilities(model),
+    })
+  }
+
+  // Hybrid Cloud models: remote ids with no disk presence of their own. They
+  // arrive already capability-resolved (the chat store merges provider data
+  // with user overrides), and read as 0-byte so the size column answers
+  // "needs nothing" rather than "unknown".
+  for (const model of input.cloudModels) {
+    push({
+      name: model.name,
+      useCase: 'llm',
+      pathKey: CLOUD_MODEL_PATH_KEY,
+      serviceBackend: 'cloud',
+      // 'catalog' in the sense that the app did not add these by hand; it also
+      // keeps "remove from list" away, which has no meaning for a provider's id.
+      source: 'catalog',
+      downloaded: true,
+      sizeBytes: 0,
       baseCapabilities: mergeCapabilities(model),
     })
   }
@@ -633,4 +667,5 @@ export const BACKEND_LABELS: Record<ModelServiceBackend, string> = {
   comfyui: 'ComfyUI',
   qwen3_tts: 'Qwen3-TTS',
   whisper: 'Whisper',
+  cloud: 'Hybrid Cloud',
 }

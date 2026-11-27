@@ -29,7 +29,7 @@ const computeMetrics = reactive({
 vi.mock('@/assets/js/store/textInference', () => ({ useTextInference: () => textInference }))
 vi.mock('@/assets/js/store/computeMetrics', () => ({ useComputeMetrics: () => computeMetrics }))
 
-const { useLlamaCppVramFit, useVramFitLevels, llamaCppFitTarget } =
+const { useLlamaCppVramFit, useVramFitLevels, llamaCppFitTarget, cloudFitTarget, vramFitTarget } =
   await import('./useLlamaCppVramFit.ts')
 
 // A 7B-ish dense model: 32 layers, 4096 wide, 8 KV heads.
@@ -274,6 +274,22 @@ describe('useLlamaCppVramFit', () => {
     await settle()
     expect(summary.value).toBeNull()
   })
+
+  it('judges the active Hybrid Cloud model as a fit, with nothing to read and no card', async () => {
+    textInference.backend = 'cloud'
+    textInference.llmModels = [
+      { name: 'provider/gpt-x', type: 'cloud', active: true, downloaded: true },
+    ]
+    // No GPU sample at all: a remote model fits a machine that has no card.
+    computeMetrics.primaryGpu = undefined
+    const { summary, verdict, isCloud } = useLlamaCppVramFit()
+    await settle()
+
+    expect(verdict.value).toBe('easy')
+    expect(isCloud.value).toBe(true)
+    expect(summary.value).toBeNull()
+    expect(getLlamaCppVramInputs).not.toHaveBeenCalled()
+  })
 })
 
 describe('useVramFitLevels', () => {
@@ -337,6 +353,21 @@ describe('useVramFitLevels', () => {
     await settle()
     expect(levelOf(target('owner/repo/big.gguf'))).toBe('over')
   })
+
+  it('says a Hybrid Cloud model fits without reading anything, even with no card', () => {
+    computeMetrics.primaryGpu = undefined
+    const { levelOf } = useVramFitLevels()
+    expect(
+      levelOf(
+        cloudFitTarget({
+          name: 'provider/gpt-x',
+          type: 'cloud',
+          downloaded: true,
+        } as unknown as LlmModel),
+      ),
+    ).toBe('easy')
+    expect(getLlamaCppVramInputs).not.toHaveBeenCalled()
+  })
 })
 
 describe('llamaCppFitTarget', () => {
@@ -348,5 +379,34 @@ describe('llamaCppFitTarget', () => {
     const ov = { name: 'owner/repo/ov', type: 'openVINO', downloaded: true }
     expect(llamaCppFitTarget(ov as unknown as LlmModel)).toBeUndefined()
     expect(llamaCppFitTarget(undefined)).toBeUndefined()
+  })
+})
+
+describe('cloudFitTarget / vramFitTarget', () => {
+  it('maps a cloud model to a target that needs no header', () => {
+    const cloud = { name: 'provider/gpt-x', type: 'cloud', downloaded: true }
+    expect(cloudFitTarget(cloud as unknown as LlmModel)).toEqual({
+      name: 'provider/gpt-x',
+      downloaded: true,
+      cloud: true,
+    })
+    // Local backends are not cloud targets, and neither is no model at all.
+    const gguf = { name: 'owner/repo/a.gguf', type: 'llamaCPP', downloaded: true }
+    expect(cloudFitTarget(gguf as unknown as LlmModel)).toBeUndefined()
+    expect(cloudFitTarget(undefined)).toBeUndefined()
+  })
+
+  it('covers both backends the estimator speaks for', () => {
+    const gguf = { name: 'owner/repo/a.gguf', type: 'llamaCPP', downloaded: true }
+    expect(vramFitTarget(gguf as unknown as LlmModel)).toBe(gguf)
+    const cloud = { name: 'provider/gpt-x', type: 'cloud', downloaded: true }
+    expect(vramFitTarget(cloud as unknown as LlmModel)).toEqual({
+      name: 'provider/gpt-x',
+      downloaded: true,
+      cloud: true,
+    })
+    const ov = { name: 'owner/repo/ov', type: 'openVINO', downloaded: true }
+    expect(vramFitTarget(ov as unknown as LlmModel)).toBeUndefined()
+    expect(vramFitTarget(undefined)).toBeUndefined()
   })
 })

@@ -16,8 +16,22 @@ export type ModelUseCase = 'llm' | 'embedding' | 'media' | 'speech'
  * Which service consumes the weights. Doubles as the download API's `backend`,
  * except for the sidecars (`qwen3_tts`, `whisper`) whose weights live in the
  * OpenVINO-owned model tree — see `downloadParams.downloadBackendOf`.
+ *
+ * `cloud` is the odd one out: it owns no weights at all. A Hybrid Cloud model
+ * runs behind the provider's API, so it has no directory, nothing to download
+ * and nothing to scan — the value exists so library rows and pickers can name
+ * the backend a cloud model belongs to.
  */
-export type ModelServiceBackend = 'llama_cpp' | 'openvino' | 'comfyui' | 'qwen3_tts' | 'whisper'
+export type ModelServiceBackend =
+  'llama_cpp' | 'openvino' | 'comfyui' | 'qwen3_tts' | 'whisper' | 'cloud'
+
+/**
+ * Synthetic path key for Hybrid Cloud models. Their ids are remote and have no
+ * model directory, but favoriting and capability overrides should still work,
+ * so their preferences are keyed under this — the same id the model library
+ * and the chat pickers build for them (`modelEntryId(CLOUD_MODEL_PATH_KEY, …)`).
+ */
+export const CLOUD_MODEL_PATH_KEY = 'cloud'
 
 /**
  * Where the app learned about this model:
@@ -110,6 +124,11 @@ export type ModelEntry = {
   downloaded: boolean
   /** Only set when found on disk. Never reconstructed in the renderer — see scanModelLibrary. */
   absolutePath?: string
+  /**
+   * Bytes on disk when found by the scan; 0 for a Hybrid Cloud model, which
+   * never touches the disk but should still read as "needs nothing" rather
+   * than as an unknown size.
+   */
   sizeBytes?: number
   modifiedAt?: number
   isDirectory?: boolean

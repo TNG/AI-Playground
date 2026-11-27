@@ -1,17 +1,34 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
-import { computed, ref } from 'vue'
+import { ref } from 'vue'
 import type { QueuedChannelMessage } from '@/assets/js/store/channels/channelQueue'
-import type { ChannelKind } from '@/assets/js/store/channels/types'
-import type { InFlightWorkItem } from '@/types/lifecycleIpc'
+import type { ChannelQueuesState } from '@/types/channelHostIpc'
+import { connectKernelEventStream } from '@/assets/js/projection/kernelProjection'
 
 /**
- * What the Channels' router has queued, per Session, as the desktop shows it. Memory only:
- * the queue itself lives in the router and never survives a restart (ADR 0002).
+ * What the Channels' router has queued, per Session, as the desktop shows it. The router runs in
+ * the kernel; this is its projection. Memory only: the queue never survives a restart (ADR 0002).
  */
 export const useQueuedChannelMessages = defineStore('queuedChannelMessages', () => {
   const queued = ref<Record<string, QueuedChannelMessage[]>>({})
   /** Sessions whose next batch of queued messages the router is sending now. */
   const sending = ref<Record<string, true>>({})
+
+  function apply(state: ChannelQueuesState | undefined): void {
+    if (!state) return
+    queued.value = { ...state.queued }
+    sending.value = Object.fromEntries(state.sending.map((sessionRef) => [sessionRef, true]))
+  }
+
+  if (typeof window !== 'undefined' && window.electronAPI) {
+    const projection = connectKernelEventStream(
+      (event) => {
+        if (event.type === 'channel-queues') apply(event.queues)
+      },
+      (snapshot) => apply(snapshot.state.channelQueues),
+    )
+    projection.ready.catch(() => {})
+    if (import.meta.hot) import.meta.hot.dispose(() => projection.dispose())
+  }
 
   function publish(sessionRef: string, messages: QueuedChannelMessage[]): void {
     const { [sessionRef]: _previous, ...rest } = queued.value
@@ -32,20 +49,7 @@ export const useQueuedChannelMessages = defineStore('queuedChannelMessages', () 
     return sessionRef ? (queued.value[sessionRef] ?? []) : []
   }
 
-  /** One item per Channel with queued messages, for the close question. */
-  const inFlightWork = computed<InFlightWorkItem[]>(() => {
-    const counts = new Map<ChannelKind, number>()
-    for (const message of Object.values(queued.value).flat()) {
-      counts.set(message.channel, (counts.get(message.channel) ?? 0) + 1)
-    }
-    return [...counts].map(([channel, count]) => ({
-      kind: 'channel-queue',
-      channel,
-      state: { status: 'queued', count },
-    }))
-  })
-
-  return { queued, sending, publish, setSending, holdsPrompts, queuedIn, inFlightWork }
+  return { queued, sending, publish, setSending, holdsPrompts, queuedIn }
 })
 
 if (import.meta.hot) {

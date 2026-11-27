@@ -77,6 +77,10 @@ export type DemoModeInvokeName = Extract<MainInvokeChannelName, `demoMode:${stri
 export type DemoModeSendName = Extract<MainSendChannelName, `demoMode:${string}`>
 export type SessionsInvokeName = Extract<MainInvokeChannelName, `sessions:${string}`>
 export type SessionsSendName = Extract<MainSendChannelName, `sessions:${string}`>
+export type RemoteKernelInvokeName = Extract<MainInvokeChannelName, `remoteKernel:${string}`>
+export type RemoteKernelSendName = Extract<MainSendChannelName, `remoteKernel:${string}`>
+export type ChannelHostInvokeName = Extract<MainInvokeChannelName, `channelHost:${string}`>
+export type ChannelHostSendName = Extract<MainSendChannelName, `channelHost:${string}`>
 
 /** The core registry's names (batch D): every main channel no prefix domain claims. */
 export type CoreInvokeName = Exclude<
@@ -102,6 +106,8 @@ export type CoreInvokeName = Exclude<
   | CameraCaptureInvokeName
   | DemoModeInvokeName
   | SessionsInvokeName
+  | RemoteKernelInvokeName
+  | ChannelHostInvokeName
 >
 
 export type CoreSendName = Exclude<
@@ -127,6 +133,8 @@ export type CoreSendName = Exclude<
   | CameraCaptureSendName
   | DemoModeSendName
   | SessionsSendName
+  | RemoteKernelSendName
+  | ChannelHostSendName
 >
 
 export function registerInvokeHandlers<Names extends InvokeChannelName>(

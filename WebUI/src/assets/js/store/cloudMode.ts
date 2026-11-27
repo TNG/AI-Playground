@@ -1,7 +1,7 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
-import { demoAwareStorage } from '../demoAwareStorage'
 import { createAppError } from '../errors/appError'
 import { HYBRID_CLOUD_NAME } from '@/lib/cloudModeName'
+import { makeFileBackedPreference } from '@/lib/fileBackedPreferences'
 
 /**
  * A remote OpenAI-compatible provider (e.g. a self-hosted or cloud LLM
@@ -231,281 +231,280 @@ const DEFAULT_PROVIDER: CloudProvider = {
   models: [],
 }
 
-export const useCloudMode = defineStore(
-  'cloudMode',
-  () => {
-    // Whether Cloud Mode is switched on, toggled in the setup wizard. Persisted
-    // here rather than in settings.json: nothing in the main process needs it.
-    const isFeatureEnabled = ref(false)
+export const useCloudMode = defineStore('cloudMode', () => {
+  // Whether Cloud Mode is switched on, toggled in the setup wizard.
+  const isFeatureEnabled = ref(false)
 
-    const providers = ref<CloudProvider[]>([{ ...DEFAULT_PROVIDER }])
-    const selectedProviderId = ref<string>(DEFAULT_PROVIDER.id)
+  const providers = ref<CloudProvider[]>([{ ...DEFAULT_PROVIDER }])
+  const selectedProviderId = ref<string>(DEFAULT_PROVIDER.id)
 
-    // Decrypted API keys, kept in memory for the session only (never persisted
-    // in the renderer). Populated lazily from safeStorage via loadApiKey().
-    const apiKeyCache = reactive<Record<string, string>>({})
+  // In the kernel-owned preferences file, not localStorage: Agent Library agents and Sessions
+  // that name the cloud backend are kernel files too, and a remote-kernel thin client must
+  // judge them against the same providers the workstation has. Never holds API keys.
+  const prefs = makeFileBackedPreference({
+    section: 'cloudMode',
+    refs: { isFeatureEnabled, providers, selectedProviderId },
+    legacyKey: 'cloudMode',
+  })
+  if (import.meta.hot) import.meta.hot.dispose(() => prefs.dispose())
 
-    const selectedProvider = computed<CloudProvider | undefined>(() =>
-      providers.value.find((p) => p.id === selectedProviderId.value),
+  // Decrypted API keys, kept in memory for the session only (never persisted
+  // in the renderer). Populated lazily from safeStorage via loadApiKey().
+  const apiKeyCache = reactive<Record<string, string>>({})
+
+  const selectedProvider = computed<CloudProvider | undefined>(() =>
+    providers.value.find((p) => p.id === selectedProviderId.value),
+  )
+
+  const activeProviderBaseUrl = computed<string | undefined>(() => {
+    const url = selectedProvider.value?.baseUrl?.trim()
+    if (!url) return undefined
+    // Normalize: callers append `/v1/`, so strip a trailing slash (and a
+    // trailing `/v1` if the user pasted the full base) to avoid `//v1/`.
+    return url.replace(/\/+$/, '').replace(/\/v1$/, '')
+  })
+
+  const activeProviderApiKey = computed<string | undefined>(() => {
+    const id = selectedProviderId.value
+    return id ? apiKeyCache[id] : undefined
+  })
+
+  // Auth scheme for the selected provider. Main attaches the stored key with
+  // this header when it calls the provider.
+  const activeProviderAuthStyle = computed<CloudAuthStyle>(
+    () => selectedProvider.value?.authStyle ?? 'bearer',
+  )
+
+  function selectProvider(id: string) {
+    selectedProviderId.value = id
+  }
+
+  function addProvider(provider: Omit<CloudProvider, 'models'> & { models?: string[] }) {
+    providers.value.push({ models: [], ...provider })
+  }
+
+  // Normalized comparison form of a base URL, so `https://x/v1` and `https://x/`
+  // don't read as a change (callers append `/v1/` — see activeProviderBaseUrl).
+  const normalizeBase = (url: string | undefined): string =>
+    (url ?? '').trim().replace(/\/+$/, '').replace(/\/v1$/, '')
+
+  // A previously fetched model list belongs to a specific endpoint + credential.
+  // Once either changes, the ids may be stale (foreign endpoint) or newly
+  // (un)authorized, so drop them and let the UI re-fetch under the new settings.
+  function dropFetchedModels(provider: CloudProvider) {
+    provider.models = []
+    provider.modelCapabilities = undefined
+  }
+
+  function updateProvider(id: string, patch: Partial<Omit<CloudProvider, 'id'>>) {
+    const provider = providers.value.find((p) => p.id === id)
+    if (!provider) return
+    // A base-URL change invalidates any list fetched from the old endpoint.
+    // Skip when the patch itself carries a fresh `models` array (e.g. fetchModels
+    // results applied through here) so we don't clobber the incoming list.
+    if (
+      patch.baseUrl !== undefined &&
+      patch.models === undefined &&
+      normalizeBase(patch.baseUrl) !== normalizeBase(provider.baseUrl)
+    ) {
+      dropFetchedModels(provider)
+    }
+    Object.assign(provider, patch)
+  }
+
+  async function removeProvider(id: string) {
+    providers.value = providers.value.filter((p) => p.id !== id)
+    delete apiKeyCache[id]
+    await window.electronAPI.cloudProvider.deleteKey(id).catch(() => undefined)
+    if (selectedProviderId.value === id) {
+      selectedProviderId.value = providers.value[0]?.id ?? ''
+    }
+  }
+
+  /** Persist the key (encrypted) and cache the plaintext for this session. */
+  async function saveApiKey(
+    id: string,
+    key: string,
+  ): Promise<{ success: boolean; error?: string }> {
+    const result = await window.electronAPI.cloudProvider.saveKey(id, key)
+    if (result.success) {
+      const trimmed = key.trim()
+      const previous = apiKeyCache[id]
+      if (trimmed) apiKeyCache[id] = trimmed
+      else delete apiKeyCache[id]
+      // A changed token can grant a different set of models (or revoke legacy
+      // ones the old key could see), so any previously fetched list is stale.
+      if (trimmed !== (previous ?? '')) {
+        const provider = providers.value.find((p) => p.id === id)
+        if (provider) dropFetchedModels(provider)
+      }
+    }
+    return result
+  }
+
+  /** Pull the decrypted key from safeStorage into the in-memory cache. */
+  async function loadApiKey(id: string): Promise<string | null> {
+    const key = await window.electronAPI.cloudProvider.getKey(id)
+    if (key) apiKeyCache[id] = key
+    return key
+  }
+
+  /**
+   * Fetch the provider's model ids from main (`GET {base}/v1/models`).
+   * Main attaches the API key and logs upstream failures; here we only
+   * surface a concise message. Returns the list on success.
+   */
+  async function fetchModels(id: string): Promise<string[]> {
+    const provider = providers.value.find((p) => p.id === id)
+    if (!provider) throw new Error('Provider not found')
+    const base = provider.baseUrl.trim().replace(/\/+$/, '').replace(/\/v1$/, '')
+    if (!base) throw new Error('Base URL is required')
+
+    const result = await window.electronAPI.cloudProvider.listModels(
+      id,
+      base,
+      provider.authStyle ?? 'bearer',
     )
-
-    const activeProviderBaseUrl = computed<string | undefined>(() => {
-      const url = selectedProvider.value?.baseUrl?.trim()
-      if (!url) return undefined
-      // Normalize: callers append `/v1/`, so strip a trailing slash (and a
-      // trailing `/v1` if the user pasted the full base) to avoid `//v1/`.
-      return url.replace(/\/+$/, '').replace(/\/v1$/, '')
-    })
-
-    const activeProviderApiKey = computed<string | undefined>(() => {
-      const id = selectedProviderId.value
-      return id ? apiKeyCache[id] : undefined
-    })
-
-    // Auth scheme for the selected provider. Main attaches the stored key with
-    // this header when it calls the provider.
-    const activeProviderAuthStyle = computed<CloudAuthStyle>(
-      () => selectedProvider.value?.authStyle ?? 'bearer',
-    )
-
-    function selectProvider(id: string) {
-      selectedProviderId.value = id
-    }
-
-    function addProvider(provider: Omit<CloudProvider, 'models'> & { models?: string[] }) {
-      providers.value.push({ models: [], ...provider })
-    }
-
-    // Normalized comparison form of a base URL, so `https://x/v1` and `https://x/`
-    // don't read as a change (callers append `/v1/` — see activeProviderBaseUrl).
-    const normalizeBase = (url: string | undefined): string =>
-      (url ?? '').trim().replace(/\/+$/, '').replace(/\/v1$/, '')
-
-    // A previously fetched model list belongs to a specific endpoint + credential.
-    // Once either changes, the ids may be stale (foreign endpoint) or newly
-    // (un)authorized, so drop them and let the UI re-fetch under the new settings.
-    function dropFetchedModels(provider: CloudProvider) {
-      provider.models = []
-      provider.modelCapabilities = undefined
-    }
-
-    function updateProvider(id: string, patch: Partial<Omit<CloudProvider, 'id'>>) {
-      const provider = providers.value.find((p) => p.id === id)
-      if (!provider) return
-      // A base-URL change invalidates any list fetched from the old endpoint.
-      // Skip when the patch itself carries a fresh `models` array (e.g. fetchModels
-      // results applied through here) so we don't clobber the incoming list.
-      if (
-        patch.baseUrl !== undefined &&
-        patch.models === undefined &&
-        normalizeBase(patch.baseUrl) !== normalizeBase(provider.baseUrl)
-      ) {
-        dropFetchedModels(provider)
-      }
-      Object.assign(provider, patch)
-    }
-
-    async function removeProvider(id: string) {
-      providers.value = providers.value.filter((p) => p.id !== id)
-      delete apiKeyCache[id]
-      await window.electronAPI.cloudProvider.deleteKey(id).catch(() => undefined)
-      if (selectedProviderId.value === id) {
-        selectedProviderId.value = providers.value[0]?.id ?? ''
-      }
-    }
-
-    /** Persist the key (encrypted) and cache the plaintext for this session. */
-    async function saveApiKey(
-      id: string,
-      key: string,
-    ): Promise<{ success: boolean; error?: string }> {
-      const result = await window.electronAPI.cloudProvider.saveKey(id, key)
-      if (result.success) {
-        const trimmed = key.trim()
-        const previous = apiKeyCache[id]
-        if (trimmed) apiKeyCache[id] = trimmed
-        else delete apiKeyCache[id]
-        // A changed token can grant a different set of models (or revoke legacy
-        // ones the old key could see), so any previously fetched list is stale.
-        if (trimmed !== (previous ?? '')) {
-          const provider = providers.value.find((p) => p.id === id)
-          if (provider) dropFetchedModels(provider)
-        }
-      }
-      return result
-    }
-
-    /** Pull the decrypted key from safeStorage into the in-memory cache. */
-    async function loadApiKey(id: string): Promise<string | null> {
-      const key = await window.electronAPI.cloudProvider.getKey(id)
-      if (key) apiKeyCache[id] = key
-      return key
-    }
-
-    /**
-     * Fetch the provider's model ids from main (`GET {base}/v1/models`).
-     * Main attaches the API key and logs upstream failures; here we only
-     * surface a concise message. Returns the list on success.
-     */
-    async function fetchModels(id: string): Promise<string[]> {
-      const provider = providers.value.find((p) => p.id === id)
-      if (!provider) throw new Error('Provider not found')
-      const base = provider.baseUrl.trim().replace(/\/+$/, '').replace(/\/v1$/, '')
-      if (!base) throw new Error('Base URL is required')
-
-      const result = await window.electronAPI.cloudProvider.listModels(
-        id,
-        base,
-        provider.authStyle ?? 'bearer',
-      )
-      if (!result.success) {
-        if (typeof result.status === 'number') {
-          const snippet = (result.body ?? '').trim().slice(0, 300)
-          throw createAppError({
-            category: 'inference',
-            code: 'cloud/fetch-models-http-error',
-            surface: 'inline',
-            userMessage:
-              `Failed to fetch models: HTTP ${result.status}` + (snippet ? ` — ${snippet}` : ''),
-            technicalMessage: `GET ${base}/v1/models -> ${result.status}: ${result.body ?? ''}`,
-            context: { providerId: id, upstream: base, status: result.status },
-          })
-        }
-        if (result.body !== undefined) {
-          throw createAppError({
-            category: 'inference',
-            code: 'cloud/fetch-models-bad-json',
-            surface: 'inline',
-            userMessage:
-              'Provider response was not valid JSON (expected an OpenAI /v1/models list).',
-            technicalMessage: `GET ${base}/v1/models returned unparseable JSON: ${result.error}`,
-            context: { providerId: id, upstream: base },
-          })
-        }
+    if (!result.success) {
+      if (typeof result.status === 'number') {
+        const snippet = (result.body ?? '').trim().slice(0, 300)
         throw createAppError({
           category: 'inference',
-          code: 'cloud/fetch-models-unreachable',
+          code: 'cloud/fetch-models-http-error',
           surface: 'inline',
-          userMessage: `Could not reach the ${HYBRID_CLOUD_NAME} provider. Check the base URL and try again.`,
-          technicalMessage: `GET ${base}/v1/models failed: ${result.error}`,
+          userMessage:
+            `Failed to fetch models: HTTP ${result.status}` + (snippet ? ` — ${snippet}` : ''),
+          technicalMessage: `GET ${base}/v1/models -> ${result.status}: ${result.body ?? ''}`,
+          context: { providerId: id, upstream: base, status: result.status },
+        })
+      }
+      if (result.body !== undefined) {
+        throw createAppError({
+          category: 'inference',
+          code: 'cloud/fetch-models-bad-json',
+          surface: 'inline',
+          userMessage: 'Provider response was not valid JSON (expected an OpenAI /v1/models list).',
+          technicalMessage: `GET ${base}/v1/models returned unparseable JSON: ${result.error}`,
           context: { providerId: id, upstream: base },
         })
       }
+      throw createAppError({
+        category: 'inference',
+        code: 'cloud/fetch-models-unreachable',
+        surface: 'inline',
+        userMessage: `Could not reach the ${HYBRID_CLOUD_NAME} provider. Check the base URL and try again.`,
+        technicalMessage: `GET ${base}/v1/models failed: ${result.error}`,
+        context: { providerId: id, upstream: base },
+      })
+    }
 
-      const data = result.data
-      const ids = data.map((m) => String(m.id ?? '')).filter(Boolean)
+    const data = result.data
+    const ids = data.map((m) => String(m.id ?? '')).filter(Boolean)
 
-      // Also derive per-model capabilities and context window, so capability-gated
-      // presets (Vision, tool-calling, reasoning) can offer these models and the
-      // context gauge / agent session know how big the window is. If parsing
-      // throws for any reason, drop the map so every model falls back to "fully
-      // capable, unknown window" (see capabilitiesFor / ASSUME_ALL_CAPABILITIES).
-      try {
-        const caps: Record<string, CloudModelCapabilities> = {}
-        for (const m of data) {
-          const modelId = String(m.id ?? '')
-          if (modelId) caps[modelId] = parseModelCapabilities(m)
-        }
-        provider.modelCapabilities = caps
-      } catch {
-        provider.modelCapabilities = undefined
+    // Also derive per-model capabilities and context window, so capability-gated
+    // presets (Vision, tool-calling, reasoning) can offer these models and the
+    // context gauge / agent session know how big the window is. If parsing
+    // throws for any reason, drop the map so every model falls back to "fully
+    // capable, unknown window" (see capabilitiesFor / ASSUME_ALL_CAPABILITIES).
+    try {
+      const caps: Record<string, CloudModelCapabilities> = {}
+      for (const m of data) {
+        const modelId = String(m.id ?? '')
+        if (modelId) caps[modelId] = parseModelCapabilities(m)
       }
-
-      provider.models = ids
-      return ids
+      provider.modelCapabilities = caps
+    } catch {
+      provider.modelCapabilities = undefined
     }
 
-    /**
-     * Capabilities for a model of the currently-selected provider. Falls back to
-     * fully-capable when the model wasn't seen during a fetch (e.g. the synthetic
-     * CLOUD_DEFAULT_MODEL, a manually-typed id, or a provider that never returned
-     * capability metadata).
-     */
-    function capabilitiesFor(name: string): CloudModelCapabilities {
-      const map = selectedProvider.value?.modelCapabilities
-      return map?.[name] ?? { ...ASSUME_ALL_CAPABILITIES }
-    }
+    provider.models = ids
+    return ids
+  }
 
-    /**
-     * Refresh the selected provider's model list, overwriting it only if the
-     * request succeeds. Failures are swallowed here (main logs the detail) so a
-     * background refresh never disrupts the UI or clobbers a previously-fetched
-     * list. No-op without a base URL.
-     */
-    async function refreshSelectedProviderModels(): Promise<void> {
-      const id = selectedProviderId.value
-      const provider = providers.value.find((p) => p.id === id)
-      if (!id || !provider?.baseUrl.trim()) return
-      try {
-        await fetchModels(id) // overwrites provider.models on success
-      } catch {
-        /* keep the existing list; main already logged the reason */
+  /**
+   * Capabilities for a model of the currently-selected provider. Falls back to
+   * fully-capable when the model wasn't seen during a fetch (e.g. the synthetic
+   * CLOUD_DEFAULT_MODEL, a manually-typed id, or a provider that never returned
+   * capability metadata).
+   */
+  function capabilitiesFor(name: string): CloudModelCapabilities {
+    const map = selectedProvider.value?.modelCapabilities
+    return map?.[name] ?? { ...ASSUME_ALL_CAPABILITIES }
+  }
+
+  /**
+   * Refresh the selected provider's model list, overwriting it only if the
+   * request succeeds. Failures are swallowed here (main logs the detail) so a
+   * background refresh never disrupts the UI or clobbers a previously-fetched
+   * list. No-op without a base URL.
+   */
+  async function refreshSelectedProviderModels(): Promise<void> {
+    const id = selectedProviderId.value
+    const provider = providers.value.find((p) => p.id === id)
+    if (!id || !provider?.baseUrl.trim()) return
+    try {
+      await fetchModels(id) // overwrites provider.models on success
+    } catch {
+      /* keep the existing list; main already logged the reason */
+    }
+  }
+
+  async function toggleFeature(enabled: boolean) {
+    isFeatureEnabled.value = enabled
+  }
+
+  /** Pull the decrypted keys into the session cache. */
+  async function initConfig() {
+    if (!isFeatureEnabled.value) return
+    await Promise.all(providers.value.map((p) => loadApiKey(p.id).catch(() => null)))
+  }
+
+  // Persisted providers/selection rehydrate after this store is created, so a
+  // simple init() loop can miss the restored selection. Watch the selected
+  // provider and lazily pull its key into the cache the first time we see it,
+  // so the chat path always has the bearer token available after a restart.
+  watch(
+    () => selectedProviderId.value,
+    (id) => {
+      if (isFeatureEnabled.value && id && apiKeyCache[id] === undefined) {
+        loadApiKey(id).catch(() => null)
       }
-    }
-
-    async function toggleFeature(enabled: boolean) {
-      isFeatureEnabled.value = enabled
-    }
-
-    /** Pull the decrypted keys into the session cache. */
-    async function initConfig() {
-      if (!isFeatureEnabled.value) return
-      await Promise.all(providers.value.map((p) => loadApiKey(p.id).catch(() => null)))
-    }
-
-    // Persisted providers/selection rehydrate after this store is created, so a
-    // simple init() loop can miss the restored selection. Watch the selected
-    // provider and lazily pull its key into the cache the first time we see it,
-    // so the chat path always has the bearer token available after a restart.
-    watch(
-      () => selectedProviderId.value,
-      (id) => {
-        if (isFeatureEnabled.value && id && apiKeyCache[id] === undefined) {
-          loadApiKey(id).catch(() => null)
-        }
-      },
-      { immediate: true },
-    )
-
-    // Enablement rehydrates from persisted store state, which lands after this
-    // setup function has run — so the key load hangs off a watch, not a call.
-    watch(
-      isFeatureEnabled,
-      (on) => {
-        if (on) void initConfig()
-      },
-      { immediate: true },
-    )
-
-    return {
-      isFeatureEnabled,
-      providers,
-      selectedProviderId,
-      selectedProvider,
-      activeProviderBaseUrl,
-      activeProviderApiKey,
-      activeProviderAuthStyle,
-      selectProvider,
-      addProvider,
-      updateProvider,
-      removeProvider,
-      saveApiKey,
-      loadApiKey,
-      fetchModels,
-      capabilitiesFor,
-      refreshSelectedProviderModels,
-      toggleFeature,
-      initConfig,
-    }
-  },
-  {
-    persist: {
-      storage: demoAwareStorage,
-      // Never persist API keys here — they live encrypted on disk via safeStorage.
-      pick: ['isFeatureEnabled', 'providers', 'selectedProviderId'],
     },
-  },
-)
+    { immediate: true },
+  )
+
+  // Enablement rehydrates from persisted store state, which lands after this
+  // setup function has run — so the key load hangs off a watch, not a call.
+  watch(
+    isFeatureEnabled,
+    (on) => {
+      if (on) void initConfig()
+    },
+    { immediate: true },
+  )
+
+  return {
+    isFeatureEnabled,
+    providers,
+    selectedProviderId,
+    selectedProvider,
+    activeProviderBaseUrl,
+    activeProviderApiKey,
+    activeProviderAuthStyle,
+    selectProvider,
+    addProvider,
+    updateProvider,
+    removeProvider,
+    saveApiKey,
+    loadApiKey,
+    fetchModels,
+    capabilitiesFor,
+    refreshSelectedProviderModels,
+    toggleFeature,
+    initConfig,
+    init: () => prefs.init(),
+  }
+})
 
 if (import.meta.hot) {
   import.meta.hot.accept(acceptHMRUpdate(useCloudMode, import.meta.hot))

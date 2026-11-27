@@ -117,11 +117,19 @@ import {
   submitAgentToolResult,
 } from './agent/piAgentManager'
 import {
+  getKernelEventWindow,
   getKernelSnapshot,
   onKernelEvent,
+  relayKernelEvent,
   setComponentHolds,
   setKernelEventWindow,
+  setKernelRelayOnly,
 } from './kernel/kernelBus'
+import { createRemoteKernel } from './kernel/remoteKernel/remoteKernel'
+import { createProtectedJsonFile } from './persist/remoteKernelSecrets'
+import { createLanDiscovery } from './adapters/lanDiscovery'
+import { buildRemoteKernelRegistry } from './kernel/registries/remoteKernel'
+import type { PushChannelName } from '@/types/ipcChannels'
 import { registerInvokeHandlers, registerSendHandlers } from './kernel/ipcRegistries'
 import { typedSend } from './kernel/typedIpc'
 import { bindRendererWorkReset, createCloseCoordinator } from './kernel/closeCoordinator'
@@ -133,7 +141,12 @@ import {
   refreshWhileAsking,
   showRefreshedCloseQuestion,
 } from './kernel/closeAsk'
-import { createInFlightWork, queuedChannelMessages } from './kernel/inFlightWork'
+import { createInFlightWork } from './kernel/inFlightWork'
+import { createChannelsKernel, type ChannelBackend } from './channels/channelsKernel'
+import {
+  buildChannelHostRegistry,
+  buildChannelHostSendRegistry,
+} from './kernel/registries/channelHost'
 import { createComponentChanges } from './kernel/componentChanges'
 import type { HeldComponent } from '@/types/componentChange'
 import { openAgentTaskFolder } from './agent/agentTaskFolders.ts'
@@ -601,6 +614,12 @@ function quitApp(): void {
   app.quit()
 }
 
+let channelBackend: ChannelBackend | null = null
+const channelsKernel = createChannelsKernel({
+  backend: () => channelBackend,
+  window: getKernelEventWindow,
+})
+
 const inFlightWork = createInFlightWork({
   openAgentTurnSessionIds,
   readAgentSessionTitle,
@@ -608,6 +627,7 @@ const inFlightWork = createInFlightWork({
   openTextRequests,
   openArtifactRuns,
   readAgentTasks,
+  channelQueues: () => channelsKernel.host.queuedWork(),
 })
 
 /** Components the window reports holding (speech turns, model downloads), as last heard. */
@@ -820,6 +840,27 @@ const demoModeConfig = createDemoModeConfig({
 // device chosen after install) without importing main.ts's private writer.
 registerSettingsPersist(persistLocalSettingsToDisk)
 
+const remoteKernelCipher = {
+  available: () => safeStorage.isEncryptionAvailable(),
+  encrypt: (plain: string) => safeStorage.encryptString(plain),
+  decrypt: (data: Buffer) => safeStorage.decryptString(data),
+}
+const remoteKernelFile = <T>(name: string) =>
+  createProtectedJsonFile<T>(() => path.join(app.getPath('userData'), name), remoteKernelCipher)
+const remoteKernelLog = (message: string, level: 'info' | 'warn' | 'error' = 'info') =>
+  appLogger[level](message, 'remote-kernel', true)
+const remoteKernel = createRemoteKernel({
+  settings: () => settings,
+  persistSettings: persistLocalSettingsToDisk,
+  files: {
+    tls: remoteKernelFile('remote-kernel-tls.json'),
+    devices: remoteKernelFile('remote-kernel-devices.json'),
+    pairedHost: remoteKernelFile('remote-kernel-paired-host.json'),
+  },
+  discovery: createLanDiscovery(remoteKernelLog),
+  log: remoteKernelLog,
+})
+
 protocol.registerSchemesAsPrivileged([
   {
     scheme: 'aipg-media',
@@ -936,6 +977,7 @@ async function createWindow() {
   // renderer cannot leave an invisible queue draining.
   rejectAllMediaRequests('The app window was replaced')
   rejectAllChatAsks('The app window was replaced')
+  channelsKernel.windowPort.reset('The app window was replaced')
   rejectAllPermissionPrompts('The app window was replaced')
   clearRendererWaits()
   cancelAllArtifactRuns('The app window was replaced')
@@ -1267,8 +1309,9 @@ setRagAccess({
 // First, while the Channels' backend still runs: the window's queue dies with it.
 appShutdown.register({
   name: 'channel queues',
-  run: () => tellQueuesDroppedOnQuit(queuedChannelMessages(inFlightWork.rendererWork())),
+  run: () => tellQueuesDroppedOnQuit(channelsKernel.host.queuedWork()),
 })
+appShutdown.register({ name: 'channels', run: () => channelsKernel.stop() })
 appShutdown.register({ name: 'task runs', run: (cause) => settleTaskRunsOnQuit(cause) })
 appShutdown.register({ name: 'agent mode', run: () => shutdownAgentMode() })
 // After the agent, so no Trial Run turn still writes into a folder being removed.
@@ -1283,6 +1326,8 @@ appShutdown.register({
   },
 })
 appShutdown.register({ name: 'web browser', run: () => destroyWebBrowser() })
+// Withdraws the mDNS record, so clients stop listing a workstation that is gone.
+appShutdown.register({ name: 'remote kernel', run: () => remoteKernel.close() })
 // Demo conversations are session-scoped (§6.1): nothing demo-written may
 // survive the process that wrote it.
 appShutdown.register({ name: 'demo conversations', run: () => wipeDemoConversations() })
@@ -1385,7 +1430,9 @@ app.on('second-instance', (_event, _commandLine, _workingDirectory) => {
 })
 
 async function initServiceRegistry(win: BrowserWindow, settings: LocalSettings) {
-  serviceRegistry = await aiplaygroundApiServiceRegistry(win, settings)
+  serviceRegistry = await aiplaygroundApiServiceRegistry(win, settings, {
+    startBackends: !remoteKernel.isThinClientDevice(),
+  })
   const homeAgent = serviceRegistry.getService('home-agent-backend')
   if (homeAgent instanceof HomeAgentBackendService) {
     homeAgent.registerIpcHandlers()
@@ -1394,6 +1441,24 @@ async function initServiceRegistry(win: BrowserWindow, settings: LocalSettings) 
         homeAgent.channelSend(kind, action, payload),
       ),
     )
+    if (!remoteKernel.isThinClientDevice()) {
+      channelBackend = {
+        loadConfig: (kind) => homeAgent.loadChannelConfig(kind),
+        saveConfig: (kind, config) => homeAgent.saveChannelConfig(kind, config),
+        clearConfig: (kind) => homeAgent.clearChannelConfig(kind),
+        loadPrefs: (kind) => homeAgent.loadChannelPrefs(kind),
+        savePrefs: (kind, prefs) => homeAgent.saveChannelPrefs(kind, prefs),
+        inject: (kind, config) => homeAgent.channelSetConfig(kind, config),
+        poll: (kind) => homeAgent.channelPoll(kind),
+        send: (kind, action, payload) => homeAgent.channelSend(kind, action, payload),
+        running: () => homeAgent.currentStatus === 'running',
+      }
+      void channelsKernel
+        .start()
+        .catch((error: unknown) =>
+          appLogger.warn(`Channels did not start: ${String(error)}`, 'channels'),
+        )
+    }
   }
   wireArtifactRunner(settings)
   wireConversations(settings)
@@ -1773,6 +1838,9 @@ function initEventHandle() {
   // BEFORE requesting this snapshot and applies only events above its
   // sequence (docs/architecture-target.md §4.6).
   registerInvokeHandlers(buildKernelRegistry({ getKernelSnapshot }))
+  registerInvokeHandlers(buildRemoteKernelRegistry({ remoteKernel }))
+  registerInvokeHandlers(buildChannelHostRegistry(channelsKernel))
+  registerSendHandlers(buildChannelHostSendRegistry(channelsKernel))
 
   const pathsManager = new PathsManager(
     // Packaged: the per-user writable copy (seeded from the shared default on
@@ -2288,6 +2356,22 @@ app.whenReady().then(async () => {
     appLogger.info('startup step: initializing tracing', 'electron-backend', true)
     await initLaminarTracing()
 
+    // Before the registries register: a thin client's remote rows become forwarders.
+    if (
+      await remoteKernel.startClient({
+        relayKernelEvent,
+        deliverPush: (channel, payload) => {
+          if (win && !win.isDestroyed())
+            typedSend(win.webContents, channel as PushChannelName, payload as never)
+        },
+        rehydrate: () => {
+          if (win && !win.isDestroyed()) win.webContents.reload()
+        },
+      })
+    ) {
+      setKernelRelayOnly(true)
+    }
+
     appLogger.info('startup step: initializing event handlers', 'electron-backend', true)
     initEventHandle()
 
@@ -2296,6 +2380,8 @@ app.whenReady().then(async () => {
     // handler enforces the same path-traversal containment as the IPC reader
     // — without it, crafted `aipg-media://../...` URLs could escape `mediaDir`.
     protocol.handle('aipg-media', async (request) => {
+      const remote = remoteKernel.fetchMedia(request)
+      if (remote) return remote
       const safePath = getLocalPathFromAipgMediaUrl(request.url)
       if (!safePath) {
         return new Response('Not Found', { status: 404 })
@@ -2328,7 +2414,12 @@ app.whenReady().then(async () => {
     }
     appLogger.info('startup step: initializing service registry', 'electron-backend', true)
     await initServiceRegistry(window, settings)
-    if (!settings.isDemoModeEnabled) {
+    await remoteKernel.startHost({
+      sender: () => getKernelEventWindow()?.webContents,
+      resolveMediaPath: getLocalPathFromAipgMediaUrl,
+      onKernelEvent,
+    })
+    if (!settings.isDemoModeEnabled && !remoteKernel.isThinClientDevice()) {
       appLogger.info('startup step: migrating agent presets', 'electron-backend', true)
       await migrateAgentLibrary({
         presetsDir: getUserPresetsDir(),

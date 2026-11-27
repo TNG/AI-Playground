@@ -1,15 +1,15 @@
 // Local web ChannelAdapter — delivers replies to browsers on the LAN via SSE.
 //
 // Structurally identical to the Telegram / Slack adapters: every method funnels
-// through `window.electronAPI.channels.send('local-web', …)`, i.e. the
-// same generic IPC → Flask `/channel/local-web/send/<action>` path the other
-// channels use. The Python `LocalWebChannel` turns each send into one SSE event.
+// through `channelSend('local-web', …)`, i.e. the same Flask
+// `/channel/local-web/send/<action>` path the other channels use. The Python `LocalWebChannel` turns each send into one SSE event.
 
 import type { ChannelAdapter, RawPart } from './adapter'
 import { successRef } from './adapter'
 import { renderGenericToolMarker, stripAipgMediaReferences } from './adapterHelpers'
 import { ANSWER_CALLBACK } from '@/lib/answerButton'
 import { reasoningElapsedMsFromParts } from '@/lib/reasoningTimings'
+import { channelSend } from './channelTransport'
 
 // Sentinels the served page (local_web_app_html.py) rewrites into a styled,
 // collapsible reasoning block — the browser analogue of Telegram's expandable
@@ -70,7 +70,7 @@ function send(
     | 'post',
   payload: Record<string, unknown>,
 ) {
-  return window.electronAPI.channels.send('local-web', action, payload)
+  return channelSend('local-web', action, payload)
 }
 
 /** Final message: coalesce every reasoning part into one collapsed block above

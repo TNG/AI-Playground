@@ -163,7 +163,6 @@ export function useLocalWebSetup() {
         verifyError.value = test.error ?? 'Could not start LAN chat server.'
         return
       }
-      channelStore.channelPrefs['local-web'].identity = 'local'
       channelStore.setVerified('local-web')
       verifyStatus.value = 'success'
       passwordInput.value = ''

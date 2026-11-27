@@ -1,6 +1,7 @@
 import type { BrowserWindow } from 'electron'
 import { appLoggerInstance } from '../observability/logger'
 import type {
+  AgentTurnOrigin,
   AgentTurnSnapshot,
   AgentTurnState,
   PauseReason,
@@ -21,6 +22,7 @@ import type {
   KernelSnapshot,
   KernelStoredEvent,
 } from '@/types/kernelEvents'
+import type { ChannelQueuesState, ChannelsState } from '@/types/channelHostIpc'
 import type { SessionDocument, SessionGroupsState, SessionTurns } from '@/types/sessionIpc'
 import type { HeldComponent } from '@/types/componentChange'
 import type { MediaItem } from '@/types/mediaItem'
@@ -79,6 +81,14 @@ export function onKernelEvent(tap: KernelEventTap): () => void {
   }
 }
 
+// A remote-kernel thin client renders the workstation's stream; its own events
+// would interleave a second `seq` the renderer projection cannot order.
+let relayOnly = false
+
+export function setKernelRelayOnly(on: boolean): void {
+  relayOnly = on
+}
+
 function emit(payload: KernelEventPayload, scope: KernelEventScope): void {
   const event = { ...payload, scope, seq: ++sequence } as KernelEvent
   for (const tap of taps) {
@@ -88,6 +98,15 @@ function emit(payload: KernelEventPayload, scope: KernelEventScope): void {
       appLogger.warn(`kernel event tap failed: ${String(error)}`, 'kernel')
     }
   }
+  if (!relayOnly) sendToWindow(event)
+}
+
+/** Hand an already-stamped event from the workstation to this app's window. */
+export function relayKernelEvent(event: KernelEvent): void {
+  sendToWindow(event)
+}
+
+function sendToWindow(event: KernelEvent): void {
   const target = currentWin
   if (!target || target.isDestroyed()) return
   try {
@@ -95,7 +114,7 @@ function emit(payload: KernelEventPayload, scope: KernelEventScope): void {
   } catch (error) {
     // A destroyed-but-not-yet-collected webContents throws; events are
     // fire-and-forget so the drop is logged, not fatal.
-    appLogger.warn(`kernel event ${payload.type} dropped: ${String(error)}`, 'kernel')
+    appLogger.warn(`kernel event ${event.type} dropped: ${String(error)}`, 'kernel')
   }
 }
 
@@ -137,6 +156,7 @@ export function emitAgentTurnState(
   turnId: string,
   state: AgentTurnState,
   pauseReason?: PauseReason,
+  origin?: AgentTurnOrigin,
 ): void {
   const reason = state === 'paused' ? pauseReason : undefined
   const turn = agentTurnOf(sessionId, turnId)
@@ -152,6 +172,7 @@ export function emitAgentTurnState(
       turnId,
       state,
       ...(reason ? { pauseReason: reason } : {}),
+      ...(origin ? { origin } : {}),
     },
     { kind: 'run', runId: turnId },
   )
@@ -470,6 +491,19 @@ export function setComponentHolds(holds: HeldComponent[], inFlight: boolean): vo
   )
 }
 
+let channelsState: ChannelsState | null = null
+let channelQueues: ChannelQueuesState = { queued: {}, sending: [] }
+
+export function emitChannelsState(state: ChannelsState): void {
+  channelsState = state
+  emit({ type: 'channels-state', state }, { kind: 'global' })
+}
+
+export function emitChannelQueues(queues: ChannelQueuesState): void {
+  channelQueues = queues
+  emit({ type: 'channel-queues', queues }, { kind: 'global' })
+}
+
 export function setInferenceProfileSnapshot(profile: KernelInferenceProfile | null): void {
   inferenceProfile = profile
   emitStored('inference-profile', undefined, profile)
@@ -652,6 +686,8 @@ export function getKernelSnapshot(): KernelSnapshot {
       sessionTurns: { ...sessionTurns },
       componentHolds: [...componentHolds],
       anyInFlightWork,
+      channels: channelsState,
+      channelQueues,
     },
   }
 }
@@ -660,6 +696,7 @@ export function getKernelSnapshot(): KernelSnapshot {
 export function resetKernelBusForTest(): void {
   currentWin = null
   sequence = 0
+  relayOnly = false
   services.clear()
   agentTurns.clear()
   activeArtifactRun = null
@@ -678,4 +715,6 @@ export function resetKernelBusForTest(): void {
   componentHolds = []
   anyInFlightWork = false
   componentHoldsSignature = ''
+  channelsState = null
+  channelQueues = { queued: {}, sending: [] }
 }

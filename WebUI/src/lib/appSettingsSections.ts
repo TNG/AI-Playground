@@ -8,6 +8,7 @@ export type AppSettingsSectionId =
   | 'mcp'
   | 'permissions'
   | 'hide'
+  | 'remoteKernel'
   | 'advanced'
 
 export type AppSettingsPartId =
@@ -20,6 +21,7 @@ export type AppSettingsPartId =
   | 'mcp'
   | 'permissions'
   | 'hideMessages'
+  | 'remoteKernel'
   | 'developer'
   | 'demoMode'
 
@@ -48,6 +50,7 @@ const SECTIONS: SectionSpec[] = [
   // The Hide group stays open in demo mode: with the feature enabled there,
   // both hiding and bringing messages back must work.
   { id: 'hide', heading: true, parts: [{ id: 'hideMessages', demo: 'allow' }] },
+  { id: 'remoteKernel', heading: false, parts: [{ id: 'remoteKernel', demo: 'block' }] },
   {
     id: 'advanced',
     heading: true,
@@ -62,12 +65,15 @@ const SECTIONS: SectionSpec[] = [
 export function appSettingsSections(state: {
   demoMode: boolean
   hasDemoPasscode: boolean
+  developerMode: boolean
 }): AppSettingsSectionLayout[] {
   return SECTIONS.map((section) => ({
     id: section.id,
     heading: section.heading,
     parts: section.parts
       .filter((part) => !(state.demoMode && part.demo === 'hide'))
+      // Remote inference is a developer preview; the same flag hides it as the debug controls.
+      .filter((part) => part.id !== 'remoteKernel' || state.developerMode)
       .map((part) => ({
         id: part.id,
         blocked: state.demoMode && part.demo === 'block',

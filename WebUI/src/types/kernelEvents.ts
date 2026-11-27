@@ -10,6 +10,7 @@ import type { ActivityCategory, ActivityScope, ActivityState } from '@/assets/js
 import type { SerializedAppError } from '@/assets/js/errors/types'
 import type { SessionDocument, SessionGroupsState, SessionTurns } from './sessionIpc'
 import type { HeldComponent } from './componentChange'
+import type { ChannelQueuesState, ChannelsState } from './channelHostIpc'
 
 export type KernelEventScope =
   { kind: 'global' } | { kind: 'chat'; conversationKey: string } | { kind: 'run'; runId: string }
@@ -56,6 +57,9 @@ export type KernelAgentToolImageEvent = {
 
 /** The turn settled (success, error or abort); its stream can close. */
 /** The turn moved within the Turn Queue (queued → running when it takes the place). */
+/** What started a turn, so a window that did not start it can show it from its first event. */
+export type AgentTurnOrigin = { prompt: string; userMessageId: string }
+
 export type KernelAgentTurnStateEvent = {
   type: 'agent-turn-state'
   sessionId: string
@@ -63,6 +67,8 @@ export type KernelAgentTurnStateEvent = {
   state: AgentTurnState
   /** What the user is asked; only while `paused`. */
   pauseReason?: PauseReason
+  /** Only on the turn's first event, which precedes every chunk of it. */
+  origin?: AgentTurnOrigin
 }
 
 export type KernelAgentTurnDoneEvent = {
@@ -293,6 +299,18 @@ export type KernelComponentHoldsEvent = {
   anyInFlightWork: boolean
 }
 
+/** Whether Channels run, as the kernel decided it; every window shows the same. */
+export type KernelChannelsStateEvent = {
+  type: 'channels-state'
+  state: ChannelsState
+}
+
+/** What the Channels' router has queued per Session, the whole map on every change. */
+export type KernelChannelQueuesEvent = {
+  type: 'channel-queues'
+  queues: ChannelQueuesState
+}
+
 /** Last successful local chat load — kernel memory, not the settings dropdown. */
 export type KernelInferenceProfile = {
   serviceName: string
@@ -326,6 +344,8 @@ export type KernelEventPayload =
   | KernelSessionGroupsChangedEvent
   | KernelSessionTurnsEvent
   | KernelComponentHoldsEvent
+  | KernelChannelsStateEvent
+  | KernelChannelQueuesEvent
 
 export type KernelEvent = KernelEventPayload & KernelEventEnvelope
 
@@ -415,6 +435,9 @@ export type KernelSnapshotState = {
   componentHolds?: HeldComponent[]
   /** Whether any In-flight Work exists; a Hardware Mode change waits for it. */
   anyInFlightWork?: boolean
+  /** Null on a machine whose kernel runs no Channels. */
+  channels?: ChannelsState | null
+  channelQueues?: ChannelQueuesState
 }
 
 export type KernelSnapshot = {

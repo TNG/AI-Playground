@@ -28,6 +28,13 @@ import type { GroupNameProblem } from '../lib/sessionGroupName'
 import type { ConversationBootstrap, ConversationSaveRequest } from './conversationIpc'
 import type { DemoConfigSaveResult, DemoConfigUpdate } from './demoModeIpc'
 import type { ChannelInboundMessage } from './channelIpc'
+import type {
+  ChannelPortAnswer,
+  ChannelPortAsk,
+  ChannelPortState,
+  ChannelsLegacyState,
+  ChannelsState,
+} from './channelHostIpc'
 import type { KernelEvent, KernelSnapshot, PauseReason } from './kernelEvents'
 import type { CloseAnswerPayload, CloseAskPayload, InFlightWorkItem } from './lifecycleIpc'
 import type { ComponentChangeRefusal, HeldComponent } from './componentChange'
@@ -41,6 +48,14 @@ import type {
 } from './permissionsIpc'
 import type { RagDocumentSection } from './ragDocumentIpc'
 import type { MountedFolderRefusal } from '../lib/mountedFolders'
+import type {
+  DiscoveredHost,
+  PairedDeviceInfo,
+  PairingWindowInfo,
+  RemoteKernelConfigUpdate,
+  RemoteKernelPairRequest,
+  RemoteKernelStatus,
+} from './remoteKernelIpc'
 import type { BackendLaunchSettings, BackendVersionWire } from './preferencesIpc'
 import type {
   ArtifactMediaType,
@@ -2271,6 +2286,83 @@ export const CHANNELS = {
     raw: true as const,
   },
 
+  // ── Channels in the kernel: one dispatcher, every window a view of it ──
+
+  /** Whether Channels run: the switch, each Channel's setup, and which are fielding traffic. */
+  'channelHost:getState': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as ChannelsState,
+  },
+  /** The title-bar switch. */
+  'channelHost:setMaster': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [boolean],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Turns one verified Channel on or off. */
+  'channelHost:setEnabled': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [ChannelKind, boolean],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Marks a Channel's saved credentials tested; it starts running (switch permitting). */
+  'channelHost:setVerified': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [ChannelKind],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Saves a Channel's config; changed credentials need testing again. */
+  'channelHost:saveConfig': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [ChannelKind, Record<string, string>],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Forgets a Channel's config and setup. */
+  'channelHost:clearConfig': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [ChannelKind],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** The window's legacy switch and prefs, applied only where main has none. */
+  'channelHost:migrate': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [ChannelsLegacyState],
+    result: null as unknown as void,
+  },
+  /** Points a Channel at a Session, or at none. */
+  'channelHost:setChannelSession': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [ChannelKind, string | null],
+    result: null as unknown as void,
+  },
+  /** Main asks the window holding Agent Mode to reach a Session for a Channel. */
+  'channelHost:portAsk': {
+    kind: 'push',
+    owner: 'main',
+    payload: null as unknown as ChannelPortAsk,
+  },
+  /** The window's answer, with a fresh mirror of what the router reads. */
+  'channelHost:portAnswer': {
+    kind: 'send',
+    owner: 'main',
+    args: [] as unknown as readonly [ChannelPortAnswer],
+  },
+  /** The window's mirror, whenever it changes. */
+  'channelHost:portState': {
+    kind: 'send',
+    owner: 'main',
+    args: [] as unknown as readonly [ChannelPortState],
+  },
+
   // ── LAN chat and Channel dispatch (batch 9c) ──
   // The `channel:*` channels pre-date the `ns:` convention, so their dotted
   // `member` overrides place them inside the channels bridge group. The
@@ -2413,6 +2505,79 @@ export const CHANNELS = {
     // already calls `electronAPI.getKernelSnapshot()`.
     flat: true as const,
     member: 'getKernelSnapshot' as const,
+  },
+
+  // ── Remote kernel (thin client ↔ workstation over the LAN) ──
+
+  /** This launch's remote-kernel mode, the saved config, and the live connection. */
+  'remoteKernel:getStatus': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as RemoteKernelStatus,
+  },
+  /** Save the mode and host port; applies on the next start. */
+  'remoteKernel:saveConfig': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [null as unknown as RemoteKernelConfigUpdate] as const,
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Workstation: open a two-minute pairing window and return its 4-digit code. */
+  'remoteKernel:openPairing': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as IpcOkWith<{ pairing: PairingWindowInfo }>,
+  },
+  /** Workstation: end the pairing window early. */
+  'remoteKernel:closePairing': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as void,
+  },
+  /** Workstation: the paired devices, without their token hashes. */
+  'remoteKernel:listDevices': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as PairedDeviceInfo[],
+  },
+  /** Workstation: forget a device and end its connection. */
+  'remoteKernel:revokeDevice': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [null as unknown as string] as const,
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Workstation: new certificate, no paired devices; every client pairs again. */
+  'remoteKernel:resetPairing': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Thin client: browse mDNS for workstations for a few seconds. */
+  'remoteKernel:discover': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as IpcDataResult<DiscoveredHost[]>,
+  },
+  /** Thin client: pair with a workstation using the code it shows (SPAKE2; the code stays local). */
+  'remoteKernel:pair': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [null as unknown as RemoteKernelPairRequest] as const,
+    result: null as unknown as IpcOkWith<{ hostname: string }>,
+  },
+  /** Thin client: drop the paired workstation, its pinned certificate and token. */
+  'remoteKernel:forgetHost': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as IpcMutationResult,
   },
 } satisfies Record<string, IpcRow>
 

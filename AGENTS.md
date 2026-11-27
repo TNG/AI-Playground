@@ -1117,16 +1117,37 @@ only take effect on new VM sessions — a running VM will not pick up changes.
 
 A Channel reaches ordinary Sessions (ADR 0010): the user marks a Session reachable, its Agent
 Notifications fan out to every active Channel, an Answer goes back to the Session it came from, and
-a plain message goes to that Channel's Channel Session. The renderer half is the Channels store
-(`store/channels.ts`, `useChannels`: polling, the title-bar master toggle, per-Channel
-enabled/verified state, remote speech) and the router in `store/channels/` (`answerRouter.ts`,
-the command table, the per-Session queue, `channelInbound.ts` for files and voice before routing,
-`downloadConsent.ts` for remote download consent); the desktop's copy of the queue is
-`store/queuedChannelMessages.ts`. Only a Reachable Session reaches a Channel; Channels off, or a
-Channel off or unverified, sends nothing. The internal service is still named
-`home-agent-backend` and lives in `home-agent/`.
+a plain message goes to that Channel's Channel Session. Only a Reachable Session reaches a
+Channel; Channels off, or a Channel off or unverified, sends nothing. The internal service is still
+named `home-agent-backend` and lives in `home-agent/`.
 
-Each channel is one renderer `ChannelAdapter` (`src/assets/js/store/channels/`) plus one Python
+**The kernel reads and routes every Channel message** (`electron/channels/`), so there is one
+dispatcher however many windows are open (a remote-kernel thin client included):
+
+- `channelState.ts` owns the title-bar switch (`preferences.json` section `channels`), each
+  Channel's verified/enabled/identity, injecting credentials into the backend, and which Channels
+  are active; every window projects it from the `channels-state` kernel event and changes it
+  through the `channelHost:*` rows.
+- `channelHost.ts` polls each active Channel and runs the router from `store/channels/`
+  (`answerRouter.ts`, the command table, the per-Session queue, `channelInbound.ts`) in main. It
+  keeps the Channel Session pointers (`preferences.json` section `channelSessions`) and publishes
+  the queue as `channel-queues`, which `store/queuedChannelMessages.ts` projects; the close
+  question and the quit notice read the queue from main.
+- **Sessions are still reached through the workstation's window** (`windowPort.ts` ↔
+  `src/lib/channelWindowPort.ts`), because sending a turn, starting an Agent Run and the speech
+  engine live in Agent Mode's renderer stores. What the router reads synchronously (activity,
+  labels, Trial Runs, real-shell folders, Agent names, open typed questions) is a mirror the window
+  sends whenever it changes and with every answer, so a send that started a turn already reads
+  busy; anything that changes a Session is a `channelHost:portAsk` call to that window. Main
+  compares mirrors to tell the router a Session settled, lost reachability or was deleted. Nothing
+  is polled until the window has sent its first mirror: the backend's queue is cleared on read.
+- The window keeps what only a window can do for a Channel turn it runs: download consent
+  (`downloadConsent.ts`, `channelQuestions.ts` — a tap or typed yes/no is forwarded to it) and
+  voice (`remoteSpeech.ts`), sending through its own adapters.
+
+The adapters send through `channelTransport.ts`, which main points at the backend and the window
+leaves on the IPC bridge. Each channel is one `ChannelAdapter` (`src/assets/js/store/channels/`)
+plus one Python
 module (`home-agent/channels/`), wired together by `ChannelKind` in both languages and dispatched
 through the generic `/channel/<kind>/*` Flask routes — adding a platform touches no shared logic.
 
@@ -1369,6 +1390,77 @@ model (and ComfyUI for media) — see "Testing inference end-to-end" above to ge
 Automated coverage: `electron/test/channels/` and
 `electron/test/adapters/backends/localWebConfig.test.ts` for the units,
 `e2e/channels-local-web.spec.ts` for the whole page in a real browser window.
+
+### Remote kernel (thin client ↔ workstation, PoC)
+
+One AI Playground can render another's kernel over the LAN: Settings → App → **Remote inference**
+picks `off` / `host` (workstation) / `client` (thin client), stored as `remoteKernel*` keys in
+`settings.json`; a change applies on restart. The workstation's certificate, its paired devices and
+the client's paired host are three files in userData (`remote-kernel-tls.json`, `-devices.json`,
+`-paired-host.json`), encrypted with safeStorage when a keyring exists.
+
+- **Routing is a typed table**, `src/types/ipcRouting.ts`: every invoke/send row is `local` or
+  `remote` (`satisfies Record<…>`, so a new manifest row fails the build until classified), every
+  push row `local` / `broadcast` / `driver`. The host dispatches `remote` rows only. Handlers that
+  read the caller's window off `event.sender` must stay `local` — remote calls get a synthetic
+  event whose `sender` is the workstation window.
+- **Seams:** `typedHandle`/`typedOn` record every handler (`kernel/remoteKernel/dispatch.ts`) and,
+  in client mode, register forwarders for `remote` rows instead; `typedSend` goes through
+  `kernel/rendererSinks.ts`. Pushes that make a renderer _execute_ work (`agentMode:executeTool`,
+  `chat:ask`, `artifact:request`) go to the `driver` — the renderer that last started a turn or
+  run — so a tool never runs twice; prompts broadcast and the first answer wins.
+- **Pairing** (`pairing.ts`, `spake2.ts`): the workstation shows a 4-digit code for two minutes;
+  the client types it and both run SPAKE2 (RFC 9382, P-256, tested against the RFC vectors) with
+  the code hashed together with the certificate fingerprint the client sees, and that fingerprint
+  bound into the transcript. The code never crosses the wire, a device in the middle fails the key
+  confirmation, and every started session spends one of five attempts (the host's confirmation
+  already answers whether a guess was right). Success seals a per-device token under the SPAKE2
+  key; the host keeps only its hash, and Revoke ends that device's stream at once.
+- **TLS** (`tlsIdentity.ts`): the workstation serves HTTPS with a self-signed P-256 certificate and
+  the client trusts exactly that certificate (`ca` + a fingerprint `checkServerIdentity`; the LAN
+  IP is not checked). The certificate is marked `CA:TRUE` because Electron's BoringSSL refuses a
+  pinned self-signed root without it while Node's OpenSSL accepts either — so Vitest cannot catch
+  that regression; the store test asserts the flag instead.
+- **Discovery** (`adapters/lanDiscovery.ts`, `bonjour-service`): a workstation advertises
+  `_aipg-kernel._tcp` with TXT `v`, `name`, a 16-hex fingerprint hint and `pairing` (re-published
+  when a window opens or closes); the client's "Search the network" browses for 3 s. Multicast is
+  blocked on many guest/corporate networks and does not cross subnets, so manual address entry
+  stays. What is advertised is a hint; trust comes only from pairing.
+- **Transport** (`kernel/remoteKernel/host.ts` / `client.ts`): HTTPS + SSE on port 47800,
+  `x-aipg-remote-token` header carrying the device token. `/rpc` (JSON via `wireCodec.ts`, which keeps bytes and `undefined`),
+  `/events` (kernel events with a replay buffer, pushes, a `bootId` so a host restart re-hydrates
+  the client), `/media` (the client's `aipg-media` handler), `/svc/<port>` (the renderer's direct
+  backend fetches: the client rewrites loopback service URLs onto a local tunnel).
+- **Both windows follow an agent turn live.** The window that sends passes its user message's id
+  (`AgentModeTurnConfig.userMessageId`); main puts the prompt and that id on the turn's first
+  `agent-turn-state` event (`origin`, ahead of every chunk), and any other window with that Harness
+  Session adds the same user message and follows the stream (`observe` in `agentModeTurn.ts`, the
+  reconnect path). The reply is named by main (`<turnId>-reply` on the `start` chunk), so both
+  windows build one message; only the sending window saves it. Agent Mode's event listeners are
+  registered once per renderer, so an HMR of that store keeps the old handlers — restart the window
+  after changing them.
+- **Channels run on the workstation only.** Its kernel polls them and routes their messages
+  (see Channels); a client's `channel:*`, `channelHost:*` and `safeStorage:*` rows are `remote`,
+  so setting up LAN chat or flipping the switch on the client configures the workstation's bots,
+  and the client sees the same state through `channels-state`.
+- **A device set to client mode starts no backends and reaps no orphans**, paired or not
+  (`isThinClientDevice`) — on one box the reap would kill the workstation's processes — and once
+  connected its kernel bus only relays (`setKernelRelayOnly`).
+- **Two instances on one VM:** run the workstation with `npm run dev` (host mode), write
+  `"remoteKernelMode": "client"` into the client's userData settings _before_ its first launch (an
+  `off` client would start the shared backends), start it against the same dev server, then pair
+  in Settings. "Save and restart" relaunches an unpackaged client without its entry script, so
+  start it again by hand after that click:
+
+  ```bash
+  XAUTHORITY=~/.Xauthority HOME=/tmp/aipg-client-home DISPLAY=:1 \
+    VITE_DEV_SERVER_URL=http://localhost:25413 VITE_DEBUG_TOOLS=true NODE_ENV=development \
+    ./node_modules/.bin/electron --no-sandbox dist/main/main.js \
+    --user-data-dir=/tmp/aipg-client-home/.config/ai-playground
+  ```
+
+- The LFM2.5 test model's 1024-token window is too small for the Pi-backed chat presets (one-token
+  replies, with or without the remote kernel); demo with Qwen3.5-4B, thinking off.
 
 ### Tracing agent and chat turns (Laminar)
 

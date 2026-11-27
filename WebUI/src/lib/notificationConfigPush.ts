@@ -2,7 +2,6 @@ import { computed, watch, type WatchStopHandle } from 'vue'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useAgentTasks } from '@/assets/js/store/agentTasks'
 import { useAgentTrialRuns } from '@/assets/js/store/agentTrialRuns'
-import { useQueuedChannelMessages } from '@/assets/js/store/queuedChannelMessages'
 import { useChannels } from '@/assets/js/store/channels'
 import { useSessions } from '@/assets/js/store/sessions'
 import { useErrors } from '@/assets/js/store/errors'
@@ -13,6 +12,7 @@ import { fillTemplate } from '@/lib/fillTemplate'
 import { registerChannelQuestionTemplates } from '@/lib/channelQuestionWording'
 import { answerRouterCopyFrom, registerAnswerRouterCopy } from '@/lib/answerRouterWording'
 import { registerChannelSessionPort } from '@/lib/channelSessionPort'
+import { startChannelWindowPort } from '@/lib/channelWindowPort'
 import type { NotificationConfig } from '@/types/notificationsIpc'
 
 // Main delivers Notifications while the window is hidden, so it keeps its own copy.
@@ -92,8 +92,6 @@ export function startNotificationConfigPush(): void {
   }
   // A Channel Question names its session the way main's Notifications do.
   const agentTasks = useAgentTasks()
-  const queuedChannelMessages = useQueuedChannelMessages()
-  agentTasks.contributeInFlightWork(() => queuedChannelMessages.inFlightWork)
   const label = (sessionId: string) =>
     notificationSessionLabel(
       config.value.templates,
@@ -102,7 +100,7 @@ export function startNotificationConfigPush(): void {
       agentTasks.tasks,
     )
   registerSessionLabeler(label)
-  registerChannelSessionPort({
+  const mirror = registerChannelSessionPort({
     harness: label,
     session: (sessionRef) =>
       fillTemplate(config.value.templates.sessionLabel, {
@@ -115,6 +113,11 @@ export function startNotificationConfigPush(): void {
       ),
   })
   registerAnswerRouterCopy(() => answerRouterCopyFrom(i18n.state))
+  startChannelWindowPort({
+    mirror,
+    copy: () => answerRouterCopyFrom(i18n.state),
+    services: channelStore.windowServices,
+  })
   registerChannelQuestionTemplates(() => {
     const text = i18n.state
     return {

@@ -716,6 +716,7 @@
   "VRAM_FIT_ARIA": "Tamaño del modelo: {level}",
   "VRAM_FIT_BUDGET": "{total} de {max} de vRAM",
   "VRAM_FIT_BREAKDOWN": "{base} de modelo + {context} de contexto ({tokens} tokens)",
+  "VRAM_FIT_CLOUD_EXPLANATION": "Se ejecuta en la Hybrid Cloud — sin descarga, 0 GB de memoria local.",
   "ANSWER_FONT_SIZE": "Tamaño de fuente",
   "RAG_DOCUMENT_EMBEDDING_MODEL": "Modelo de incrustación de documentos",
   "RAG_DOCUMENTS": "Documentos",

@@ -716,6 +716,7 @@
   "VRAM_FIT_ARIA": "モデルサイズ: {level}",
   "VRAM_FIT_BUDGET": "vRAM {max} 中 {total}",
   "VRAM_FIT_BREAKDOWN": "モデル {base} + コンテキスト {context} ({tokens} トークン)",
+  "VRAM_FIT_CLOUD_EXPLANATION": "Hybrid Cloud で実行されます — ダウンロード不要、ローカルメモリは 0 GB。",
   "ANSWER_FONT_SIZE": "フォントサイズ",
   "RAG_DOCUMENT_EMBEDDING_MODEL": "ドキュメント埋め込みモデル",
   "RAG_DOCUMENTS": "ドキュメント",

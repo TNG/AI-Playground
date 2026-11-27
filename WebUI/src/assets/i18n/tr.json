@@ -716,6 +716,7 @@
   "VRAM_FIT_ARIA": "Model boyutu: {level}",
   "VRAM_FIT_BUDGET": "{max} vRAM içinde {total}",
   "VRAM_FIT_BREAKDOWN": "{base} model + {context} bağlam ({tokens} token)",
+  "VRAM_FIT_CLOUD_EXPLANATION": "Hybrid Cloud üzerinde çalışır — indirme gerekmez, 0 GB yerel bellek.",
   "ANSWER_FONT_SIZE": "Yazı Tipi Boyutu",
   "RAG_DOCUMENT_EMBEDDING_MODEL": "Belge Gömme Modeli",
   "RAG_DOCUMENTS": "Belgeler",

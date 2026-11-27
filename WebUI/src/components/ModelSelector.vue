@@ -17,7 +17,7 @@ import VramChipIcon from './VramChipIcon.vue'
 import CapabilityIcons, { type ExtraFilter } from './CapabilityIcons.vue'
 import { modelPassesCapabilityFilters, type CapabilityKey } from '@/assets/js/capabilities'
 import { llmModelChoices, type ModelChoicePreset } from '@/lib/llmModelChoices'
-import { llamaCppFitTarget, useVramFitLevels } from '@/lib/useLlamaCppVramFit'
+import { llamaCppFitTarget, vramFitTarget, useVramFitLevels } from '@/lib/useLlamaCppVramFit'
 import { useI18N } from '@/assets/js/store/i18n'
 
 // Each prop left out falls back to the chat store; `bound` ties the pick to `modelValue`
@@ -47,7 +47,8 @@ const currentModel = computed(() =>
 const value = computed(() => (props.bound ? props.modelValue : currentModel.value?.name) ?? '')
 
 // The trigger's fit chip judges the selected model; unbound it follows the store's active one.
-const boundFitTarget = computed(() => llamaCppFitTarget(currentModel.value))
+// A Hybrid Cloud model is a target too — its chip says 0 GB rather than nothing.
+const boundFitTarget = computed(() => vramFitTarget(currentModel.value))
 
 function select(modelName: string) {
   if (props.bound) emit('update:modelValue', modelName)
@@ -122,7 +123,8 @@ const items = computed(() => {
       // Size filter: green and yellow stay; red goes, and so does a model whose
       // header came back empty — an unknown size is not a model to offer. A
       // header still in flight has no verdict at all and is left alone, or the
-      // list would empty itself while it loads.
+      // list would empty itself while it loads. (Cloud rows never reach here:
+      // the filter is only offered on the llama.cpp backend.)
       if (fitsOnly.value) {
         const level = levelOf(llamaCppFitTarget(m))
         if (level === 'over' || level === 'unknown') return false
@@ -132,7 +134,8 @@ const items = computed(() => {
     .map((item) => ({
       label: item.name.split('/').at(-1) ?? item.name,
       value: item.name,
-      fitTarget: llamaCppFitTarget(item),
+      // llama.cpp rows are sized off their header; cloud rows get the 0 GB chip.
+      fitTarget: vramFitTarget(item),
       active: item.downloaded,
       supportsToolCalling: item.supportsToolCalling,
       supportsVision: item.supportsVision,

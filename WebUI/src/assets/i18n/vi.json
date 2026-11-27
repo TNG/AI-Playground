@@ -716,6 +716,7 @@
   "VRAM_FIT_ARIA": "Kích thước mô hình: {level}",
   "VRAM_FIT_BUDGET": "{total} trên {max} vRAM",
   "VRAM_FIT_BREAKDOWN": "{base} mô hình + {context} ngữ cảnh ({tokens} token)",
+  "VRAM_FIT_CLOUD_EXPLANATION": "Chạy trên Hybrid Cloud — không cần tải xuống, 0 GB bộ nhớ cục bộ.",
   "ANSWER_FONT_SIZE": "Cỡ chữ",
   "RAG_DOCUMENT_EMBEDDING_MODEL": "Mô hình embedding tài liệu",
   "RAG_DOCUMENTS": "Tài liệu",

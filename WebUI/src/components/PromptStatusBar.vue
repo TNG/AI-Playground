@@ -84,7 +84,8 @@
               <p class="text-sm font-semibold break-all">{{ modelChip.id }}</p>
             </TooltipContent>
           </Tooltip>
-          <!-- Whether the model plus its context fits the card (llama.cpp only) -->
+          <!-- Whether the model plus its context fits the card (llama.cpp), or runs
+               remotely and needs none of it (Hybrid Cloud) -->
           <template v-if="modelChip.source === 'chat'">
             <ModelVramFit
               v-if="nextSendFitTarget"
@@ -334,7 +335,7 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import ModelCapabilities from '@/components/ModelCapabilities.vue'
 import ModelVramFit from '@/components/ModelVramFit.vue'
-import { llamaCppFitTarget } from '@/lib/useLlamaCppVramFit'
+import { vramFitTarget } from '@/lib/useLlamaCppVramFit'
 import CapabilityIcons from '@/components/CapabilityIcons.vue'
 import AgentTokenUsage from '@/components/AgentTokenUsage.vue'
 import SessionReachabilityChip from '@/components/SessionReachabilityChip.vue'
@@ -561,7 +562,9 @@ const currentModel = computed(() => {
   return textInference.llmModels.find((m) => m.type === backend && m.name === model)
 })
 
-const nextSendFitTarget = computed(() => llamaCppFitTarget(currentModel.value))
+// The next send's fit target: a llama.cpp model is judged off its header, a
+// Hybrid Cloud model shows the 0 GB chip instead of no chip at all.
+const nextSendFitTarget = computed(() => vramFitTarget(currentModel.value))
 
 // Assistant shows per-capability icons on its model chip.
 const isAssistantPreset = computed(() => isHarnessChatPreset(presetChip.value?.name))

@@ -716,6 +716,7 @@
   "VRAM_FIT_ARIA": "Ukuran model: {level}",
   "VRAM_FIT_BUDGET": "{total} dari {max} vRAM",
   "VRAM_FIT_BREAKDOWN": "{base} model + {context} konteks ({tokens} token)",
+  "VRAM_FIT_CLOUD_EXPLANATION": "Berjalan di Hybrid Cloud — tanpa unduhan, 0 GB memori lokal.",
   "ANSWER_FONT_SIZE": "Ukuran Font",
   "RAG_DOCUMENT_EMBEDDING_MODEL": "Model Embedding Dokumen",
   "RAG_DOCUMENTS": "Dokumen",

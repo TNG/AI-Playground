@@ -78,6 +78,12 @@ export type VramFitTarget = {
   mmproj?: string
   llamaCppArgs?: string
   maxContextSize?: number
+  /**
+   * A Hybrid Cloud model: it runs behind the provider's API, so nothing is ever
+   * read locally — no GGUF header, and no card to judge against. The verdict is
+   * a fit by construction, and the chip says so rather than sizing anything.
+   */
+  cloud?: true
 }
 
 /**
@@ -90,9 +96,30 @@ export function llamaCppFitTarget(model: LlmModel | undefined): VramFitTarget | 
   return model?.type === 'llamaCPP' ? model : undefined
 }
 
+/**
+ * A Hybrid Cloud model as a fit target. Cloud entries are not files (they come
+ * from the provider's `/v1/models` list), so there is nothing to reduce: the
+ * target just says where the answer comes from — nowhere, it fits regardless.
+ */
+export function cloudFitTarget(model: LlmModel | undefined): VramFitTarget | undefined {
+  return model?.type === 'cloud' ? { name: model.name, downloaded: true, cloud: true } : undefined
+}
+
+/**
+ * The chip target for any backend the estimator speaks for: a llama.cpp model
+ * is sized off its GGUF header, a Hybrid Cloud model needs 0 GB by definition.
+ * Every other backend stays undefined — the caller's guard, so a non-GGUF row
+ * never costs a HuggingFace range request to learn there is nothing to read.
+ */
+export function vramFitTarget(model: LlmModel | undefined): VramFitTarget | undefined {
+  return llamaCppFitTarget(model) ?? cloudFitTarget(model)
+}
+
 const cacheKey = (model: VramFitTarget) => `${model.downloaded ? 'local' : 'remote'}:${model.name}`
 
 function requestInputs(model: VramFitTarget): void {
+  // A cloud model has no header to read; its verdict is answered without one.
+  if (model.cloud) return
   const key = cacheKey(model)
   if (inputsCache.has(key) || inFlight.has(key)) return
   inFlight.add(key)
@@ -199,6 +226,9 @@ export function useVramFitLevels() {
 
   function levelOf(model: VramFitTarget | undefined): VramFitVerdict | null {
     if (!model) return null
+    // A cloud model fits by construction: no header read, no card needed, so it
+    // survives even a machine the GPU sampler has nothing to say about.
+    if (model.cloud) return 'easy'
     requestInputs(model)
     const card = cardBudget(fitGpu(textInference, computeMetrics))
     if (!card) return null
@@ -222,6 +252,10 @@ export function useVramFitLevels() {
  *
  * A model that is not on disk is read from its header on HuggingFace, which is
  * the moment the verdict is worth the most: before paying for the download.
+ *
+ * A Hybrid Cloud model never gets as far as a guess: it runs behind the
+ * provider's API, so the verdict is always 'easy' and `summary` stays null —
+ * there is nothing on the card to break down.
  */
 export function useLlamaCppVramFit(
   target?: Ref<VramFitTarget | undefined>,
@@ -230,10 +264,16 @@ export function useLlamaCppVramFit(
   const textInference = useTextInference()
   const computeMetrics = useComputeMetrics()
 
-  const model = computed(() => {
+  const model = computed<VramFitTarget | undefined>(() => {
     if (target) return target.value
-    if (textInference.backend !== 'llamaCPP') return undefined
-    return textInference.llmModels.find((m) => m.active && m.type === 'llamaCPP')
+    // A cloud model is judged too — it needs 0 GB whatever the machine has —
+    // while any other backend stays outside the estimator's reach.
+    const backend = textInference.backend
+    if (backend !== 'llamaCPP' && backend !== 'cloud') return undefined
+    const found = textInference.llmModels.find((m) => m.active && m.type === backend)
+    // A catalog cloud entry is not a target on its own; the flag `cloudFitTarget`
+    // adds is what tells the rest of this composable the verdict is decided.
+    return found?.type === 'cloud' ? cloudFitTarget(found) : found
   })
 
   watchEffect(() => {
@@ -259,11 +299,17 @@ export function useLlamaCppVramFit(
    * row entirely — nothing asked for, or nothing answered yet.
    */
   const verdict = computed<VramFitVerdict | null>(() => {
-    if (summary.value) return summary.value.level
     const current = model.value
+    // A cloud model needs 0 GB locally, so it fits without a card to measure —
+    // and without waiting on anything to be read.
+    if (current?.cloud) return 'easy'
+    if (summary.value) return summary.value.level
     if (!current || !cardBudget(fitGpu(textInference, computeMetrics))) return null
     return inputsCache.has(cacheKey(current)) ? 'unknown' : null
   })
 
-  return { summary, verdict }
+  /** Whether the verdict is the Hybrid Cloud one, so the tooltip can say so. */
+  const isCloud = computed(() => model.value?.cloud === true)
+
+  return { summary, verdict, isCloud }
 }

@@ -716,6 +716,7 @@
   "VRAM_FIT_ARIA": "모델 크기: {level}",
   "VRAM_FIT_BUDGET": "vRAM {max} 중 {total}",
   "VRAM_FIT_BREAKDOWN": "모델 {base} + 컨텍스트 {context}({tokens} 토큰)",
+  "VRAM_FIT_CLOUD_EXPLANATION": "Hybrid Cloud에서 실행됩니다 — 다운로드가 없고, 로컬 메모리 0 GB입니다.",
   "ANSWER_FONT_SIZE": "글꼴 크기",
   "RAG_DOCUMENT_EMBEDDING_MODEL": "문서 임베딩 모델",
   "RAG_DOCUMENTS": "문서",

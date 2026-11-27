@@ -716,6 +716,7 @@
   "VRAM_FIT_ARIA": "模型大小：{level}",
   "VRAM_FIT_BUDGET": "{max} vRAM 中佔用 {total}",
   "VRAM_FIT_BREAKDOWN": "模型 {base} + 上下文 {context}（{tokens} 個 token）",
+  "VRAM_FIT_CLOUD_EXPLANATION": "在 Hybrid Cloud 中執行 — 無須下載，佔用 0 GB 本機記憶體。",
   "ANSWER_FONT_SIZE": "字型大小",
   "RAG_DOCUMENT_EMBEDDING_MODEL": "文件嵌入模型",
   "RAG_DOCUMENTS": "文件",

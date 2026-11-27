@@ -716,6 +716,7 @@
   "VRAM_FIT_ARIA": "ขนาดโมเดล: {level}",
   "VRAM_FIT_BUDGET": "{total} จาก vRAM {max}",
   "VRAM_FIT_BREAKDOWN": "โมเดล {base} + บริบท {context} ({tokens} โทเค็น)",
+  "VRAM_FIT_CLOUD_EXPLANATION": "ทำงานบน Hybrid Cloud — ไม่ต้องดาวน์โหลด ใช้หน่วยความจำในเครื่อง 0 GB",
   "ANSWER_FONT_SIZE": "ขนาดตัวอักษร",
   "RAG_DOCUMENT_EMBEDDING_MODEL": "โมเดล Embedding เอกสาร",
   "RAG_DOCUMENTS": "เอกสาร",

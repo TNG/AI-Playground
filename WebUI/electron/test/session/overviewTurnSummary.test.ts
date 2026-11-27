@@ -187,7 +187,12 @@ describe('a settled text turn updates its summary', () => {
   it('waits for the update before the settlement resolves', async () => {
     const { sessionId } = await included()
     let release: (value: { text: string; pictureMatches: boolean }) => void = () => {}
-    reply = () => new Promise((resolve) => (release = resolve))
+    let modelCallArrived: () => void = () => {}
+    const modelCall = new Promise<void>((resolve) => (modelCallArrived = resolve))
+    reply = () => {
+      modelCallArrived()
+      return new Promise((resolve) => (release = resolve))
+    }
 
     let done = false
     const settling = settleTurn(sessionId, entry({ prompt: 'a red fox' }), {
@@ -196,7 +201,7 @@ describe('a settled text turn updates its summary', () => {
       done = true
     })
 
-    await new Promise((resolve) => setTimeout(resolve, 5))
+    await modelCall
     expect(done).toBe(false)
     release({ text: 'A later account.', pictureMatches: false })
     await settling

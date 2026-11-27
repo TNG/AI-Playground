@@ -116,14 +116,57 @@ export const useSessions = defineStore('sessions', () => {
 
   /** Each Session's turn in flight, as main's ledger has it. */
   const turns = ref<SessionTurns>({})
+  /** Turns the user asked to stop, by Turn id, with when they asked; renderer-only. */
+  const stoppingTurns = ref<Record<string, number>>({})
   /** Sessions whose turn ended while another was open; cleared when opened. */
   const unseen = ref<Record<string, true>>({})
+
+  function pruneStoppingTurns(next: SessionTurns): void {
+    const live = new Set(Object.values(next).map((turn) => turn.turnId))
+    const kept = Object.entries(stoppingTurns.value).filter(([turnId]) => live.has(turnId))
+    if (kept.length !== Object.keys(stoppingTurns.value).length) {
+      stoppingTurns.value = Object.fromEntries(kept)
+    }
+  }
+
+  function markTurnStopping(turnId: string): void {
+    stoppingTurns.value = { ...stoppingTurns.value, [turnId]: Date.now() }
+  }
+
+  function isTurnStopping(turnId: string): boolean {
+    return stoppingTurns.value[turnId] !== undefined
+  }
+
+  /** One clock shared by every Stopping Turn, so no component owns a timer. */
+  const stoppingNow = ref(Date.now())
+  const STOPPING_CLOCK_MS = 1_000
+  let stoppingClock: ReturnType<typeof setInterval> | null = null
+
+  function runStoppingClock(stopping: boolean): void {
+    if (!stopping) {
+      if (stoppingClock !== null) clearInterval(stoppingClock)
+      stoppingClock = null
+      return
+    }
+    stoppingNow.value = Date.now()
+    if (stoppingClock === null) {
+      stoppingClock = setInterval(() => {
+        stoppingNow.value = Date.now()
+      }, STOPPING_CLOCK_MS)
+    }
+  }
+
+  watch(() => Object.keys(stoppingTurns.value).length > 0, runStoppingClock, {
+    immediate: true,
+    flush: 'sync',
+  })
 
   function applyTurns(next: SessionTurns): void {
     const ended = Object.keys(turns.value).filter(
       (id) => !next[id] && id !== openSessionId.value && sessions.value[id],
     )
     turns.value = next
+    pruneStoppingTurns(next)
     if (ended.length === 0) return
     unseen.value = { ...unseen.value, ...Object.fromEntries(ended.map((id) => [id, true])) }
   }
@@ -136,6 +179,7 @@ export const useSessions = defineStore('sessions', () => {
     },
     (snapshot) => {
       turns.value = { ...snapshot.state.sessionTurns }
+      pruneStoppingTurns(turns.value)
     },
   )
 
@@ -150,7 +194,10 @@ export const useSessions = defineStore('sessions', () => {
   })
   projection.ready.catch((error: unknown) => errors.report(error, { surface: 'silent' }))
   if (import.meta.hot) {
-    import.meta.hot.dispose(() => projection.dispose())
+    import.meta.hot.dispose(() => {
+      projection.dispose()
+      if (stoppingClock !== null) clearInterval(stoppingClock)
+    })
   }
 
   /** The open Session, creating one when none is open yet. */
@@ -686,6 +733,10 @@ export const useSessions = defineStore('sessions', () => {
     openDeletedFiles,
     pendingTurns,
     turns,
+    stoppingTurns,
+    stoppingNow,
+    markTurnStopping,
+    isTurnStopping,
     unseen,
     openTurn,
     orderedSessions,

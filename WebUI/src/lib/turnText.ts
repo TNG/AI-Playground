@@ -95,6 +95,8 @@ export type TurnLiveLabels = {
   working: string
   runningTool: string
   queued: string
+  stopping: string
+  stillStopping: string
   audioLoading: string
   audioGenerating: string
   audioTranscribing: string
@@ -111,6 +113,8 @@ export function turnLiveText(live: TurnLiveStatus, labels: TurnLiveLabels): stri
       return labels.working
     case 'queued':
       return labels.queued
+    case 'stopping':
+      return live.stillStopping ? labels.stillStopping : labels.stopping
     case 'tool':
       return live.label ?? labels.runningTool.replace('{tool}', live.name)
     case 'activity':

@@ -238,6 +238,28 @@ export class AppDriver {
   }
 
   /**
+   * Send a long text Turn and stop it: Stop gives way to the Stopping spinner, and
+   * Send returns only once main releases the Turn. The ten-second "Still stopping…"
+   * escalation is covered by the model test, not this one.
+   */
+  async runStopTextTurn(): Promise<void> {
+    const available = await test.step('Select Assistant preset "Assistant"', () =>
+      this.selectModeAndPreset('Assistant', HARNESS_CHAT_PRESET))
+    test.skip(!available, `Preset "${HARNESS_CHAT_PRESET}" is not available in this product mode`)
+
+    await this.pickRandomBackend()
+    await this.settings.close()
+
+    await test.step('Start a long text Turn', async () => {
+      await this.main.sendPrompt('Write a detailed 1000-word history of computing.')
+      await this.resolveDownloadsOrSkip(`the "${HARNESS_CHAT_PRESET}" model`)
+      await expect(this.main.busyButton).toBeVisible({ timeout: 60_000 })
+    })
+
+    await this.stopTurn()
+  }
+
+  /**
    * Put the active preset back to its shipped defaults, before the test changes
    * anything of its own. Shows the Inferencing tab and leaves it shown.
    *
@@ -439,15 +461,19 @@ export class AppDriver {
   }
 
   /**
-   * Cut a running turn short: press the busy (Stop) control and wait for the app to
-   * settle. Best-effort — a turn that ends on its own between the check and the
-   * click leaves nothing to press — but worth doing, so the app isn't mid-inference
-   * when the fixture closes it.
+   * Cut a running turn short: press Stop, wait for the Stopping spinner, and wait for
+   * main to release the turn before Send returns. Best-effort on the click — a turn
+   * that ends on its own between the check and the press leaves nothing to click.
    */
-  private async stopTurn(timeout = 60_000): Promise<void> {
+  async stopTurn(timeout = 60_000): Promise<void> {
     await test.step('Stop the turn', async () => {
-      await this.main.busyButton.click({ timeout: 10_000 }).catch(() => {})
+      const pressed = await this.main.busyButton
+        .click({ timeout: 10_000 })
+        .then(() => true)
+        .catch(() => false)
+      if (pressed) await expect(this.main.stoppingButton).toBeVisible({ timeout: 10_000 })
       await expect(this.main.busyButton).toBeHidden({ timeout })
+      await expect(this.main.sendButton).toBeVisible({ timeout: 20_000 })
     })
   }
 

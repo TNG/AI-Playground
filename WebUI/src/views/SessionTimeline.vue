@@ -52,6 +52,7 @@ import ScrollToBottomButton from '@/components/ScrollToBottomButton.vue'
 import SessionTurnBlock from '@/components/SessionTurnBlock.vue'
 import { sessionChatKey } from '@/lib/sessionChat'
 import {
+  liveStopping,
   sessionTimelineItems,
   visibleLiveMessages,
   withoutMessageHiding,
@@ -113,7 +114,13 @@ const chatStatus = computed<LiveChatStatus>(() => {
     },
     questionKey: chatKey.value,
     error: chat.turnErrorIn(chatKey.value),
+    cancelled: chat.cancelledIn(chatKey.value),
   }
+})
+
+const stopping = computed(() => {
+  const turn = sessions.openTurn
+  return liveStopping(turn, turn ? sessions.stoppingTurns[turn.turnId] : undefined)
 })
 
 const mediaSteps = computed(() =>
@@ -143,6 +150,8 @@ const items = computed(() => {
     {
       chat: chatLive.value,
       chatStatus: chatStatus.value,
+      ...stopping.value,
+      now: sessions.stoppingNow,
       agents: agentLive.value,
       agentRunsInFlight: agentTasks.firstTurnsInFlight,
       media: sessions.openSessionId ? sessions.pendingTurns[sessions.openSessionId] : null,

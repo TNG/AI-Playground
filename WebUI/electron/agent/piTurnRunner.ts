@@ -536,7 +536,12 @@ export async function startAgentTurn(
   // Pi swallows a failing `context` handler and makes the request anyway, so a
   // reclaim that fails stops the session itself and the turn reports it.
   let reclaimFailure: unknown = null
-  turn.reclaim = async () => {
+  turn.beforeModelCall = async () => {
+    // Pi drops an abort made before its run starts, so a Stop landing there is repeated here.
+    if (abortController.signal.aborted) {
+      void turn.live?.session.abort()
+      return
+    }
     try {
       await reclaimTurnPlace(turnId, abortController.signal)
     } catch (error) {
@@ -585,8 +590,11 @@ export async function startAgentTurn(
       await reclaimTurnPlace(turnId, abortController.signal)
     }
     await ready()
+    // Model load does not watch the signal, and the session's abort listener is not on yet.
+    abortController.signal.throwIfAborted()
     const current = await ensureSession(config)
     turn.live = current
+    abortController.signal.throwIfAborted()
     // Per turn, not per session: a resumed session keeps its trace context but
     // its game may have been named since, and the preset can differ.
     setAgentRunIdentity(agentRunIdentity(config))
@@ -673,6 +681,7 @@ export async function startAgentTurn(
         const documents =
           current.documentSearch && !replay ? documentsLine(current.attachments) : ''
         const text = [note, withUpdate, documents].filter(Boolean).join('\n\n')
+        abortController.signal.throwIfAborted()
         await current.session.prompt(text, { images, expandPromptTemplates: !rewound })
         if (current.mountedFoldersNote === note) current.mountedFoldersNote = undefined
         failIfModelErrored()
@@ -714,9 +723,9 @@ export async function startAgentTurn(
     return { success: true }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    // Stopped before it took its place (or while readying): nothing to report.
-    if (abortController.signal.aborted && !turn.live) {
-      logger.info(`agent turn cancelled before it ran: ${message}`, LOG_SOURCE)
+    // A stop is never a failure, wherever it caught the turn.
+    if (abortController.signal.aborted) {
+      logger.info(`agent turn stopped: ${message}`, LOG_SOURCE)
       return { success: false, error: message }
     }
     logger.error(`agent turn failed: ${message}`, LOG_SOURCE)

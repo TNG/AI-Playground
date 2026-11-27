@@ -123,6 +123,20 @@ export const useOpenAiCompatibleChat = defineStore(
     const computeMetrics = useComputeMetrics()
     const manuallyStopped = ref(false)
 
+    // Conversations whose newest turn the user stopped, so the settled Turn can say Cancelled.
+    const cancelledKeys = ref<Record<string, true>>({})
+    function markCancelled(key: string): void {
+      cancelledKeys.value = { ...cancelledKeys.value, [key]: true }
+    }
+    function clearCancelled(key: string): void {
+      if (!cancelledKeys.value[key]) return
+      const { [key]: _previous, ...rest } = cancelledKeys.value
+      cancelledKeys.value = rest
+    }
+    function cancelledIn(key: string): boolean {
+      return !!cancelledKeys.value[key]
+    }
+
     // True while the model is actively emitting reasoning (i.e. the last content
     // chunk was a reasoning delta and no text/tool chunk has followed). Driven
     // straight off the chunk stream so the UI never has to infer "is reasoning
@@ -715,6 +729,7 @@ export const useOpenAiCompatibleChat = defineStore(
 
         // Reset manual stop flag
         manuallyStopped.value = false
+        clearCancelled(targetKey)
 
         // 2. Block if images attached to non-vision model (UI path only). Validate
         //    before touching the backend so we don't load a model just to reject.
@@ -839,6 +854,7 @@ export const useOpenAiCompatibleChat = defineStore(
     async function stop() {
       // Set manual stop flag to immediately show as not processing
       manuallyStopped.value = true
+      markCancelled(conversations.activeKey)
       await chats[conversations.activeKey]?.stop()
     }
 
@@ -870,6 +886,7 @@ export const useOpenAiCompatibleChat = defineStore(
           })
         }
         manuallyStopped.value = false
+        clearCancelled(targetKey)
 
         const chat = chats[targetKey]
         if (!chat) return
@@ -973,6 +990,7 @@ export const useOpenAiCompatibleChat = defineStore(
       editPrompt,
       error,
       turnErrorIn,
+      cancelledIn,
     }
   },
   {

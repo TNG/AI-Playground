@@ -9,7 +9,7 @@
         {{ languages.SESSION_AUDIO_STT_FAILED }}<template v-if="error">: {{ error }}</template>
       </p>
       <p v-else-if="status === 'cancelled'" class="text-sm text-muted-foreground">
-        {{ languages.SESSION_AUDIO_CANCELLED }}
+        {{ languages.SESSION_TURN_CANCELLED }}
       </p>
     </template>
   </SessionAssistantBubble>

@@ -440,6 +440,101 @@ describe('Sessions store', () => {
     await vi.waitFor(() => expect(store.openTurn?.kind).toBe('chat'))
   })
 
+  it('marks a Turn Stopping by its id, with when the stop was asked for, until it is released', async () => {
+    const store = useSessions()
+    await store.init()
+    const session = store.openSessionId!
+    ledger.claimSessionTurn(session, { turnId: 't1', kind: 'chat' })
+    await vi.waitFor(() => expect(store.openTurn?.turnId).toBe('t1'))
+
+    const asked = Date.now()
+    store.markTurnStopping('t1')
+
+    expect(store.isTurnStopping('t1')).toBe(true)
+    expect(store.stoppingTurns.t1).toBeGreaterThanOrEqual(asked)
+
+    ledger.releaseSessionTurn(session, 't1')
+    await vi.waitFor(() => expect(store.openTurn).toBeNull())
+
+    expect(store.isTurnStopping('t1')).toBe(false)
+    expect(store.stoppingTurns).toEqual({})
+  })
+
+  it.each(['media', 'agent', 'audio'] as const)(
+    'marks a stopping %s Turn until it is released',
+    async (kind) => {
+      const store = useSessions()
+      await store.init()
+      const session = store.openSessionId!
+      const turnId = `${kind}-turn`
+      ledger.claimSessionTurn(session, { turnId, kind })
+      await vi.waitFor(() => expect(store.openTurn?.turnId).toBe(turnId))
+
+      store.markTurnStopping(turnId)
+      expect(store.isTurnStopping(turnId)).toBe(true)
+
+      ledger.releaseSessionTurn(session, turnId)
+      await vi.waitFor(() => expect(store.openTurn).toBeNull())
+
+      expect(store.isTurnStopping(turnId)).toBe(false)
+    },
+  )
+
+  it('tracks Stopping Turns in different Sessions independently', async () => {
+    const store = useSessions()
+    await store.init()
+    const first = store.openSessionId!
+    await store.create()
+    const second = store.openSessionId!
+    ledger.claimSessionTurn(first, { turnId: 't1', kind: 'chat' })
+    ledger.claimSessionTurn(second, { turnId: 't2', kind: 'chat' })
+    await vi.waitFor(() => expect(store.turns[second]?.turnId).toBe('t2'))
+
+    store.markTurnStopping('t1')
+    store.markTurnStopping('t2')
+    ledger.releaseSessionTurn(first, 't1')
+    await vi.waitFor(() => expect(store.isTurnStopping('t1')).toBe(false))
+
+    expect(store.isTurnStopping('t2')).toBe(true)
+  })
+
+  it('ticks one shared clock only while a Turn is Stopping', async () => {
+    const store = useSessions()
+    await store.init()
+    vi.useFakeTimers()
+    try {
+      const asked = Date.now()
+      store.markTurnStopping('t1')
+      expect(store.stoppingNow).toBe(asked)
+
+      vi.advanceTimersByTime(5_000)
+      expect(store.stoppingNow).toBe(asked + 5_000)
+
+      store.stoppingTurns = {}
+      const settled = store.stoppingNow
+      vi.advanceTimersByTime(5_000)
+      expect(store.stoppingNow).toBe(settled)
+    } finally {
+      store.stoppingTurns = {}
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps a stopping Turn across a Session switch', async () => {
+    const store = useSessions()
+    await store.init()
+    const first = store.openSessionId!
+    const second = (await store.create())!
+    ledger.claimSessionTurn(first, { turnId: 't1', kind: 'chat' })
+    await vi.waitFor(() => expect(store.turns[first]?.turnId).toBe('t1'))
+    store.markTurnStopping('t1')
+
+    await store.open(second)
+    await store.open(first)
+
+    expect(store.isTurnStopping('t1')).toBe(true)
+  })
+
   it('sees Groups renamed, collapsed, deleted and Pinned "show more" through the Groups push', async () => {
     const store = useSessions()
     await store.init()

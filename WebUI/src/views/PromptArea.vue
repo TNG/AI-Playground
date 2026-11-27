@@ -247,6 +247,7 @@ import { useDemoMode } from '@/assets/js/store/demoMode'
 import DemoSamplePrompts from '@/components/DemoSamplePrompts.vue'
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { promptBusy, promptOnBusyChange } from '@/lib/promptBusy'
+import { planCancel } from '@/lib/promptCancel'
 import { agentRunQueuedLabel } from '@/lib/queueActivityProjection'
 import { useAgentRunHold } from '@/lib/useAgentRunHold'
 import { createAppError } from '@/assets/js/errors/appError'
@@ -519,7 +520,9 @@ const isProcessing = computed(() =>
   }),
 )
 
-const isStopping = computed(() => imageGeneration.stopping)
+const isStopping = computed(() =>
+  sessions.openTurn ? sessions.isTurnStopping(sessions.openTurn.turnId) : false,
+)
 
 const readyForNewSubmit = computed(
   () => !promptStore.promptSubmitted && !isProcessing.value && !queuedBehindRun.value,
@@ -746,29 +749,30 @@ async function runPickedAgent(text: string): Promise<void> {
   )
 }
 
-// The mode's own Stop knows its Tasks and runs; a turn from another mode goes by its engine.
 async function handleCancelClick() {
-  if (queuedBehindRun.value && sessions.openSessionId) {
-    agentTasks.cancelQueuedPrompt(sessions.openSessionId)
+  const plan = planCancel({
+    queuedBehindRun: !!queuedBehindRun.value,
+    agentRunInSession: openSessionRunning.value,
+    turn: sessions.openTurn,
+    mode: promptStore.getCurrentMode(),
+    openAgentSessionId: agentMode.openSessionId,
+  })
+  if (plan.kind === 'queued-prompt') {
+    if (sessions.openSessionId) agentTasks.cancelQueuedPrompt(sessions.openSessionId)
     return
   }
-  if (openSessionRunning.value && sessions.openSessionId) {
-    await agentTasks.stopRunIn(sessions.openSessionId)
+  if (plan.kind === 'agent-run') {
+    if (sessions.openSessionId) await agentTasks.stopRunIn(sessions.openSessionId)
     return
   }
-  const turn = sessions.openTurn
-  const mode = promptStore.getCurrentMode()
-  const ownTurn =
-    !turn ||
-    (turn.kind === 'agent' &&
-      mode === 'agent' &&
-      turn.harnessSessionId === agentMode.openSessionId) ||
-    (turn.kind === 'chat' && mode === 'chat') ||
-    (turn.kind === 'media' && (mode === 'imageGen' || mode === 'imageEdit' || mode === 'video'))
-  if (!ownTurn && (await sessionLifecycle.stopOpenTurn())) return
+  if (plan.turn) sessions.markTurnStopping(plan.turn.turnId)
+  if (plan.kind === 'ledger') {
+    await sessionLifecycle.stopOpenTurn()
+    return
+  }
   promptStore.cancelProcessing()
-  // The chat store can already count itself stopped while main still runs the turn.
-  if (turn?.kind === 'chat') await sessionLifecycle.stopOpenTurn()
+  // The mode's Stop can be a no-op before the engine knows its turn; the ledger does not.
+  await sessionLifecycle.stopOpenTurn()
 }
 
 async function handleRecordingClick() {

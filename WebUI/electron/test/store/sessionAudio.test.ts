@@ -194,6 +194,26 @@ describe('Text-to-Speech in a Session', () => {
     expect(audio.processing).toBe(false)
   })
 
+  it('Stop abandons a running synthesis and records the Turn as Cancelled', async () => {
+    const { sessions, id } = await openSession()
+    speech.synthesizeClip.mockReturnValue(new Promise(() => {}))
+    const audio = useSessionAudio()
+
+    const running = audio.synthesize('Read this aloud')
+    await vi.waitFor(() => expect(sessions.openTurn?.kind).toBe('audio'))
+    const turnId = sessions.openTurn!.turnId
+    sessions.markTurnStopping(turnId)
+    expect(audio.cancel(id)).toBe(true)
+
+    await running
+    await vi.waitFor(() => expect(sessions.openTurn).toBeNull())
+
+    expect(sessions.isTurnStopping(turnId)).toBe(false)
+    expect(await readHistoryEntries(id)).toEqual([
+      expect.objectContaining({ kind: 'tts', status: 'cancelled', artifacts: [] }),
+    ])
+  })
+
   it('holds the open Session as its one turn, and refuses to start while another holds it', async () => {
     const { sessions, id } = await openSession()
     let finish: (value: unknown) => void = () => {}

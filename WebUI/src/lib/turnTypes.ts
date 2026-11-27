@@ -75,6 +75,7 @@ export type TurnLiveStatus =
   | { kind: 'writing' }
   | { kind: 'working' }
   | { kind: 'queued' }
+  | { kind: 'stopping'; stillStopping: boolean }
   | { kind: 'tool'; name: string; label?: string; progress?: number }
   | { kind: 'activity'; label: string; progress?: number; browsing?: boolean }
   | { kind: 'artifact'; phase: ArtifactPhase; progress?: ArtifactProgress }
@@ -280,16 +281,31 @@ export type LiveChatStatus = {
   questionKey?: string
   /** Why the newest chat turn failed, until the next one starts. */
   error?: string
+  /** The newest chat turn was stopped by the user, until the next one starts. */
+  cancelled?: boolean
 }
 
 export type MediaStepStatus = { label: string; progress?: number }
 
-export type LiveTurns<M extends PendingMedia, A extends PendingAudio> = {
+/** A live Agent Turn that is Stopping: its Harness Session, and when the stop was asked for. */
+export type AgentStopping = { harnessSessionId: string; at: number }
+
+/** When the user asked to stop each kind of live Turn, while main has not released it. */
+export type LiveStopping = {
+  chatStoppingAt?: number
+  agentStopping?: AgentStopping
+  mediaStoppingAt?: number
+  audioStoppingAt?: number
+}
+
+export type LiveTurns<M extends PendingMedia, A extends PendingAudio> = LiveStopping & {
   chat?: readonly { id: string }[]
   agents?: readonly LiveAgentTurn[]
   /** Run keys of the Agent Runs still in flight. */
   agentRunsInFlight?: readonly string[]
   chatStatus?: LiveChatStatus
+  /** The time the Stopping escalation is measured against; a view supplies its ticking clock. */
+  now?: number
   media?: M | null
   mediaSteps?: Readonly<Record<string, MediaStepStatus>>
   audio?: A | null

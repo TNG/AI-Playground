@@ -44,6 +44,7 @@
         </button>
       </div>
     </div>
+    <span role="status" aria-live="polite" class="sr-only">{{ stoppingAnnouncement }}</span>
     <div v-if="belowHeader" class="flex items-start gap-3">
       <span :class="textInference.iconSizeClass" class="shrink-0" aria-hidden="true" />
       <div class="flex min-w-0 flex-1 flex-col gap-2">
@@ -92,6 +93,14 @@ const open = ref(false)
 const belowHeader = computed(
   () => open.value || !!slots.status || (!!props.details.errorLine && !props.details.live),
 )
+
+const stoppingAnnouncement = computed(() => {
+  const live = props.details.live
+  if (live?.kind !== 'stopping') return undefined
+  return live.stillStopping
+    ? languages.SESSION_TURN_STILL_STOPPING
+    : languages.SESSION_TURN_STOPPING
+})
 
 function toggleBrowserWindow() {
   if (webBrowser.isVisible) void webBrowser.hide()

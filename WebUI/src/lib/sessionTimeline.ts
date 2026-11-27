@@ -14,6 +14,7 @@ import { audioTurnArtifacts, pendingAudioArtifacts, ttsToolArtifacts } from '@/l
 import { messageText } from '@/lib/chatMessageText'
 import { isChatMediaToolPart } from '@/lib/chatToolParts'
 import { isHarnessChatPreset } from '@/lib/harnessChatPreset'
+import { harnessTurnEndOf } from '@/lib/harnessTurnEnd'
 import { mediaRerun } from '@/lib/mediaRerun'
 import { reasoningElapsedMsFromParts } from '@/lib/reasoningTimings'
 import { asChatTranscriptMessage, chatTranscriptOf } from '@/lib/sessionChat'
@@ -45,6 +46,7 @@ import type { LatestTurn } from '@/lib/agentComposer'
 import { modelDisplayName } from '@/lib/turnText'
 import type {
   AgentRunIdentity,
+  AgentStopping,
   AgentTurn,
   AnswerDetailKind,
   AnswerPartRef,
@@ -54,6 +56,7 @@ import type {
   ArtifactKind,
   LiveAgentTurn,
   LiveChatStatus,
+  LiveStopping,
   LiveTurns,
   MediaStepStatus,
   PendingAudio,
@@ -74,6 +77,7 @@ import type {
   TurnSummary,
 } from '@/lib/turnTypes'
 import type { GenerationSettings } from '@/types/mediaItem'
+import type { SessionTurnKind } from '@/types/sessionIpc'
 import type {
   AgentTurnTag,
   AudioTurnData,
@@ -85,6 +89,9 @@ import type {
 } from '@/types/sessionTimeline'
 
 type AgentRun = { name: string; lastTurn: AgentTurn; end?: AgentRunTag['end'] }
+
+/** A stop that lasts this long says "Still stopping…" instead of "Stopping…". */
+export const STILL_STOPPING_AFTER_MS = 10_000
 
 function isMessageShaped(value: unknown): boolean {
   if (!value || typeof value !== 'object') return false
@@ -216,10 +223,12 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
   }
   const turns = timelineTurns(merged, files, live.artifactRuns)
   const mediaSteps = live.mediaSteps ?? {}
-  for (const agent of live.agents ?? []) markLiveAgentTurns(turns, agent, mediaSteps)
+  const now = live.now ?? Date.now()
+  for (const agent of live.agents ?? [])
+    markLiveAgentTurns(turns, agent, mediaSteps, live.agentStopping, now)
   markRunsInFlight(turns, live.agentRunsInFlight ?? [])
   for (const turn of turns) if (turn.kind === 'agent' && turn.streaming) turn.footer = noFooter()
-  markLiveChatTurn(turns, live.chatStatus, mediaSteps)
+  markLiveChatTurn(turns, live.chatStatus, mediaSteps, live.chatStoppingAt, now)
   const items: SessionTimelineItem<M, A>[] = [...turns]
   const media = live.media
   if (media && !turns.some((turn) => turn.kind === 'media' && turn.media.runId === media.runId)) {
@@ -232,15 +241,17 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
       details: {
         parts: [],
         summary: { kind: 'workflow', preset: media.preset },
-        ...(run && isTerminalPhase(run.phase)
-          ? {}
-          : {
-              live: {
-                kind: 'artifact' as const,
-                phase: run?.phase ?? 'queued',
-                ...(run?.progress ? { progress: run.progress } : {}),
-              },
-            }),
+        ...(live.mediaStoppingAt !== undefined
+          ? { live: stoppingLive(live.mediaStoppingAt, now) }
+          : run && isTerminalPhase(run.phase)
+            ? {}
+            : {
+                live: {
+                  kind: 'artifact' as const,
+                  phase: run?.phase ?? 'queued',
+                  ...(run?.progress ? { progress: run.progress } : {}),
+                },
+              }),
         ...(run?.phase === 'failed' && run.error ? { error: run.error } : {}),
       },
       result: [{ kind: 'media' }, ...(failure ? [{ kind: 'failure' as const, ...failure }] : [])],
@@ -260,7 +271,10 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
       hint: audioHint(audio),
       details: {
         ...audioDetails(audio),
-        live: { kind: 'audio', phase: audio.phase ?? 'generating' },
+        live:
+          live.audioStoppingAt !== undefined
+            ? stoppingLive(live.audioStoppingAt, now)
+            : { kind: 'audio', phase: audio.phase ?? 'generating' },
       },
       result: [{ kind: 'audio' }],
       prompt: textPrompt(audio.prompt ?? '', audio.preset),
@@ -504,6 +518,15 @@ function withAnswers(
       const run = turn.runKey ? runs.get(turn.runKey) : undefined
       turn.hint = agentHint(run?.name ?? turn.presetName, turn.answers)
       if (run?.lastTurn === turn) turn.result = [...turn.result, ...runEndFailure(run.end)]
+      if (
+        turn.answers.some((answer) => harnessTurnEndOf(answer) === 'cancelled') &&
+        !turn.result.some((part) => part.kind === 'failure' && part.messageId === undefined)
+      ) {
+        turn.result = [
+          ...turn.result,
+          { kind: 'failure', ...generationFailure({ state: 'cancelled' }) },
+        ]
+      }
       turn.footer = agentFooter(resultText(turn), {
         answer: turn.answers.at(-1),
         harnessTurn: harnessTurnOf(turn),
@@ -750,20 +773,58 @@ function partsLiveStatus(
   }
 }
 
+function stoppingLive(at: number, now: number): TurnLiveStatus {
+  return { kind: 'stopping', stillStopping: now - at >= STILL_STOPPING_AFTER_MS }
+}
+
+export function liveStopping(
+  turn: { kind: SessionTurnKind; harnessSessionId?: string } | null | undefined,
+  stoppingAt: number | undefined,
+): LiveStopping {
+  if (!turn || stoppingAt === undefined) return {}
+  switch (turn.kind) {
+    case 'chat':
+      return { chatStoppingAt: stoppingAt }
+    case 'media':
+      return { mediaStoppingAt: stoppingAt }
+    case 'audio':
+      return { audioStoppingAt: stoppingAt }
+    case 'agent':
+      return turn.harnessSessionId
+        ? { agentStopping: { harnessSessionId: turn.harnessSessionId, at: stoppingAt } }
+        : {}
+  }
+}
+
 function markLiveChatTurn(
   entries: TimelineTurn[],
   status: LiveChatStatus | undefined,
   mediaSteps: Readonly<Record<string, MediaStepStatus>>,
+  stoppingAt: number | undefined,
+  now: number,
 ): void {
   const turn = entries.findLast((entry) => entry.kind === 'chat')
-  if (turn?.kind !== 'chat' || !status) return
-  if (status.error && !status.running && turn.result.length === 0) {
-    turn.result = [
-      { kind: 'failure', ...generationFailure({ state: 'failed', error: status.error }) },
-    ]
-    turn.details = { ...turn.details, error: joinErrors([turn.details.error, status.error]) }
+  if (turn?.kind !== 'chat') return
+  if (stoppingAt !== undefined) {
+    turn.details = { ...turn.details, live: stoppingLive(stoppingAt, now) }
+    if (status?.questionKey) turn.questionKey = status.questionKey
+    return
   }
-  if (!status.running) return
+  if (!status) return
+  if (!status.running) {
+    if (status.error && turn.result.length === 0) {
+      turn.result = [
+        { kind: 'failure', ...generationFailure({ state: 'failed', error: status.error }) },
+      ]
+      turn.details = { ...turn.details, error: joinErrors([turn.details.error, status.error]) }
+    } else if (status.cancelled && !turn.result.some((part) => part.kind === 'failure')) {
+      turn.result = [
+        ...turn.result,
+        { kind: 'failure', ...generationFailure({ state: 'cancelled' }) },
+      ]
+    }
+    return
+  }
   const fromParts = partsLiveStatus('chat', turn.answers, mediaSteps)
   const live: TurnLiveStatus = (fromParts?.kind === 'tool' && fromParts.label ? fromParts : null) ??
     (status.activity ? { kind: 'activity', ...status.activity } : null) ??
@@ -776,6 +837,8 @@ function markLiveAgentTurns(
   entries: TimelineTurn[],
   agent: LiveAgentTurn,
   mediaSteps: Readonly<Record<string, MediaStepStatus>>,
+  stopping: AgentStopping | undefined,
+  now: number,
 ): void {
   const id = agent.tag.harnessSessionId
   const turns = entries.filter(
@@ -789,11 +852,14 @@ function markLiveAgentTurns(
     turn.canResend = !!agent.canResend && turn.notRun && turn === last
   }
   if (last) {
-    const live: TurnLiveStatus | null = !agent.live
-      ? null
-      : last.queued
-        ? { kind: 'queued' }
-        : (partsLiveStatus('agent', last.answers, mediaSteps) ?? { kind: 'working' })
+    const live: TurnLiveStatus | null =
+      stopping && id === stopping.harnessSessionId
+        ? stoppingLive(stopping.at, now)
+        : !agent.live
+          ? null
+          : last.queued
+            ? { kind: 'queued' }
+            : (partsLiveStatus('agent', last.answers, mediaSteps) ?? { kind: 'working' })
     const error = joinErrors([last.details.error, agent.error])
     const errorLine = oneLine(agent.error)
     last.details = {

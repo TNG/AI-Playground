@@ -1248,6 +1248,7 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
 
   /** Stops the panel's own runs only — waiting or running, never another turn's media. */
   function stopGeneration() {
+    if (stopping.value) return
     stopping.value = true
     panelAbort?.abort()
     const cancels = [...trackedArtifactRunIds].map((runId) =>

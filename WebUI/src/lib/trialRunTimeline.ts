@@ -26,10 +26,9 @@ function asTranscript<M extends PendingMedia, A extends PendingAudio>(
     const { harnessTurn: _harnessTurn, ...footer } = item.footer
     item.footer = {
       ...footer,
-      actions: footer.actions.filter(
-        (action) => action !== 'regenerate' && action !== 'edit' && action !== 'delete',
-      ),
+      actions: footer.actions.filter((action) => action !== 'regenerate' && action !== 'delete'),
     }
+    if (item.prompt?.editable) item.prompt.editable = false
   }
   return items
 }

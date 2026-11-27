@@ -461,7 +461,7 @@ describe('an Agent Run in the timeline', () => {
 
     expect(items[0]).toMatchObject({
       footer: {
-        actions: ['copy', 'speak', 'regenerate', 'edit', 'delete', 'hide'],
+        actions: ['copy', 'speak', 'regenerate', 'delete', 'hide'],
         harnessTurn: {
           harnessSessionId: 'aipg-agent-run',
           promptId: 'r1',
@@ -469,6 +469,7 @@ describe('an Agent Run in the timeline', () => {
           turnIds: ['t1'],
         },
       },
+      prompt: { editable: true },
     })
   })
 
@@ -1594,10 +1595,11 @@ describe('the footer of every Turn', () => {
 
     expect(items[0]).toMatchObject({
       footer: {
-        actions: ['copy', 'speak', 'regenerate', 'edit', 'delete', 'hide'],
+        actions: ['copy', 'speak', 'regenerate', 'delete', 'hide'],
         text: 'hello',
         messageId: 'a1',
       },
+      prompt: { editable: true },
     })
   })
 
@@ -1654,7 +1656,7 @@ describe('the footer of every Turn', () => {
 
     expect(items.map(actionsOf)).toEqual([
       ['copy', 'speak', 'hide'],
-      ['copy', 'speak', 'regenerate', 'edit', 'delete', 'hide'],
+      ['copy', 'speak', 'regenerate', 'delete', 'hide'],
     ])
   })
 
@@ -1730,7 +1732,8 @@ describe('the footer of every Turn', () => {
       chat: [chatMessage('u1', 'user', 'hi'), answer],
     })
 
-    expect(actionsOf(items[0])).toEqual(['regenerate', 'edit', 'delete', 'hide'])
+    expect(actionsOf(items[0])).toEqual(['regenerate', 'delete', 'hide'])
+    expect(items[0]).toMatchObject({ prompt: { editable: true } })
   })
 
   it("carries a chat answer's metrics", () => {
@@ -1780,7 +1783,7 @@ describe('the footer of every Turn', () => {
 
     expect(items[0]).toMatchObject({
       footer: {
-        actions: ['copy', 'speak', 'regenerate', 'edit', 'delete', 'hide'],
+        actions: ['copy', 'speak', 'regenerate', 'delete', 'hide'],
         text: 'The sky scatters blue light.',
         messageId: 'a1',
         harnessTurn: {
@@ -1790,6 +1793,7 @@ describe('the footer of every Turn', () => {
           turnIds: ['t1'],
         },
       },
+      prompt: { editable: true },
     })
   })
 
@@ -1805,7 +1809,7 @@ describe('the footer of every Turn', () => {
     )
 
     expect(actionsOf(items[0])).toEqual(['copy', 'speak', 'hide'])
-    expect(actionsOf(items[1])).toEqual(['copy', 'speak', 'regenerate', 'edit', 'delete', 'hide'])
+    expect(actionsOf(items[1])).toEqual(['copy', 'speak', 'regenerate', 'delete', 'hide'])
   })
 
   it('offers no Regenerate on an Assistant Turn a later Turn followed', () => {
@@ -1930,7 +1934,7 @@ describe('the footer of every Turn', () => {
     expect(actionsOf(items[0])).toEqual(['copy', 'hide'])
     expect(items[1]).toMatchObject({
       footer: {
-        actions: ['copy', 'regenerate', 'edit', 'delete', 'hide'],
+        actions: ['copy', 'regenerate', 'delete', 'hide'],
         harnessTurn: {
           harnessSessionId: 'aipg-agent-3',
           promptId: 'u2',
@@ -1938,16 +1942,21 @@ describe('the footer of every Turn', () => {
           turnIds: ['t2'],
         },
       },
+      prompt: { editable: true },
     })
   })
 
   it('offers no Copy on an Agent Preset Turn still streaming its answer', () => {
-    const items = sessionTimelineItems(
-      [agentMessage('u1', 'user', 'make a game'), agentMessage('a1', 'assistant', 'built')],
-      { agents: [{ tag: agentTurn, messages: [], live: true }] },
-    )
+    const live = { agents: [{ tag: agentTurn, messages: [], live: true }] }
+    const rows = [
+      agentMessage('u1', 'user', 'make a game'),
+      { ...agentMessage('a1', 'assistant', 'built'), metadata: { agentTurn, harnessTurnId: 't1' } },
+    ]
 
-    expect(actionsOf(items[0])).toEqual([])
+    expect(actionsOf(sessionTimelineItems(rows, live)[0])).toEqual([])
+    // Edit leaves the prompt while the turn streams, and returns once it settles.
+    expect(sessionTimelineItems(rows, live)[0]).toMatchObject({ prompt: { editable: false } })
+    expect(sessionTimelineItems(rows, {})[0]).toMatchObject({ prompt: { editable: true } })
   })
 
   it('copies the text an Assistant Turn answers with, leaving out its tool calls', () => {
@@ -1964,7 +1973,7 @@ describe('the footer of every Turn', () => {
 
     expect(items[0]).toMatchObject({
       footer: {
-        actions: ['copy', 'speak', 'regenerate', 'edit', 'delete', 'hide'],
+        actions: ['copy', 'speak', 'regenerate', 'delete', 'hide'],
         text: 'Let me look.\n\nbuilt it',
       },
     })
@@ -2011,8 +2020,9 @@ describe('the footer of every Turn', () => {
     )
 
     expect(items[0]).toMatchObject({
+      prompt: { editable: true },
       footer: {
-        actions: ['regenerate', 'edit', 'delete', 'hide'],
+        actions: ['regenerate', 'delete', 'hide'],
         audioRerun: {
           kind: 'tts',
           preset: 'Text to Speech',
@@ -2623,7 +2633,7 @@ describe('Regenerate on the last ComfyUI Turn', () => {
     const items = sessionTimelineItems(comfyTurn('c1', {}), {})
 
     expect(footerOf(items[0])).toEqual({
-      actions: ['regenerate', 'edit', 'delete', 'hide'],
+      actions: ['regenerate', 'delete', 'hide'],
       text: '',
       hiding: { messageIds: ['p-c1', 'c1'] },
       rerun: {
@@ -2654,7 +2664,7 @@ describe('Regenerate on the last ComfyUI Turn', () => {
 
     expect(items.map((item) => footerOf(item).actions)).toEqual([
       ['hide'],
-      ['regenerate', 'edit', 'delete', 'hide'],
+      ['regenerate', 'delete', 'hide'],
     ])
   })
 
@@ -2692,12 +2702,13 @@ describe('Regenerate on the last ComfyUI Turn', () => {
     )
 
     expect(footerOf(items[0])).toEqual({
-      actions: ['regenerate', 'edit', 'delete', 'hide'],
+      actions: ['regenerate', 'delete', 'hide'],
       text: '',
       hiding: { messageIds: ['p-c1', 'c1'] },
       rerun: expect.objectContaining({ messageIds: ['p-c1', 'c1'] }),
       deletion: { owner: 'media', messageIds: ['p-c1', 'c1'], fileUrls: [] },
     })
+    expect(items[0]).toMatchObject({ prompt: { editable: true } })
   })
 
   it('offers Delete without Regenerate on a failed run that recorded no settings', () => {

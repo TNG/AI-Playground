@@ -4,12 +4,19 @@ import { sessionTimelineItems } from './sessionTimeline'
 type Items = ReturnType<typeof sessionTimelineItems>
 
 /** The actions a hidden trailing turn must not move onto the turn before it. */
-const DESTRUCTIVE = ['regenerate', 'edit', 'delete'] as const
+const DESTRUCTIVE = ['regenerate', 'delete'] as const
 
 function actionsOf(items: Items, kind: string, at: number): string[] {
   const turn = items.filter((item) => item.kind === kind)[at]
   expect(turn, `expected a ${kind} turn at ${at}`).toBeTruthy()
   return (turn as { footer: { actions: string[] } }).footer.actions
+}
+
+/** Edit moved off the footer onto the prompt bubble itself. */
+function editableOf(items: Items, kind: string, at: number): boolean {
+  const turn = items.filter((item) => item.kind === kind)[at]
+  expect(turn, `expected a ${kind} turn at ${at}`).toBeTruthy()
+  return !!(turn as { prompt?: { editable?: boolean } }).prompt?.editable
 }
 
 function agentRows(
@@ -100,8 +107,10 @@ describe('sessionTimelineItems destructive actions at the visible end', () => {
       ...agentRows('h1', 'u1', 'a1', 'first question', 't1'),
       ...agentRows('h1', 'u2', 'a2', 'second question', 't2'),
     ]
-    const actions = actionsOf(sessionTimelineItems(rows, {}), 'agent', 1)
+    const items = sessionTimelineItems(rows, {})
+    const actions = actionsOf(items, 'agent', 1)
     for (const action of DESTRUCTIVE) expect(actions).toContain(action)
+    expect(editableOf(items, 'agent', 1)).toBe(true)
   })
 
   it('strips regenerate, edit and delete from agent turns that are not the last one', () => {
@@ -109,31 +118,39 @@ describe('sessionTimelineItems destructive actions at the visible end', () => {
       ...agentRows('h1', 'u1', 'a1', 'first question', 't1'),
       ...agentRows('h1', 'u2', 'a2', 'second question', 't2'),
     ]
-    const actions = actionsOf(sessionTimelineItems(rows, {}), 'agent', 0)
+    const items = sessionTimelineItems(rows, {})
+    const actions = actionsOf(items, 'agent', 0)
     for (const action of DESTRUCTIVE) expect(actions).not.toContain(action)
+    expect(editableOf(items, 'agent', 0)).toBe(false)
   })
 
   it('withholds the actions from the last visible agent turn when a hidden turn trails it', () => {
     // Hiding took the trailing turn out of what the view passes; the file's end lies further on.
     const rows = agentRows('h1', 'u1', 'a1', 'first question', 't1')
-    const actions = actionsOf(sessionTimelineItems(rows, {}, {}, false), 'agent', 0)
+    const items = sessionTimelineItems(rows, {}, {}, false)
+    const actions = actionsOf(items, 'agent', 0)
     for (const action of DESTRUCTIVE) expect(actions).not.toContain(action)
     expect(actions).toContain('copy')
     expect(actions).toContain('hide')
+    expect(editableOf(items, 'agent', 0)).toBe(false)
   })
 
   it('offers regenerate, edit and delete on the last chat turn', () => {
     const rows = chatRows('u1', 'a1', 'first question', 'answer first question')
-    const actions = actionsOf(sessionTimelineItems(rows, {}), 'chat', 0)
+    const items = sessionTimelineItems(rows, {})
+    const actions = actionsOf(items, 'chat', 0)
     for (const action of DESTRUCTIVE) expect(actions).toContain(action)
+    expect(editableOf(items, 'chat', 0)).toBe(true)
   })
 
   it('withholds the actions from the last visible chat turn when a hidden turn trails it', () => {
     const rows = chatRows('u1', 'a1', 'first question', 'answer first question')
-    const actions = actionsOf(sessionTimelineItems(rows, {}, {}, false), 'chat', 0)
+    const items = sessionTimelineItems(rows, {}, {}, false)
+    const actions = actionsOf(items, 'chat', 0)
     for (const action of DESTRUCTIVE) expect(actions).not.toContain(action)
     expect(actions).toContain('copy')
     expect(actions).toContain('hide')
+    expect(editableOf(items, 'chat', 0)).toBe(false)
   })
 
   it('still deletes a failed empty chat answer at the true end, but not before a hidden tail', () => {
@@ -148,14 +165,18 @@ describe('sessionTimelineItems destructive actions at the visible end', () => {
 
   it('offers regenerate, edit and delete on the last media turn', () => {
     const rows = mediaRows('u1', 'a1', 'a castle')
-    const actions = actionsOf(sessionTimelineItems(rows, {}), 'media', 0)
+    const items = sessionTimelineItems(rows, {})
+    const actions = actionsOf(items, 'media', 0)
     for (const action of DESTRUCTIVE) expect(actions).toContain(action)
+    expect(editableOf(items, 'media', 0)).toBe(true)
   })
 
   it('withholds the actions from the last visible media turn when a hidden turn trails it', () => {
     const rows = mediaRows('u1', 'a1', 'a castle')
-    const actions = actionsOf(sessionTimelineItems(rows, {}, {}, false), 'media', 0)
+    const items = sessionTimelineItems(rows, {}, {}, false)
+    const actions = actionsOf(items, 'media', 0)
     for (const action of DESTRUCTIVE) expect(actions).not.toContain(action)
     expect(actions).toContain('hide')
+    expect(editableOf(items, 'media', 0)).toBe(false)
   })
 })

@@ -218,7 +218,12 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
   const mediaSteps = live.mediaSteps ?? {}
   for (const agent of live.agents ?? []) markLiveAgentTurns(turns, agent, mediaSteps)
   markRunsInFlight(turns, live.agentRunsInFlight ?? [])
-  for (const turn of turns) if (turn.kind === 'agent' && turn.streaming) turn.footer = noFooter()
+  // A streaming Agent Turn has no footer, so Edit leaves its prompt too until the turn settles.
+  for (const turn of turns) {
+    if (turn.kind !== 'agent' || !turn.streaming) continue
+    turn.footer = noFooter()
+    if (turn.prompt?.editable) turn.prompt.editable = false
+  }
   markLiveChatTurn(turns, live.chatStatus, mediaSteps)
   const items: SessionTimelineItem<M, A>[] = [...turns]
   const media = live.media
@@ -275,8 +280,9 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
   for (const item of items) {
     if (item.kind !== 'agent' || (item === last && atTrueEnd)) continue
     item.footer.actions = item.footer.actions.filter(
-      (action) => action !== 'regenerate' && action !== 'edit' && action !== 'delete',
+      (action) => action !== 'regenerate' && action !== 'delete',
     )
+    if (item.prompt?.editable) item.prompt.editable = false
   }
   if (atTrueEnd && last?.kind === 'chat') {
     // An answer that settled empty (failed or interrupted) can still be deleted, unless replayed.
@@ -296,15 +302,16 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
     }
     last.footer = withHide(footer, last)
     if (last.prompt && last.footer.actions.includes('regenerate')) {
-      last.footer.actions = withEditAction(last.footer.actions)
+      last.prompt.editable = true
     }
   }
   if (atTrueEnd && last?.kind === 'media') {
     const rerun = mediaRerun(last)
     // A run that failed before recording its settings cannot rerun, but still deletes.
+    if (rerun) last.prompt.editable = true
     last.footer = withHide(
       {
-        actions: rerun ? ['regenerate', 'edit', 'delete'] : ['delete'],
+        actions: rerun ? ['regenerate', 'delete'] : ['delete'],
         text: '',
         ...(rerun ? { rerun } : {}),
         deletion: { owner: 'media', ...turnRemovalOf(last) },
@@ -315,11 +322,10 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
   if (atTrueEnd && last?.kind === 'audio') {
     const rerun = audioRerunOf(last)
     // STT's prompt is only the source clip's label: it reruns but cannot be edited.
+    if (rerun?.kind === 'tts') last.prompt.editable = true
     const actions: TurnFooterAction[] = [
       ...last.footer.actions.filter((action) => action !== 'hide'),
-      ...(rerun
-        ? (['regenerate', ...(rerun.kind === 'tts' ? (['edit'] as const) : [])] as const)
-        : []),
+      ...(rerun ? (['regenerate'] as const) : []),
       'delete',
       'hide',
     ]
@@ -362,12 +368,6 @@ function textPrompt(
 ): TurnPrompt {
   const defined = Object.entries(extra).filter(([, value]) => value !== undefined)
   return { text, ...(text ? {} : { placeholder: preset }), ...Object.fromEntries(defined) }
-}
-
-/** `edit` sits beside `regenerate`: both re-run the turn, one from an edited prompt. */
-function withEditAction(actions: TurnFooterAction[]): TurnFooterAction[] {
-  const at = actions.includes('regenerate') ? actions.indexOf('regenerate') + 1 : actions.length
-  return [...actions.slice(0, at), 'edit', ...actions.slice(at)]
 }
 
 function turnHidingOf(turn: TimelineTurn): TurnHiding {
@@ -510,6 +510,10 @@ function withAnswers(
         latest: turn === turns.at(-1),
         canSpeak: agentTurnHasChatAffordances(turn.presetName),
       })
+      // Regenerate implies the Turn has a prompt; its bubble offers the Edit that re-runs it.
+      if (turn.prompt && turn.footer.actions.includes('regenerate')) {
+        turn.prompt.editable = true
+      }
     }
     if (turn.kind !== 'message') turn.footer = withHide(turn.footer, turn)
   }

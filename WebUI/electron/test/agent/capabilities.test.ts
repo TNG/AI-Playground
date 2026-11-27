@@ -160,6 +160,11 @@ describe('the capability catalog', () => {
     expect(listed).not.toContain('game-studio-quick')
   })
 
+  it('marks the overview capability as preset-owned while still listing it', () => {
+    const overview = listCapabilities(hostWith()).find(({ id }) => id === 'overview')
+    expect(overview?.presetOwned).toBe(true)
+  })
+
   it('lists website screenshots in the catalog after web access, with label and summary', () => {
     const entry = listCapabilities(hostWith()).find(({ id }) => id === 'web-screenshot')
     expect(entry?.label).toBe('Website screenshots')

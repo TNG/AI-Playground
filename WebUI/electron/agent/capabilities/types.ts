@@ -112,6 +112,13 @@ export type AgentCapability = {
    */
   lazyEligible?: boolean
   /**
+   * Set by a capability that belongs to the preset that names it in
+   * `agentCapabilities` rather than to a checkbox next to another preset's
+   * agent: the settings checklist offers it only under such a preset. A
+   * session still gets it whenever its own capability list names it.
+   */
+  presetOwned?: boolean
+  /**
    * Set by a capability that *is* the session rather than an addition to it: the
    * preset's instructions replace Pi's coding-agent prompt (and the workspace,
    * skills and context-file sections with it), and the file/shell builtins are

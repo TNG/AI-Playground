@@ -227,6 +227,8 @@ export type CapabilityInfo = {
   requires: string[]
   /** Slash commands the capability answers, runnable straight from settings. */
   commands: CapabilityCommand[]
+  /** Set when only a preset naming the capability offers it (see `AgentCapability.presetOwned`). */
+  presetOwned?: boolean
   unavailableReason?: string
 }
 
@@ -244,6 +246,7 @@ export function listCapabilities(
         summary: capability.summary,
         requires: capability.requires ?? [],
         commands: capability.commands ?? [],
+        ...(capability.presetOwned ? { presetOwned: true } : {}),
         ...(reason ? { unavailableReason: reason } : {}),
       }
     })

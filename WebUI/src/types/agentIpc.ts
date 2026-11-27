@@ -220,6 +220,8 @@ export type AgentCapabilityInfo = {
   summary: string
   requires: string[]
   commands: { command: string; description: string }[]
+  /** Set when only a preset naming the capability offers it in its checklist. */
+  presetOwned?: boolean
   unavailableReason?: string
 }
 

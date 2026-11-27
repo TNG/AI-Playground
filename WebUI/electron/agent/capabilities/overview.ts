@@ -351,6 +351,9 @@ export const overviewCapability: AgentCapability = {
     'summaries for a time range the user names, and writes it as one HTML file in this ' +
     'Session’s Workspace. Activate it when the user asks what happened across their Sessions.',
   buildTools: buildOverviewTools,
+  // Only the Overview Agent preset names this capability; the checklist keeps it
+  // out of every other agent's settings.
+  presetOwned: true,
   // The one call is the whole task; deferring it would cost a round trip before anything
   // else can happen.
   lazyEligible: false,

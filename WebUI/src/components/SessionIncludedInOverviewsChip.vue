@@ -17,7 +17,12 @@
             <span>{{ languages.SESSIONS_IN_OVERVIEWS_CHIP }}</span>
           </button>
         </TooltipTrigger>
-        <TooltipContent side="top" class="max-w-64">{{ hint }}</TooltipContent>
+        <TooltipContent side="top" class="max-w-64">
+          {{ hint }}
+          <p class="mt-1 text-primary-foreground/70">
+            {{ languages.SESSIONS_IN_OVERVIEWS_GENERATE }}
+          </p>
+        </TooltipContent>
       </Tooltip>
       <Tooltip v-if="failed">
         <TooltipTrigger as-child>

@@ -41,6 +41,7 @@ import {
   type LegacyAgentSessionState,
   type AgentRunTag,
 } from '@/types/agentSessionIpc'
+import type { AgentTurnTag } from '@/types/sessionTimeline'
 import {
   type BagDerivedSetting,
   DEFAULT_CAPABILITIES_KEY,
@@ -58,6 +59,13 @@ import { hasChatAffordances } from '@/lib/chatAffordances'
 import { runPrompt, stepPrompts } from '@/lib/taskSteps'
 import { harnessInstructions } from '@/lib/presetPrompt'
 import { toolAvailabilitySection, withToolAvailability } from '@/lib/toolAvailabilityPrompt'
+import {
+  agentRunModelGap,
+  agentRunModelGapAnswer,
+  agentRunModelGapMessage,
+  type AgentRunModelGap,
+  catalogModelToolUse,
+} from '@/lib/modelToolUse'
 import {
   storeMediaToolSettings,
   turnMediaToolSettings,
@@ -155,7 +163,13 @@ export type SendToSessionResult =
   | {
       ok: false
       reason:
-        'no-session' | 'busy' | 'task-locked' | 'missing-folder' | 'settings-problems' | 'aborted'
+        | 'no-session'
+        | 'busy'
+        | 'task-locked'
+        | 'missing-folder'
+        | 'settings-problems'
+        | 'model-capability'
+        | 'aborted'
       message: string
       problems?: SessionSettingsProblem[]
     }
@@ -418,6 +432,73 @@ export const useAgentMode = defineStore(
         }),
       )
       return true
+    }
+
+    /**
+     * The run-start model gate: refuse a turn whose model lacks what the session
+     * needs. Every entry point calls it before a message is sent — drafts
+     * included, so a run never starts silently hobbled.
+     */
+    function liveModelCapabilityGap(): AgentRunModelGap | null {
+      return agentRunModelGap({
+        backend: textInference.backend,
+        activeLlmModel: textInference.activeLlmModel,
+        capabilities: capabilities.value,
+        presetOwnsPrompt: activeAgentPreset.value?.agentOwnsPrompt === true,
+      })
+    }
+
+    /**
+     * The gate's refusal as the Session's answer: the prompt stays in the chat,
+     * answered by the switch-model message — no turn runs. A null prompt answers
+     * one already in the chat (its "not run" re-send).
+     */
+    async function answerModelRefusal(prompt: string | null, answer: string): Promise<void> {
+      const sessionId = ensureSessionId(openSessionId)
+      const tag: AgentTurnTag = {
+        presetName: agentPresetName.value,
+        harnessSessionId: sessionId,
+      }
+      await runTurn(sessionId, liveTurnContext(), async (chat) => {
+        const messages = [...chat.messages]
+        if (prompt !== null) {
+          messages.push({
+            id: crypto.randomUUID(),
+            role: 'user',
+            parts: [{ type: 'text', text: prompt }],
+            metadata: { agentTurn: tag },
+          } as UIMessage)
+        }
+        messages.push({
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          parts: [{ type: 'text', text: answer }],
+          metadata: { agentTurn: tag },
+        } as UIMessage)
+        chat.messages = messages
+      })
+      forgetNotRun(sessionId)
+    }
+
+    /** The same gate for a stored turn: its own inference, capabilities and preset. */
+    function storedModelCapabilityRefusal(
+      presetName: string | undefined,
+      settings: AgentSessionSettings | undefined,
+      capabilities: readonly string[],
+    ): string | null {
+      const { inference } = textInference.inferenceForSettings(
+        presetName ?? HARNESS_CHAT_PRESET,
+        settings ?? {},
+      )
+      const preset = presetsStore.presets.find((entry) => entry.name === presetName)
+      const chatPreset = preset?.type === 'chat' ? (preset as ChatPreset) : undefined
+      const gap = agentRunModelGap({
+        backend: inference.backend,
+        activeLlmModel: inference.activeLlmModel,
+        capabilities,
+        presetOwnsPrompt: chatPreset?.agentOwnsPrompt === true,
+      })
+      return gap ? agentRunModelGapMessage(gap, inference.activeModel ?? '', i18n.state) : null
     }
 
     type AgentDefaults = {
@@ -1028,6 +1109,8 @@ export const useAgentMode = defineStore(
       media: MediaToolSettings,
       turnCapabilities: readonly string[],
       modelSupportsVision: boolean,
+      modelToolUse: { toolCalling: boolean; agentic: boolean },
+      presetOwnsPrompt: boolean,
     ): string {
       try {
         if (!mcp.serversLoaded) {
@@ -1038,6 +1121,14 @@ export const useAgentMode = defineStore(
         }
         return toolAvailabilitySection({
           surface: 'agent',
+          // The same flags buildTurnConfig sends main, so the block's limits
+          // are the ones the session build actually enforces.
+          modelSupportsToolCalling: modelToolUse.toolCalling,
+          modelSupportsAgentic: modelToolUse.agentic,
+          // Owns the prompt → the session build strips the file and shell
+          // builtins along with the heavy capabilities for a non-agentic
+          // model; a custom prompt keeps them (only Game Studio is lost).
+          presetOwnsPrompt,
           builtinToolsEnabled: true,
           isToolEnabled: media.isToolEnabled,
           delegationEnabled: media.delegationEnabled(),
@@ -1082,6 +1173,8 @@ export const useAgentMode = defineStore(
         storeMediaToolSettings(textInference),
         capabilities.value,
         textInference.modelSupportsVision,
+        catalogModelToolUse(textInference.backend, textInference.activeLlmModel),
+        activeAgentPreset.value?.agentOwnsPrompt === true,
       )
       return buildTurnConfig({
         sessionId,
@@ -1131,6 +1224,8 @@ export const useAgentMode = defineStore(
         turnMediaToolSettings(stored.tools),
         context.capabilities,
         stored.inference.modelSupportsVision,
+        catalogModelToolUse(stored.inference.backend, stored.inference.activeLlmModel),
+        chatPreset?.agentOwnsPrompt === true,
       )
       return buildTurnConfig({
         sessionId,
@@ -2145,6 +2240,16 @@ export const useAgentMode = defineStore(
      */
     async function generate(prompt: string, options: { title?: string } = {}): Promise<boolean> {
       if (await blockedBySettingsProblems()) return false
+      const modelGap = liveModelCapabilityGap()
+      if (modelGap) {
+        // The refusal is the Session's answer: the prompt stays, the switch-model
+        // message answers it, and no turn runs.
+        await answerModelRefusal(
+          prompt,
+          agentRunModelGapAnswer(modelGap, textInference.activeModel ?? '', i18n.state),
+        )
+        return true
+      }
       // Game Agent never asks for a folder: the first turn of a game mints one.
       if (agentWorkspaceKind.value === 'games') {
         if (await sessionsStore.ensureOpenSession()) await enterSessionHarness()
@@ -2185,6 +2290,15 @@ export const useAgentMode = defineStore(
     async function resendNotRun(): Promise<void> {
       if (!canResendNotRun.value) return
       if (await blockedBySettingsProblems()) return
+      const modelGap = liveModelCapabilityGap()
+      if (modelGap) {
+        // The "not run" prompt is already in the chat: the switch-model message answers it.
+        await answerModelRefusal(
+          null,
+          agentRunModelGapAnswer(modelGap, textInference.activeModel ?? '', i18n.state),
+        )
+        return
+      }
       if (!(await workspaceReady())) return
       await runTurn(openSessionId.value, liveTurnContext(), (chat) => chat.regenerate())
     }
@@ -2361,6 +2475,13 @@ export const useAgentMode = defineStore(
             settingsProblems.value,
           )
         }
+        const modelGap = liveModelCapabilityGap()
+        if (modelGap) {
+          return refuseSend(
+            'model-capability',
+            agentRunModelGapMessage(modelGap, textInference.activeModel ?? '', i18n.state),
+          )
+        }
         context = liveTurnContext()
       } else {
         const inSession =
@@ -2380,6 +2501,12 @@ export const useAgentMode = defineStore(
             problems,
           )
         }
+        const modelRefusal = storedModelCapabilityRefusal(
+          context.presetName,
+          context.settings,
+          context.capabilities,
+        )
+        if (modelRefusal) return refuseSend('model-capability', modelRefusal)
       }
       const sessionRef = sessionRefOf(sessionId) ?? (live ? sessionsStore.openSessionId : null)
       const sessionWorkspace = sessionWorkspaceOf(sessionRef, context.presetName)
@@ -2731,6 +2858,7 @@ export const useAgentMode = defineStore(
       startNew,
       reconcileWorkspaceKind,
       generate,
+      answerModelRefusal,
       createSession,
       endAgentRun,
       sendToSession,

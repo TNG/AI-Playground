@@ -57,6 +57,7 @@ vi.mock('@/assets/js/store/textInference', () => ({
   useTextInference: () => ({
     backend: 'llamaCPP',
     activeModel: 'Qwen3.8-27B-Q4_K_M.gguf',
+    activeLlmModel: { supportsVision: true, supportsToolCalling: true, supportsAgentic: true },
     get activeEmbeddingModel() {
       return embedding.activeEmbeddingModel
     },

@@ -24,8 +24,60 @@ function baseInput(overrides: Partial<ToolAvailabilityInput> = {}): ToolAvailabi
 }
 
 describe('toolAvailabilitySection', () => {
-  it('says nothing when every tool is available and every server is in use', () => {
+  it('says nothing when every tool is available, every server is in use and the model has every capability', () => {
     expect(toolAvailabilitySection(baseInput())).toBe('')
+  })
+
+  it('tells the model it cannot see images and to suggest a vision model', () => {
+    const section = toolAvailabilitySection(baseInput({ modelSupportsVision: false }))
+    expect(section).toContain('Vision')
+    expect(section).toContain('this model cannot process images')
+    expect(section).toContain('switch to a vision-capable model in the model selector')
+    // Everything else is on: the block still names what the model can call.
+    expect(section).toContain('Tools you can call right now:')
+  })
+
+  it('flags a non-agentic model on the agent surface only', () => {
+    const agent = toolAvailabilitySection(
+      baseInput({ surface: 'agent', modelSupportsAgentic: false }),
+    )
+    expect(agent).toContain('Agentic work')
+    expect(agent).toContain('This model is not agentic (not reliable at multi-step tool use)')
+    expect(agent).toContain('so the session runs without the file and shell tools and Game Studio')
+    expect(agent).toContain("switch to an agentic-capable model in the session's model settings")
+
+    // Chat has no agentic concept: the flag is ignored there.
+    expect(toolAvailabilitySection(baseInput({ modelSupportsAgentic: false }))).toBe('')
+  })
+
+  it('adds the standing first-reply announcement to the agentic limitation', () => {
+    const section = toolAvailabilitySection(
+      baseInput({ surface: 'agent', modelSupportsAgentic: false }),
+    )
+    expect(section).toContain(
+      'In your first reply of the session, tell the user this model is not agentic ' +
+        '(not reliable at multi-step tool use) and that they can switch to an agentic-capable ' +
+        "model in the session's model settings",
+    )
+    // The announcement stands on its own line, after the entries.
+    expect(
+      section.split('\n').filter((line) => line.startsWith('In your first reply')),
+    ).toHaveLength(1)
+  })
+
+  it('claims only Game Studio for a non-agentic model on a custom-prompt session', () => {
+    const section = toolAvailabilitySection(
+      baseInput({ surface: 'agent', modelSupportsAgentic: false, presetOwnsPrompt: false }),
+    )
+    expect(section).toContain('so Game Studio is unavailable this session')
+    expect(section).not.toContain('without the file and shell tools')
+  })
+
+  it('mentions the agentic model switch on the agent surface with the session wording', () => {
+    const section = toolAvailabilitySection(
+      baseInput({ surface: 'agent', modelSupportsVision: false, modelSupportsAgentic: false }),
+    )
+    expect(section).toContain("vision-capable model in the session's model settings")
   })
 
   it('explains that a model without tool calling can use no tools at all', () => {

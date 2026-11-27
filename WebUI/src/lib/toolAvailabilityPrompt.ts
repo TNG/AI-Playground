@@ -35,6 +35,21 @@ export type ToolAvailabilityInput = {
   /** Media specialist delegation folds the two comfy tools into one `media` tool. */
   delegationEnabled: boolean
   modelSupportsVision: boolean
+  /**
+   * Agent only: a model not marked `supportsAgentic` loses the heavy
+   * capabilities (files, shell, Game Studio) at session build — main gates
+   * on exactly this (`catalogModelToolUse`). Explicit false; unset means
+   * not restricted (chat has no agentic concept).
+   */
+  modelSupportsAgentic?: boolean
+  /**
+   * Agent only: only a preset that owns its prompt (the built-in agent
+   * harnesses) loses the file and shell builtins with the heavy capabilities
+   * when the model is not agentic; custom-prompt sessions keep them, so the
+   * entry claims just Game Studio there. Unset reads as owned (the common
+   * agent shape).
+   */
+  presetOwnsPrompt?: boolean
   /** Any enabled generation workflow exists (comfyUI). */
   generateWorkflowsAvailable: boolean
   /** Any enabled edit workflow exists (comfyUiImageEdit). */
@@ -63,10 +78,16 @@ const toolSettingsWhere: Record<ToolAvailabilitySurface, string> = {
   agent: "the session's media tools settings",
 }
 
+/** Where the user switches to a model with a missing capability. */
+const modelSwitchWhere: Record<ToolAvailabilitySurface, string> = {
+  chat: 'the model selector',
+  agent: "the session's model settings",
+}
+
 const disabledReason = (input: ToolAvailabilityInput): string =>
   `disabled — the user can enable it in ${toolSettingsWhere[input.surface]}`
 
-type ToolStatus = { info: BuiltinToolInfo; reason: string }
+type ToolStatus = { info: BuiltinToolInfo; reason: string; announce?: string }
 
 const MEDIA_PAIR_INFO: BuiltinToolInfo = {
   name: 'media',
@@ -176,6 +197,38 @@ const MASTER_OFF_REASON =
 const MEDIA_CAPABILITY_OFF_REASON =
   "the Media generation capability is turned off for this session — the user can enable it in the session's Default Settings"
 
+/** What the current model is missing; every entry proposes the model switch. */
+function modelLimitations(input: ToolAvailabilityInput): ToolStatus[] {
+  const limitations: ToolStatus[] = []
+  if (!input.modelSupportsVision) {
+    limitations.push({
+      info: {
+        name: 'vision',
+        label: 'Vision',
+        description: 'see and analyze images or screenshots',
+      },
+      reason: `this model cannot process images — the user can switch to a vision-capable model in ${modelSwitchWhere[input.surface]}`,
+    })
+  }
+  if (input.surface === 'agent' && input.modelSupportsAgentic === false) {
+    const consequence =
+      input.presetOwnsPrompt === false
+        ? 'so Game Studio is unavailable this session'
+        : 'so the session runs without the file and shell tools and Game Studio'
+    limitations.push({
+      info: { name: 'agentic', label: 'Agentic work', description: '' },
+      reason:
+        `This model is not agentic (not reliable at multi-step tool use), ${consequence} — ` +
+        `the user can switch to an agentic-capable model in ${modelSwitchWhere.agent}`,
+      announce:
+        'In your first reply of the session, tell the user this model is not agentic ' +
+        '(not reliable at multi-step tool use) and that they can switch to an agentic-capable ' +
+        `model in ${modelSwitchWhere.agent}`,
+    })
+  }
+  return limitations
+}
+
 /**
  * The section's one behavioral rule, stated up front: models act on a leading
  * imperative far more reliably than on a trailing conditional, so this leads
@@ -184,7 +237,8 @@ const MEDIA_CAPABILITY_OFF_REASON =
 const DIRECTIVE =
   'When the user asks for something an unavailable tool or MCP server could do, do not just ' +
   'say you cannot do it: tell them the app supports it, that it is unavailable, and how they ' +
-  'can enable it.'
+  'can enable it — by switching the tool on, or by switching to a model with the missing ' +
+  'capability.'
 
 const NO_TOOL_CALLING_NOTE =
   'Tool availability: this app has built-in tools — media generation (create images, videos or ' +
@@ -206,6 +260,7 @@ function parenthetical(description: string): string {
  */
 export function toolAvailabilitySection(input: ToolAvailabilityInput): string {
   if (input.modelSupportsToolCalling === false) return NO_TOOL_CALLING_NOTE
+  const limitations = modelLimitations(input)
 
   const catalog =
     input.surface === 'agent'
@@ -261,11 +316,17 @@ export function toolAvailabilitySection(input: ToolAvailabilityInput): string {
     }
   }
 
-  if (unavailable.length === 0) return ''
+  if (unavailable.length === 0 && limitations.length === 0) return ''
 
+  const entries = [...limitations, ...unavailable]
   const lines = ['Tool availability:', DIRECTIVE]
-  for (const { info, reason } of unavailable) {
+  for (const { info, reason } of entries) {
     lines.push(`- ${info.label}${parenthetical(info.description)}: ${reason}.`)
+  }
+  // Model limitations the user cannot see anywhere else get a standing
+  // first-reply instruction, so the session never starts silently crippled.
+  for (const { announce } of entries) {
+    if (announce) lines.push(announce + '.')
   }
   if (available.length > 0) lines.push(`Tools you can call right now: ${available.join('; ')}.`)
   return lines.join('\n')

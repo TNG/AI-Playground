@@ -81,6 +81,12 @@ const CloudModelConfigSchema = z.object({
    * loose a signal to put request parameters on.
    */
   reasoningAdvertised: z.boolean().optional(),
+  /**
+   * Only sent when the provider or the user's Edit Capabilities override ruled
+   * the model out; absent means assumed capable, so the session is not stripped.
+   */
+  supportsToolCalling: z.boolean().optional(),
+  supportsAgentic: z.boolean().optional(),
   temperature: z.number().optional(),
   maxOutputTokens: z.number().int().positive().optional(),
 })

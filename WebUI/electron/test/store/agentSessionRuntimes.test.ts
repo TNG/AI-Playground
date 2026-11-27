@@ -37,6 +37,8 @@ vi.mock('@/assets/js/store/presetSwitching', () => ({
 vi.mock('@/assets/js/store/textInference', () => ({
   useTextInference: () => ({
     backend: 'llamaCPP',
+    activeModel: 'Live-9B',
+    activeLlmModel: { supportsVision: true, supportsToolCalling: true, supportsAgentic: true },
     ensureReadyForInference: vi.fn(),
     bindSessionSettings: vi.fn(),
     loadSettingsForActivePreset: vi.fn(),

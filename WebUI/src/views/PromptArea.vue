@@ -733,11 +733,14 @@ async function handleRunAgentClick() {
 async function runPickedAgent(text: string): Promise<void> {
   const result = await agentTasks.runPickedAgent(text)
   promptStore.promptSubmitted = false
-  if (result.ok) {
+  // A model-capability refusal answered in the Session behaves like a run that
+  // started: the input clears and the answer is the conversation's latest message.
+  const answered = !result.ok && result.reason === 'model-capability' && result.answered === true
+  if (result.ok || answered) {
     if (prompt.value === text) prompt.value = ''
     return
   }
-  if (result.reason !== 'settings-problems') return
+  if (result.reason !== 'settings-problems' && result.reason !== 'model-capability') return
   errors.report(
     createAppError({
       category: 'validation',

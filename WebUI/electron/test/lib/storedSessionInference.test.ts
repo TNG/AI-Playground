@@ -219,6 +219,53 @@ describe('storedSessionInference', () => {
     expect(cloud.capabilitiesFor('big-model').reasoningAdvertised).toBe(true)
   })
 
+  it('carries a cloud model’s advertised and user-ruled-out flags for the run gate', () => {
+    const { inference } = storedSessionInference(
+      { backend: 'cloud', cloudProviderId: 'other', selectedModels: { cloud: 'big-model' } },
+      catalog({
+        selectedCloudProviderId: 'custom',
+        cloudProviders: [
+          {
+            id: 'other',
+            baseUrl: 'https://other.example/v1/',
+            models: ['small-model', 'big-model'],
+            capabilitiesFor: (name) =>
+              name === 'big-model'
+                ? {
+                    supportsVision: false,
+                    reasoningAdvertised: true,
+                    supportsToolCalling: false,
+                    supportsAgentic: false,
+                  }
+                : { supportsVision: true, reasoningAdvertised: false },
+          },
+        ],
+      }),
+    )
+
+    expect(inference.activeLlmModel).toEqual({
+      supportsToolCalling: false,
+      supportsAgentic: false,
+    })
+
+    const quiet = storedSessionInference(
+      { backend: 'cloud', cloudProviderId: 'other', selectedModels: { cloud: 'small-model' } },
+      catalog({
+        selectedCloudProviderId: 'custom',
+        cloudProviders: [
+          {
+            id: 'other',
+            baseUrl: 'https://other.example/v1/',
+            models: ['small-model', 'big-model'],
+            capabilitiesFor: () => ({ supportsVision: true, reasoningAdvertised: false }),
+          },
+        ],
+      }),
+    )
+    // A model nobody ruled out carries no flags: the gate stays open for it.
+    expect(quiet.inference.activeLlmModel).toEqual({})
+  })
+
   it('carries the stored tool toggles', () => {
     const defaults = storedSessionInference({ backend: 'llamaCPP' }, catalog()).tools
     expect(defaults).toEqual({

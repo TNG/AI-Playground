@@ -133,6 +133,10 @@ export async function buildTurnConfig(options: {
       )
     }
     const model = textInference.activeModel ?? CLOUD_DEFAULT_MODEL
+    // Cloud models stay assumed capable until the provider or the user's Edit
+    // Capabilities override says otherwise; a false flag reaches main so the
+    // session is stripped the same way a local model's is.
+    const toolUse = catalogModelToolUse('cloud', textInference.activeLlmModel)
     return {
       sessionId: options.sessionId,
       ...(options.sessionRef ? { sessionRef: options.sessionRef } : {}),
@@ -148,6 +152,8 @@ export async function buildTurnConfig(options: {
         authStyle: cloudMode.activeProviderAuthStyle,
         supportsVision: textInference.modelSupportsVision,
         reasoningAdvertised: cloudMode.capabilitiesFor(model).reasoningAdvertised,
+        ...(toolUse.toolCalling ? {} : { supportsToolCalling: false }),
+        ...(toolUse.agentic ? {} : { supportsAgentic: false }),
         contextWindow: textInference.maxContextSizeFromModel
           ? textInference.effectiveContextWindow
           : undefined,

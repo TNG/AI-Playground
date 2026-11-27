@@ -234,6 +234,55 @@ describe('buildTurnConfig readiness (step 15)', () => {
     expect(gameCloud).not.toHaveProperty('maxOutputTokens')
   })
 
+  it('flags a cloud model the provider or the user ruled out, and stays silent on the rest', async () => {
+    const turn = (overrides: Record<string, unknown>) =>
+      buildTurnConfig({
+        sessionId: 'aipg-agent-1',
+        workspaceDir: '/tmp/ws',
+        presetName: 'Assistant',
+        instructions: 'Be helpful.',
+        capabilities: [],
+        unsandboxed: false,
+        planningThinkingOnly: false,
+        userSampling: true,
+        textInference: localInference({
+          temperature: 0.4,
+          effectiveMaxTokens: 640,
+          activeModel: 'gpt-test',
+          localBackendUrl: null,
+          ...overrides,
+        }) as never,
+        cloudMode: {
+          selectedProviderId: 'openai',
+          activeProviderBaseUrl: 'https://api.example.test',
+          activeProviderAuthStyle: 'bearer',
+          capabilitiesFor: () => ({ reasoningAdvertised: false }),
+        },
+      })
+
+    const ruledOut = (
+      await turn({
+        backend: 'cloud',
+        activeLlmModel: { supportsToolCalling: true, supportsAgentic: false },
+      })
+    ).modelConfig
+    expect(ruledOut).toMatchObject({ source: 'cloud', supportsAgentic: false })
+    expect(ruledOut).not.toHaveProperty('supportsToolCalling')
+
+    const noTools = (
+      await turn({
+        backend: 'cloud',
+        activeLlmModel: { supportsToolCalling: false },
+      })
+    ).modelConfig
+    expect(noTools).toMatchObject({ source: 'cloud', supportsToolCalling: false })
+    expect(noTools).not.toHaveProperty('supportsAgentic')
+
+    const assumed = (await turn({ backend: 'cloud', activeLlmModel: {} })).modelConfig
+    expect(assumed).not.toHaveProperty('supportsToolCalling')
+    expect(assumed).not.toHaveProperty('supportsAgentic')
+  })
+
   it('names the Session the turn belongs to, so main files its History Entry there', async () => {
     const config = await buildTurnConfig({
       sessionId: 'aipg-agent-1',

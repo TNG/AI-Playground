@@ -66,9 +66,30 @@ const chat = vi.hoisted(() => {
     live: {} as Bag,
     settingsPerPreset: {} as Record<string, Bag>,
     presetName: () => 'Assistant',
-    catalog: [] as { name: string; type: string }[],
+    catalog: [] as {
+      name: string
+      type: string
+      supportsVision?: boolean
+      supportsToolCalling?: boolean
+      supportsAgentic?: boolean
+    }[],
   }
   const models = () => (state.live.selectedModels ?? {}) as Record<string, string | null>
+  // A model not in the mock's catalog is a capable stand-in: only tests that
+  // exercise capability gating list catalog entries with explicit flags.
+  const activeLlmModel = () => {
+    const model = models()[state.live.backend as string]
+    if (!model) return undefined
+    return (
+      state.catalog.find((m) => m.name === model && m.type === state.live.backend) ?? {
+        name: model,
+        type: state.live.backend,
+        supportsVision: true,
+        supportsToolCalling: true,
+        supportsAgentic: true,
+      }
+    )
+  }
   const current = (): Bag => JSON.parse(JSON.stringify(state.live))
   const apply = (bag: Bag) => {
     state.live = { backend: 'llamaCPP', ...JSON.parse(JSON.stringify(bag)) }
@@ -86,6 +107,19 @@ const chat = vi.hoisted(() => {
       get systemPrompt() {
         return state.live.systemPrompt as string | undefined
       },
+      get activeLlmModel() {
+        return activeLlmModel()
+      },
+      get modelSupportsVision() {
+        return activeLlmModel()?.supportsVision === true
+      },
+      // The media-tool read surface the tool-availability block walks; the
+      // write setters stay unused by the block.
+      toolDelegationEnabled: false,
+      isBuiltinToolEnabled: () => true,
+      isWorkflowPresetEnabled: () => true,
+      getDefaultWorkflow: () => null,
+      speakReplies: false,
       get settingsPerPreset() {
         return state.settingsPerPreset
       },
@@ -191,6 +225,19 @@ vi.mock('@/assets/js/store/agentModeTurn', async (importOriginal) => {
 
 vi.mock('@/assets/js/tools/agentBridge', () => ({
   getAgentToolSpecs: () => [],
+}))
+
+// The tool-availability block reads these leaf helpers; the real ones walk
+// backend service state this harness does not stand up.
+vi.mock('@/assets/js/tools/comfyUi', () => ({
+  getAvailableWorkflows: () => [],
+}))
+vi.mock('@/assets/js/tools/comfyUiImageEdit', () => ({
+  getAvailableEditWorkflows: () => [],
+}))
+vi.mock('@/assets/js/speech/speechIO', () => ({
+  synthesizeToolAvailable: () => false,
+  transcriptionAvailable: () => false,
 }))
 
 vi.mock('@ai-sdk/vue', () => ({
@@ -564,6 +611,35 @@ describe('Agent Session Settings', () => {
     expect(turnConfig.lastInput?.userSampling).toBe(false)
   })
 
+  it('carries the agentic limitation and its first-reply announcement with the turn', async () => {
+    const store = await startedStore()
+    chat.state.catalog = [
+      {
+        name: 'Default-9B',
+        type: 'llamaCPP',
+        supportsVision: true,
+        supportsToolCalling: true,
+        supportsAgentic: false,
+      },
+    ]
+
+    await turnConfig.build?.(store.openSessionId)
+
+    const instructions = turnConfig.lastInput?.instructions ?? ''
+    expect(instructions).toContain(
+      'This model is not agentic (not reliable at multi-step tool use)',
+    )
+    expect(instructions).toContain(
+      'so the session runs without the file and shell tools and Game Studio',
+    )
+    expect(instructions).toContain(
+      "the user can switch to an agentic-capable model in the session's model settings",
+    )
+    expect(instructions).toContain(
+      'In your first reply of the session, tell the user this model is not agentic',
+    )
+  })
+
   describe("the Session's folders", () => {
     function openSessionWithFolders(): void {
       const sessions = useSessions()
@@ -836,8 +912,20 @@ describe('Agent Session Settings', () => {
 
     it('sends again once the user picks a usable model', async () => {
       chat.state.catalog = [
-        { name: 'Default-9B', type: 'llamaCPP' },
-        { name: 'Other-4B', type: 'llamaCPP' },
+        {
+          name: 'Default-9B',
+          type: 'llamaCPP',
+          supportsVision: true,
+          supportsToolCalling: true,
+          supportsAgentic: true,
+        },
+        {
+          name: 'Other-4B',
+          type: 'llamaCPP',
+          supportsVision: true,
+          supportsToolCalling: true,
+          supportsAgentic: true,
+        },
       ]
       const store = await openedWith(sentWithModel('Gone-7B'))
       chat.edit({ model: 'Other-4B' })
@@ -867,6 +955,102 @@ describe('Agent Session Settings', () => {
       chat.state.catalog = [{ name: 'Other-4B', type: 'llamaCPP' }]
       const store = await startedStore()
       expect(store.settingsProblems).toEqual([])
+    })
+  })
+
+  describe('the run-start model gate', () => {
+    it('answers even a Draft turn on a non-agentic model, saying where to switch', async () => {
+      chat.state.catalog = [
+        {
+          name: 'Default-9B',
+          type: 'llamaCPP',
+          supportsVision: true,
+          supportsToolCalling: true,
+          supportsAgentic: false,
+        },
+      ]
+      const store = await startedStore()
+      const sent = store.chat.messages.length
+
+      const started = await store.generate('build it')
+
+      expect(started).toBe(true)
+      expect(store.chat.messages).toHaveLength(sent + 2)
+      const prompt = store.chat.messages.at(sent) as {
+        role: string
+        parts: { text?: string }[]
+      }
+      const answer = store.chat.messages.at(-1) as {
+        role: string
+        parts: { text?: string }[]
+        metadata?: { agentTurn?: { harnessSessionId?: string } }
+      }
+      expect(prompt.role).toBe('user')
+      expect(prompt.parts[0]?.text).toBe('build it')
+      expect(answer.role).toBe('assistant')
+      expect(answer.parts[0]?.text).toContain('not agentic')
+      expect(answer.parts[0]?.text).toContain(
+        'Switch to an agentic-capable model in the session’s model settings',
+      )
+      expect(answer.parts[0]?.text).not.toContain('Not started')
+      expect(answer.metadata?.agentTurn?.harnessSessionId).toBe(store.openSessionId)
+      expect(errorsReport).not.toHaveBeenCalled()
+    })
+
+    it('answers a model without tool calling only while the session has tools', async () => {
+      chat.state.catalog = [
+        {
+          name: 'Default-9B',
+          type: 'llamaCPP',
+          supportsVision: true,
+          supportsToolCalling: false,
+          supportsAgentic: true,
+        },
+      ]
+      const store = await startedStore()
+      const sent = store.chat.messages.length
+
+      await store.generate('build it')
+      expect(store.chat.messages).toHaveLength(sent + 2)
+      const answer = store.chat.messages.at(-1) as {
+        role: string
+        parts: { text?: string }[]
+      }
+      expect(answer.role).toBe('assistant')
+      expect(answer.parts[0]?.text).toContain('cannot call tools')
+
+      // A toolless session loses nothing: the turn runs.
+      for (const id of [...store.capabilities]) store.setCapabilityEnabled(id, false)
+      await store.generate('build it')
+      expect(store.chat.messages).toHaveLength(sent + 3)
+    })
+
+    it('answers a Hybrid Cloud turn when the user marked the model non-agentic', async () => {
+      chat.state.catalog = [
+        {
+          name: 'Hosted-9B',
+          type: 'cloud',
+          supportsVision: true,
+          supportsToolCalling: true,
+          supportsAgentic: false,
+        },
+      ]
+      const store = await startedStore()
+      chat.state.live = { backend: 'cloud', selectedModels: { cloud: 'Hosted-9B' } }
+      const sent = store.chat.messages.length
+
+      const started = await store.generate('build it')
+
+      expect(started).toBe(true)
+      expect(store.chat.messages).toHaveLength(sent + 2)
+      const answer = store.chat.messages.at(-1) as {
+        role: string
+        parts: { text?: string }[]
+      }
+      expect(answer.role).toBe('assistant')
+      expect(answer.parts[0]?.text).toContain('Hosted-9B')
+      expect(answer.parts[0]?.text).toContain('not agentic')
+      expect(errorsReport).not.toHaveBeenCalled()
     })
   })
 })

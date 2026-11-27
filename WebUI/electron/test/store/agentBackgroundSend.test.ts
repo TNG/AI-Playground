@@ -43,7 +43,7 @@ const inference = vi.hoisted(() => {
     effectiveContextWindow: 8192,
     getCurrentDeviceId: () => '0',
     getCurrentDeviceName: () => 'Arc B580',
-    activeLlmModel: null,
+    activeLlmModel: { supportsVision: false, supportsToolCalling: true, supportsAgentic: true },
     embeddingBackend: 'llamaCPP' as const,
   }
   const live = { ...base, backend: 'llamaCPP', activeModel: 'Live-9B', contextSize: 8192 }

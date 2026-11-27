@@ -66,7 +66,7 @@ const inference = vi.hoisted(() => {
     effectiveContextWindow: 8192,
     getCurrentDeviceId: () => '0',
     getCurrentDeviceName: () => 'Arc B580',
-    activeLlmModel: null,
+    activeLlmModel: { supportsVision: false, supportsToolCalling: true, supportsAgentic: true },
     embeddingBackend: 'llamaCPP' as const,
   }
   return {
@@ -460,6 +460,65 @@ describe('where an Agent Run runs', () => {
       'Task t1',
     )
     expect(agentMode.liveTurnsIn('session-made-in')).toEqual([])
+  })
+
+  it('refuses a Run whose template model is not agentic, before any download', async () => {
+    const capable = inference.base.activeLlmModel
+    const { tasks } = await readyStores(task('t1', ['one']))
+    inference.base.activeLlmModel = {
+      supportsVision: false,
+      supportsToolCalling: true,
+      supportsAgentic: false,
+    }
+
+    const refused = await tasks.runTask('t1')
+    expect(refused.ok).toBe(false)
+    if (!refused.ok && refused.reason === 'model-capability') {
+      expect(refused.message).toContain('not agentic')
+    } else {
+      throw new Error(`expected a model-capability refusal, got ${JSON.stringify(refused)}`)
+    }
+
+    inference.base.activeLlmModel = capable
+    expect(await tasks.runTask('t1')).toEqual({ ok: true })
+  })
+
+  it('answers a refused Run in the open Session, starting no turn', async () => {
+    const capable = inference.base.activeLlmModel
+    const { agentMode, tasks } = await readyStores(task('t1', ['one']))
+    inference.base.activeLlmModel = {
+      supportsVision: false,
+      supportsToolCalling: true,
+      supportsAgentic: false,
+    }
+    const sent = agentMode.chat.messages.length
+
+    const refused = await tasks.runTask('t1', 'summarize the news')
+
+    inference.base.activeLlmModel = capable
+
+    expect(refused.ok).toBe(false)
+    if (!refused.ok && refused.reason === 'model-capability') {
+      expect(refused.answered).toBe(true)
+      expect(refused.message).toContain('not agentic')
+    } else {
+      throw new Error(`expected a model-capability refusal, got ${JSON.stringify(refused)}`)
+    }
+    expect(agentMode.chat.messages).toHaveLength(sent + 2)
+    const prompt = agentMode.chat.messages.at(sent) as {
+      role: string
+      parts: { text?: string }[]
+    }
+    const answer = agentMode.chat.messages.at(-1) as {
+      role: string
+      parts: { text?: string }[]
+    }
+    expect(prompt.role).toBe('user')
+    expect(prompt.parts[0]?.text).toBe('summarize the news')
+    expect(answer.role).toBe('assistant')
+    expect(answer.parts[0]?.text).toContain('not agentic')
+    expect(answer.parts[0]?.text).not.toContain('Not started')
+    expect(startTurn).not.toHaveBeenCalled()
   })
 
   it('runs an Agent saved before Sessions existed', async () => {
@@ -2045,6 +2104,41 @@ describe('following up on a picked Agent’s run', () => {
       SESSION,
       expect.stringMatching(/^agent:/),
     )
+  })
+
+  it('answers a refused Follow-up in the open Session, starting no turn', async () => {
+    const capable = inference.base.activeLlmModel
+    const { agentMode, tasks } = await readyStores(task('t1', ['one']))
+    await tasks.pickAgent('t1')
+    await tasks.runPickedAgent('')
+    await runToEnd(0)
+    inference.base.activeLlmModel = {
+      supportsVision: false,
+      supportsToolCalling: true,
+      supportsAgentic: false,
+    }
+    const sent = agentMode.chat.messages.length
+
+    const refused = await tasks.followUpPickedAgent('why that image?')
+
+    inference.base.activeLlmModel = capable
+
+    expect(refused.ok).toBe(false)
+    if (!refused.ok && refused.reason === 'model-capability') {
+      expect(refused.answered).toBe(true)
+      expect(refused.message).toContain('not agentic')
+    } else {
+      throw new Error(`expected a model-capability refusal, got ${JSON.stringify(refused)}`)
+    }
+    expect(agentMode.chat.messages).toHaveLength(sent + 2)
+    const answer = agentMode.chat.messages.at(-1) as {
+      role: string
+      parts: { text?: string }[]
+    }
+    expect(answer.role).toBe('assistant')
+    expect(answer.parts[0]?.text).toContain('not agentic')
+    expect(answer.parts[0]?.text).not.toContain('Not started')
+    expect(startTurn).toHaveBeenCalledTimes(1)
   })
 
   /** The Follow-up turn's ref: its prompt is the record's newest user message. */

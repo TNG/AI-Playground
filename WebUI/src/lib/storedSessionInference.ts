@@ -97,6 +97,10 @@ export type StoredCloudProvider = {
     supportsVision: boolean
     reasoningAdvertised: boolean
     contextLength?: number
+    /** Provider-advertised, with the user's Edit Capabilities override applied. */
+    supportsToolCalling?: boolean
+    /** Only when the user marked the model in Edit Capabilities; providers never say. */
+    supportsAgentic?: boolean
   }
 }
 
@@ -261,7 +265,15 @@ export function storedSessionInference(
     getCurrentDeviceId: () => device?.id ?? null,
     getCurrentDeviceName: () => device?.name ?? null,
     contextSize,
-    activeLlmModel: model ?? null,
+    activeLlmModel:
+      backend === 'cloud'
+        ? cloudModel && cloudCaps
+          ? {
+              supportsToolCalling: cloudCaps.supportsToolCalling,
+              supportsAgentic: cloudCaps.supportsAgentic,
+            }
+          : null
+        : (model ?? null),
     embeddingBackend,
     activeEmbeddingModel: embeddingModel?.name,
     llmEmbeddingModels: catalog.embeddingModels,

@@ -26,13 +26,19 @@ import {
   type TurnOutcome,
 } from './agentMode'
 import { HARNESS_CHAT_PRESET, isHarnessChatPreset } from '@/lib/harnessChatPreset'
+import {
+  agentRunModelGap,
+  agentRunModelGapAnswer,
+  agentRunModelGapMessage,
+  type AgentRunModelGap,
+} from '@/lib/modelToolUse'
 import { sessionSettingsFromBag } from '@/lib/agentSessionSettings'
 import { useQueuedChannelMessages } from './queuedChannelMessages'
 import { useDemoMode } from './demoMode'
 import { useErrors } from './errors'
 import { useI18N } from './i18n'
 import { useMcp } from './mcp'
-import { usePresets } from './presets'
+import { usePresets, type ChatPreset } from './presets'
 import { useSessions } from './sessions'
 import { useTextInference, type LlmBackend } from './textInference'
 import { useUIStore } from './ui'
@@ -147,6 +153,7 @@ export type RunTaskResult =
   | { ok: true }
   | { ok: false; reason: 'no-task' | 'running' | 'no-session' | 'missing-workspace' }
   | { ok: false; reason: 'settings-problems'; problems: SessionSettingsProblem[]; message: string }
+  | { ok: false; reason: 'model-capability'; message: string; answered?: true }
   | ({ ok: false; message: string } & ModelDownloadRefusal)
 
 export type FollowUpResult = RunTaskResult | SendToSessionResult | NeverRunRefusal
@@ -461,6 +468,32 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   }
 
   /**
+   * The run-start model gate for a saved Agent: refuses when its Settings
+   * Template's model cannot call tools (only when the template has tools)
+   * or is not agentic. Checked before the model download, so a model that
+   * would be refused is never downloaded for the run.
+   */
+  function templateModelGap(
+    template: AgentSessionSettings,
+  ): { gap: AgentRunModelGap; model: string } | null {
+    const { inference } = textInference.inferenceForSettings(HARNESS_CHAT_PRESET, template)
+    const preset = presets.presets.find((entry) => isHarnessChatPreset(entry.name))
+    const chatPreset = preset?.type === 'chat' ? (preset as ChatPreset) : undefined
+    const gap = agentRunModelGap({
+      backend: inference.backend,
+      activeLlmModel: inference.activeLlmModel,
+      capabilities: template.capabilities ?? [],
+      presetOwnsPrompt: chatPreset?.agentOwnsPrompt === true,
+    })
+    return gap ? { gap, model: inference.activeModel ?? '' } : null
+  }
+
+  function modelCapabilityRefusalOfTemplate(template: AgentSessionSettings): string | null {
+    const found = templateModelGap(template)
+    return found ? agentRunModelGapMessage(found.gap, found.model, i18n.state) : null
+  }
+
+  /**
    * The Task's local chat model, with its vision projector when a Step hands it an image, is
    * downloaded with the user's consent when missing; a refusal says why it is not on disk.
    */
@@ -703,6 +736,21 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     if (problems.length > 0) {
       const message = describeSettingsProblems(problems, i18n.state)
       return { ok: false, reason: 'settings-problems', problems, message }
+    }
+    const modelGap = templateModelGap(picked.settingsTemplate)
+    if (modelGap) {
+      // The refusal is the Session's answer, in the conversation that holds the
+      // Agent's latest run — with no turn started.
+      await agentMode.answerModelRefusal(
+        prompt,
+        agentRunModelGapAnswer(modelGap.gap, modelGap.model, i18n.state),
+      )
+      return {
+        ok: false,
+        reason: 'model-capability',
+        message: agentRunModelGapMessage(modelGap.gap, modelGap.model, i18n.state),
+        answered: true,
+      }
     }
     const refusal = await chatModelRefusal(picked.settingsTemplate, [{ id: 'prompt', prompt }])
     if (refusal) return { ok: false, ...refusal }
@@ -1192,6 +1240,22 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       const message = describeSettingsProblems(problems, i18n.state)
       return { ok: false, reason: 'settings-problems', problems, message }
     }
+    const modelGap = templateModelGap(checked.settingsTemplate)
+    if (modelGap) {
+      // The refusal is the Session's answer: it appears in the conversation the run
+      // would have used, with no turn started. A Session that cannot be minted falls
+      // back to the result message for the caller to report.
+      const sessionRef = await sessionsStore.ensureOpenSession()
+      const message = agentRunModelGapMessage(modelGap.gap, modelGap.model, i18n.state)
+      if (sessionRef) {
+        await agentMode.answerModelRefusal(
+          prompt || null,
+          agentRunModelGapAnswer(modelGap.gap, modelGap.model, i18n.state),
+        )
+        return { ok: false, reason: 'model-capability', message, answered: true }
+      }
+      return { ok: false, reason: 'model-capability', message }
+    }
     const refusal = await chatModelRefusal(checked.settingsTemplate, checked.steps)
     if (refusal) return { ok: false, ...refusal }
     const sessionRef = await sessionsStore.ensureOpenSession()
@@ -1251,7 +1315,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     }
     const problems = taskProblems(task.id)
     if (problems.length > 0) return describeSettingsProblems(problems, i18n.state)
-    return null
+    return modelCapabilityRefusalOfTemplate(task.settingsTemplate)
   }
 
   /** The Agents `/agents` lists on a Channel. */

@@ -201,6 +201,19 @@ describe('the tool-availability block on a chat turn', () => {
     expect(prompt).toContain("enable it in the preset's Built-in tools settings")
   })
 
+  it('tells the model to propose a vision-capable model when it cannot see images', async () => {
+    inference.modelSupportsToolCalling = true
+    inference.modelSupportsVision = false
+    const chat = useOpenAiCompatibleChat()
+
+    await chat.generate('hi')
+
+    const prompt = submitted[0].systemPrompt ?? ''
+    expect(prompt).toContain('Vision')
+    expect(prompt).toContain('this model cannot process images')
+    expect(prompt).toContain('vision-capable model in the model selector')
+  })
+
   it('names the tools the app supports when the model cannot call tools at all', async () => {
     const chat = useOpenAiCompatibleChat()
 

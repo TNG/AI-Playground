@@ -261,9 +261,10 @@ async function createSession(
   // this session (capabilities/index.ts): its tools, skills and Pi extensions.
   // embeddingModel and embeddingBackend are in configKeyOf, so changing them
   // rebuilds and resolveCapabilities can start or stop offering rag.
-  const modelToolUse = turnModelToolUse(
-    config.modelConfig.source === 'local' ? config.modelConfig : {},
-  )
+  // Cloud flags ride along since the config schema grew them: absent still
+  // means assumed capable, so only a model the provider or the user ruled out
+  // has its capabilities stripped, the same as a local one.
+  const modelToolUse = turnModelToolUse(config.modelConfig)
   const capabilityHost: CapabilityHost = {
     sessionId,
     ...(config.sessionRef ? { sessionRef: config.sessionRef } : {}),

@@ -2000,8 +2000,19 @@ export const useTextInference = defineStore(
           cloudProviders: cloudMode.providers.map((provider) => ({
             ...provider,
             models: provider.models.length ? provider.models : [CLOUD_DEFAULT_MODEL],
-            capabilitiesFor: (name: string) =>
-              provider.modelCapabilities?.[name] ?? { ...ASSUME_ALL_CAPABILITIES },
+            // The stored path resolves cloud flags the way the live catalog does:
+            // the provider's word, corrected by the user's Edit Capabilities override.
+            capabilitiesFor: (name: string) => {
+              const caps = provider.modelCapabilities?.[name] ?? { ...ASSUME_ALL_CAPABILITIES }
+              const overrides = modelPreferences.capabilityOverridesFor(CLOUD_MODEL_PATH_KEY, name)
+              return {
+                ...caps,
+                supportsToolCalling: overrides?.supportsToolCalling ?? caps.supportsToolCalling,
+                ...(overrides?.supportsAgentic !== undefined
+                  ? { supportsAgentic: overrides.supportsAgentic }
+                  : {}),
+              }
+            },
           })),
           selectedCloudProviderId: cloudMode.selectedProviderId,
           cloudEmbeddingBackend: embeddingBackend.value,

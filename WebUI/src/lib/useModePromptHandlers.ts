@@ -81,6 +81,16 @@ export function useModePromptHandlers(options: { scrollToBottom: () => void }) {
   async function followUpPickedAgent(prompt: string): Promise<void> {
     const result = await agentTasks.followUpPickedAgent(prompt)
     if (result.ok) return
+    // A model-capability refusal answered in the Session behaves like a send: the
+    // input stays cleared and the answer is the conversation's latest message.
+    if (
+      !result.ok &&
+      result.reason === 'model-capability' &&
+      'answered' in result &&
+      result.answered === true
+    ) {
+      return
+    }
     promptStore.promptSubmitted = false
     // Download refusals were already answered or reported; never-run is the disabled Send's tooltip.
     if (!('message' in result) || result.reason === 'never-run') return

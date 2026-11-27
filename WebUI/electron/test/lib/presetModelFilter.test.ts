@@ -11,11 +11,12 @@ const open = {
 }
 
 describe('modelMeetsPresetRequirements', () => {
-  it('keeps a model marked agentic and drops one that is not', () => {
+  it('keeps a model marked agentic or unverified, and drops one marked non-agentic', () => {
     const gate = { ...open, agentic: true }
     expect(modelMeetsPresetRequirements({ supportsAgentic: true }, gate)).toBe(true)
     expect(modelMeetsPresetRequirements({ supportsAgentic: false }, gate)).toBe(false)
-    expect(modelMeetsPresetRequirements({}, gate)).toBe(false)
+    // Unknown agentic is offered (as unverified) rather than hidden.
+    expect(modelMeetsPresetRequirements({}, gate)).toBe(true)
   })
 
   it('requires every gate the preset sets', () => {

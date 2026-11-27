@@ -1012,6 +1012,20 @@ export const useAgentMode = defineStore(
       })
     }
 
+    // The turn still runs — the pickers offer an unmarked model as unverified —
+    // but the first turn on one says so, through the error sink.
+    function notifyUnverifiedAgentic() {
+      errors.report(
+        createAppError({
+          category: 'inference',
+          code: 'agent/unverified-agentic-model',
+          severity: 'warning',
+          userMessage: i18n.state.AGENT_UNVERIFIED_AGENTIC_WARN,
+          surface: 'toast',
+        }),
+      )
+    }
+
     function liveTurnConfig(sessionId: string) {
       return buildTurnConfig({
         sessionId,
@@ -1032,6 +1046,7 @@ export const useAgentMode = defineStore(
         planningThinkingOnly: effectivePlanningThinkingOnly.value,
         textInference,
         cloudMode,
+        notifyUnverifiedAgentic,
         answer: turnContexts[sessionId]?.answer,
       })
     }
@@ -1072,6 +1087,7 @@ export const useAgentMode = defineStore(
           settings.planningThinkingOnly ?? readAgentDefaults().planningThinkingOnly,
         textInference: stored.inference,
         cloudMode: stored.cloud,
+        notifyUnverifiedAgentic,
         tools: stored.tools,
         answer: context.answer,
         taskRun: context.taskRun && withTaskId(context.taskRun, sessions.value[sessionId]),

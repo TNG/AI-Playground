@@ -26,6 +26,7 @@ import {
   hasActiveFilters,
   normalizeModelKey,
   sortEntries,
+  type CloudModelInput,
   type ModelLibraryFilters,
   type ModelSort,
   type RequiredModelInput,
@@ -128,6 +129,30 @@ export const useModelLibrary = defineStore('modelLibrary', () => {
 
   const nvidiaMode = computed(() => productMode.isNvidiaModeSelected)
 
+  /**
+   * The selected Hybrid Cloud provider's models, so their capabilities (agentic
+   * especially — no provider advertises it) are editable from the management
+   * view like any other row. Built from `textInference.llmModels`, which is
+   * where the provider's advertised caps and the user's overrides merge, so
+   * the table and the pickers can never disagree. Empty unless Cloud Mode is
+   * on with a provider selected — the same condition the pickers use.
+   */
+  const cloudModels = computed<CloudModelInput[]>(() =>
+    textInference.llmModels
+      .filter((model) => model.type === 'cloud')
+      .map((model) => ({
+        name: model.name,
+        capabilities: {
+          supportsToolCalling: model.supportsToolCalling,
+          supportsVision: model.supportsVision,
+          supportsReasoning: model.supportsReasoning,
+          supportsCoding: model.supportsCoding,
+          supportsAgentic: model.supportsAgentic,
+          maxContextSize: model.maxContextSize,
+        },
+      })),
+  )
+
   // On an NVIDIA box this leaves Llama.cpp (and the CUDA sidecars), which is also
   // what locks the toolbar's backend filter — there is nothing else to pick.
   const entries = computed<ModelEntry[]>(() =>
@@ -137,6 +162,7 @@ export const useModelLibrary = defineStore('modelLibrary', () => {
         scanned: scanned.value,
         requiredModels: requiredModels.value,
         speechModels: speechModels.value,
+        cloudModels: cloudModels.value,
         preferences: modelPreferences.preferences,
       }),
       nvidiaMode.value,

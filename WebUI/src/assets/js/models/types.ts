@@ -15,17 +15,21 @@ export type ModelUseCase = 'llm' | 'embedding' | 'media' | 'speech'
 /**
  * Which service consumes the weights. Doubles as the download API's `backend`,
  * except for the sidecars (`qwen3_tts`, `whisper`) whose weights live in the
- * OpenVINO-owned model tree — see `downloadParams.downloadBackendOf`.
+ * OpenVINO-owned model tree — see `downloadParams.downloadBackendOf` — and
+ * `cloud`, which owns no weights at all (a remote provider serves them).
  */
-export type ModelServiceBackend = 'llama_cpp' | 'openvino' | 'comfyui' | 'qwen3_tts' | 'whisper'
+export type ModelServiceBackend =
+  'llama_cpp' | 'openvino' | 'comfyui' | 'qwen3_tts' | 'whisper' | 'cloud'
 
 /**
  * Where the app learned about this model:
  * - `catalog` — listed in `models.json` or a preset's `requiredModels`
  * - `disk` — only found by scanning a model directory
  * - `custom` — added by the user via the Add Model dialog
+ * - `cloud` — a remote provider's model id, present only while its provider is
+ *   selected; capabilities are editable but the weights are not local
  */
-export type ModelSource = 'catalog' | 'disk' | 'custom'
+export type ModelSource = 'catalog' | 'disk' | 'custom' | 'cloud'
 
 /**
  * The optional capability/metadata fields a model can carry. Shared with `Model`

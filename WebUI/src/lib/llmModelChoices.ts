@@ -70,7 +70,9 @@ export function llmModelChoices<T extends ChoiceModel>(
         (requirements.toolCalling && m.supportsToolCalling) ||
         (requirements.reasoning && m.supportsReasoning) ||
         (requirements.coding && m.supportsCoding) ||
-        (requirements.agentic && m.supportsAgentic) ||
+        // Unknown agentic counts as a match: the preset gate offers unverified
+        // models rather than hiding them (see presetModelFilter).
+        (requirements.agentic && m.supportsAgentic !== false) ||
         (requirements.npuSupport && m.npuSupport)
       const qualifiesForTxt2Txt =
         requirements.txt2TxtOnly &&

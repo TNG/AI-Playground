@@ -142,6 +142,16 @@ export type ModelPreferencesInput = {
   capabilities?: Partial<ModelCapabilityValues>
 }
 
+/**
+ * A remote provider's model, as the management view lists it: an id, never a
+ * file, with the capabilities the provider advertised (the user's per-model
+ * overrides are applied by `buildEntries` like for any other row).
+ */
+export type CloudModelInput = {
+  name: string
+  capabilities: ModelCapabilityValues
+}
+
 export type BuildEntriesInput = {
   /** LLM + embedding models from `store/models.ts` (already merged and downloaded-checked). */
   catalogModels: CatalogModelInput[]
@@ -151,6 +161,8 @@ export type BuildEntriesInput = {
   requiredModels: RequiredModelInput[]
   /** The speech models the STT/TTS features load. */
   speechModels: SpeechModelInput[]
+  /** The selected Hybrid Cloud provider's models, when Cloud Mode is on. */
+  cloudModels?: CloudModelInput[]
   /** User preferences keyed by `ModelEntry.id`. */
   preferences: Record<string, ModelPreferencesInput>
 }
@@ -247,6 +259,21 @@ export function buildEntries(input: BuildEntriesInput): ModelEntry[] {
       // Through `mergeCapabilities` rather than field by field, so a capability
       // added to `CAPABILITY_KEYS` reaches the row without a second edit here.
       baseCapabilities: mergeCapabilities(model),
+    })
+  }
+
+  // The selected Hybrid Cloud provider's models. Remote ids, so "downloaded" is
+  // a statement about the provider, not the disk: nothing to fetch, but the
+  // capabilities (agentic especially) are the user's to mark.
+  for (const model of input.cloudModels ?? []) {
+    push({
+      name: model.name,
+      useCase: 'llm',
+      pathKey: 'cloud',
+      serviceBackend: 'cloud',
+      source: 'cloud',
+      downloaded: true,
+      baseCapabilities: model.capabilities,
     })
   }
 
@@ -633,4 +660,5 @@ export const BACKEND_LABELS: Record<ModelServiceBackend, string> = {
   comfyui: 'ComfyUI',
   qwen3_tts: 'Qwen3-TTS',
   whisper: 'Whisper',
+  cloud: 'Hybrid Cloud',
 }

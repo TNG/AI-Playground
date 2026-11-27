@@ -25,6 +25,11 @@ export type CapabilityDescriptor = {
    * `label`, which only reads well when that label is a noun phrase.
    */
   lacksTooltip?: string
+  /**
+   * Shown when nobody has said whether the model has the capability. Defaults to
+   * a sentence built from `label`.
+   */
+  unknownTooltip?: string
   /** Lucide icon. */
   icon: LucideIcon
 }
@@ -57,9 +62,23 @@ export const CAPABILITIES: CapabilityDescriptor[] = [
     label: 'Agentic',
     tooltip: 'Reliable at multi-step tool use: agent mode and MCP servers.',
     lacksTooltip: 'This model is not reliable at multi-step tool use.',
+    unknownTooltip: "Not verified for multi-step tool use. Mark it in the model's capabilities.",
     icon: Bot,
   },
 ]
+
+/** What is known about a capability: yes, no, or unknown (a question-mark badge). */
+export type CapabilityState = 'yes' | 'no' | 'unknown'
+
+/** A capability flag is tri-state: `true` = yes, `false` = no, `undefined` = unknown. */
+export function capabilityState(
+  model: CapabilityFlags | null | undefined,
+  flag: keyof CapabilityFlags,
+): CapabilityState {
+  const value = model?.[flag]
+  if (value === undefined) return 'unknown'
+  return value ? 'yes' : 'no'
+}
 
 export function modelHasCapability(
   model: CapabilityFlags | null | undefined,

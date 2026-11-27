@@ -24,7 +24,10 @@ export function modelMeetsPresetRequirements(
   if (requirements.toolCalling && model.supportsToolCalling !== true) return false
   if (requirements.reasoning && model.supportsReasoning !== true) return false
   if (requirements.coding && model.supportsCoding !== true) return false
-  if (requirements.agentic && model.supportsAgentic !== true) return false
+  // Agentic is the one judgement call, not a template-level fact, so unknown is
+  // offered (marked unverified) rather than hidden — only an explicit "no" is
+  // filtered out.
+  if (requirements.agentic && model.supportsAgentic === false) return false
   if (requirements.npuSupport && model.npuSupport !== true) return false
   return true
 }

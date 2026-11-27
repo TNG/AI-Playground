@@ -11,6 +11,9 @@ import type { ModelEntry, ModelServiceBackend } from './types'
  * with (`models.getMissingTranscriptionModel`).
  */
 function downloadBackendOf(backend: ModelServiceBackend): 'comfyui' | 'llama_cpp' | 'openvino' {
+  // Cloud rows are always `downloaded`, so the loop never reaches one; the
+  // throw keeps that invariant loud if it ever stops holding.
+  if (backend === 'cloud') throw new Error('A cloud model is never downloaded locally')
   return backend === 'qwen3_tts' || backend === 'whisper' ? 'openvino' : backend
 }
 

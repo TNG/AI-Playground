@@ -73,6 +73,7 @@ import {
 } from '@/assets/js/phisonKmRag'
 import { useModelPreferences } from './modelPreferences'
 import { pathKeyForCatalogModel } from '../models/library'
+import { mergeCapabilities } from '../models/overrides'
 import { withPreferenceFlags } from '../models/favorites'
 import {
   contextSizeSettingSupported as contextSizeSupportedFor,
@@ -329,33 +330,46 @@ export const useTextInference = defineStore(
           // capability-gated presets (e.g. Vision) can use them. `enable_thinking`
           // is a local-template kwarg remote providers may reject, so we never
           // claim the thinking toggle for cloud models (reasoning still surfaces
-          // via the <think> extraction middleware in the chat store).
+          // via the fillextraction middleware in the chat store).
+          //
+          // What the provider said is the base layer; the user's per-model
+          // overrides (Model Management → Edit capabilities) sit on top, keyed
+          // under CLOUD_MODEL_PATH_KEY. Agentic nobody advertises: it stays
+          // unknown until the user says yes or no.
           const caps = cloudMode.capabilitiesFor(name)
+          const overrides = modelPreferences.capabilityOverridesFor(CLOUD_MODEL_PATH_KEY, name)
+          const resolved = mergeCapabilities(
+            {
+              supportsToolCalling: caps.supportsToolCalling,
+              supportsVision: caps.supportsVision,
+              supportsReasoning: caps.supportsReasoning,
+              maxContextSize: caps.contextLength,
+            },
+            overrides,
+          )
           newModels.push({
             name,
             mmproj: undefined,
             type: 'cloud',
             downloaded: true, // remote — nothing to download
             active: name === selectedCloud || (!hasValidCloudSelection && index === 0),
-            supportsToolCalling: caps.supportsToolCalling,
-            supportsVision: caps.supportsVision,
-            supportsReasoning: caps.supportsReasoning,
-            // Remote providers say nothing about coding fitness; the picker does
-            // not filter cloud models on capability anyway.
-            supportsCoding: undefined,
-            supportsAgentic: undefined,
+            supportsToolCalling: resolved.supportsToolCalling,
+            supportsVision: resolved.supportsVision,
+            supportsReasoning: resolved.supportsReasoning,
+            supportsCoding: resolved.supportsCoding,
+            supportsAgentic: resolved.supportsAgentic,
             supportsThinkingToggle: false,
             // From the provider's `context_length`; undefined when it stays
             // silent, in which case consumers fall back to their own defaults.
-            maxContextSize: caps.contextLength,
+            maxContextSize: resolved.maxContextSize,
             // Sampling recommendations come from our own catalog, which only
             // describes local models.
             inferenceDefaults: undefined,
             llamaCppArgs: undefined,
             reasoningParser: undefined,
             enableMtp: undefined,
-            npuSupport: undefined,
-            largeMoe: undefined,
+            npuSupport: resolved.npuSupport,
+            largeMoe: resolved.largeMoe,
             requiresPhison: undefined,
             isPredefined: false,
             // Cloud model ids have no on-disk path of their own, so their flags

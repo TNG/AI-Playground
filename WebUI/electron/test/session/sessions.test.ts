@@ -39,6 +39,7 @@ const {
   renameSession,
   renameSessionGroup,
   resetSessionsForTest,
+  setSessionIncludedInOverviews,
   setShowMore,
   setSessionGroupExpanded,
   setSessionDeps,
@@ -262,6 +263,78 @@ describe('Session module', () => {
 
   it('fails to pin a Session that does not exist', async () => {
     await expect(pinSession('session-missing', true)).rejects.toThrow()
+  })
+
+  it('starts a new Session out of Overviews', async () => {
+    const session = await createSession()
+
+    expect(session.includedInOverviews).toBe(false)
+    expect((await listSessions())[0]).toMatchObject({ includedInOverviews: false })
+    expect(await openSession(session.id)).toMatchObject({ includedInOverviews: false })
+  })
+
+  it('reads a Session file written before Overviews existed as not included', async () => {
+    const session = await createSession()
+    const file = path.join(dirs.real, session.id, 'session.json')
+    const { includedInOverviews: _included, ...legacy } = JSON.parse(
+      await fs.readFile(file, 'utf8'),
+    )
+    await fs.writeFile(file, JSON.stringify(legacy))
+
+    expect((await listSessions())[0]).toMatchObject({
+      id: session.id,
+      includedInOverviews: false,
+    })
+    expect(await openSession(session.id)).toMatchObject({ includedInOverviews: false })
+  })
+
+  it('marks a Session included in Overviews and back, remembered across a re-read', async () => {
+    const session = await createSession()
+
+    expect(await setSessionIncludedInOverviews(session.id, true)).toMatchObject({
+      id: session.id,
+      includedInOverviews: true,
+    })
+    expect((await listSessions())[0]).toMatchObject({ includedInOverviews: true })
+    expect(await openSession(session.id)).toMatchObject({ includedInOverviews: true })
+    expect(await sessionFile(session.id)).toMatchObject({ includedInOverviews: true })
+
+    expect(await setSessionIncludedInOverviews(session.id, false)).toMatchObject({
+      includedInOverviews: false,
+    })
+    expect(await openSession(session.id)).toMatchObject({ includedInOverviews: false })
+    expect((await listSessions())[0]).toMatchObject({ includedInOverviews: false })
+  })
+
+  it('leaves the last-used time alone when changing Overview inclusion', async () => {
+    const session = await createSession()
+    await new Promise((resolve) => setTimeout(resolve, 5))
+
+    await setSessionIncludedInOverviews(session.id, true)
+
+    expect((await listSessions())[0].updatedAt).toBe(session.updatedAt)
+  })
+
+  it('fails to change Overview inclusion on a Session that does not exist', async () => {
+    await expect(setSessionIncludedInOverviews('session-missing', true)).rejects.toThrow()
+  })
+
+  it('starts with no Overview Summary, and its row carries no summary state', async () => {
+    const session = await createSession()
+
+    expect(session.overviewSummaryState).toBeUndefined()
+    expect((await listSessions())[0].overviewSummaryState).toBeUndefined()
+    expect(await openSession(session.id)).not.toHaveProperty('overviewSummary')
+  })
+
+  it('reads an old Session file as having no Overview Summary', async () => {
+    const session = await createSession()
+    const file = path.join(dirs.real, session.id, 'session.json')
+    const { overviewSummary: _summary, ...legacy } = JSON.parse(await fs.readFile(file, 'utf8'))
+    await fs.writeFile(file, JSON.stringify(legacy))
+
+    expect((await openSession(session.id)).overviewSummaryState).toBeUndefined()
+    expect(await listSessions()).toHaveLength(1)
   })
 
   it('remembers the Agent picked in a Session across a re-open, and forgets it again', async () => {

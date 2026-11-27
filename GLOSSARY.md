@@ -66,6 +66,20 @@ carrying its full context across its turns, plus a fresh one for each Agent Run,
 Follow-ups continue.
 _Avoid_: Pi session, agent session
 
+**Turn**:
+One preset's run in a Session: a single prompt and everything it does until it settles. A Session
+has at most one Turn at a time.
+_Avoid_: task, request, generation, message
+
+**Stopping**:
+A Turn whose cancellation the user has asked for but whose engine has not yet released it. It is
+still the Turn in flight, not a finished one.
+_Avoid_: cancelled, aborted, stopped
+
+**Cancelled**:
+A Turn that ended because the user stopped it, as opposed to one that failed or completed.
+_Avoid_: stopped, aborted
+
 **Session History**:
 The append-only record of everything that happened in a Session, in order — which preset ran, what
 it was asked, and what it produced.
@@ -109,8 +123,40 @@ _Avoid_: busy, active session, running process
 
 **Session Update**:
 A short templated digest of the History Entries a chat preset missed since its own last turn in
-the Session, handed to it with the next prompt. Never a model-written summary.
+the Session, handed to it with the next prompt. Never a model-written summary; an Overview Summary
+is the model-written kind, and belongs to Overviews.
 _Avoid_: session summary, recap
+
+## Overviews
+
+**Overview**:
+A single HTML file about the Sessions that were active in one time range: for each, its Title, that
+Session's Overview Summary, its work counts, and a picture when one fits. A snapshot taken when it
+is asked for, not a view that stays current; not an Artifact, and it shows no turns.
+_Avoid_: dashboard, digest, recap, session summary, report
+
+**Work counts**:
+What one Session produced, folded by code from its History Entries when an Overview is written:
+pictures, videos, 3D models, audio clips, transcriptions and Agent Runs.
+They describe the Session's whole work, not the requested range, and no model writes or sees them.
+_Avoid_: statistics, stats, metrics, KPIs
+
+**Overview Summary**:
+The model-written account a Session keeps of its whole work while it is Included in Overviews,
+refreshed as each of its turns finishes. One per Session, not one per turn or time range.
+_Avoid_: session summary, recap, digest, card text
+
+**Overview Summary update**:
+The pass that writes or refreshes a Session's Overview Summary at the end of one of its turns. It
+runs in its own context, belongs to no Agent and has no Session of its own, and is not a Step.
+_Avoid_: summary step, subagent, background summariser
+
+**Included in Overviews**:
+The per-Session switch, off by default: consent for the Session to keep an Overview Summary, and for
+that summary and one picture to appear in files the user may share. Turning it off cancels a running
+update and keeps the summary unused; turning it back on reuses it, updating only what changed while
+it was off.
+_Avoid_: shared, exported, reachable
 
 ## Capabilities
 

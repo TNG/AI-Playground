@@ -22,6 +22,7 @@ import { useDeveloperSettings } from './developerSettings'
 import { registerAgentModeIpc } from './agentModeIpc'
 import { CLOUD_DEFAULT_MODEL } from './cloudMode'
 import type { AgentAnswerOrigin, AgentModeTurnConfig } from '@/types/agentIpc'
+import type { OverviewChrome } from '@/types/overviewChrome'
 import type { CloudForTurn, InferenceForTurn, ToolsForTurn } from '@/lib/storedSessionInference'
 import { turnMediaToolSettings } from '@/lib/mediaToolSettings'
 import type { AgentTurnSnapshot, AgentTurnState, PauseReason } from '@/types/kernelEvents'
@@ -104,6 +105,10 @@ export async function buildTurnConfig(options: {
   planningThinkingOnly: boolean
   textInference: InferenceForTurn
   cloudMode: CloudForTurn
+  /** The Session's frozen language, for the reply language instruction. */
+  responseLocale?: string
+  /** The Overview chrome, resolved for its own locale. */
+  overviewChrome?: OverviewChrome
   /** Tool settings stored on the session; the live ones when absent. */
   tools?: ToolsForTurn
   answer?: AgentAnswerOrigin
@@ -158,6 +163,8 @@ export async function buildTurnConfig(options: {
       unsandboxed: options.unsandboxed,
       ...folderOverridesOf(options.folderOverrides),
       keepModelsLoaded: useDeveloperSettings().keepModelsLoaded,
+      ...(options.responseLocale ? { responseLocale: options.responseLocale } : {}),
+      ...(options.overviewChrome ? { overviewChrome: options.overviewChrome } : {}),
       ...(options.answer ? { answer: options.answer } : {}),
       ...embeddingConfigOf(textInference),
     }
@@ -202,6 +209,8 @@ export async function buildTurnConfig(options: {
     unsandboxed: options.unsandboxed,
     ...folderOverridesOf(options.folderOverrides),
     keepModelsLoaded: useDeveloperSettings().keepModelsLoaded,
+    ...(options.responseLocale ? { responseLocale: options.responseLocale } : {}),
+    ...(options.overviewChrome ? { overviewChrome: options.overviewChrome } : {}),
     ...(options.answer ? { answer: options.answer } : {}),
     planningThinkingOnly:
       textInference.modelSupportsThinkingToggle &&

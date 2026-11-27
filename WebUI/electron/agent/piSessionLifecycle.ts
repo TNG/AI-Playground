@@ -266,6 +266,7 @@ async function createSession(
   )
   const capabilityHost: CapabilityHost = {
     sessionId,
+    ...(config.sessionRef ? { sessionRef: config.sessionRef } : {}),
     modelToolUse,
     workspaceDir,
     ...(attachmentsDir ? { attachmentsDir } : {}),
@@ -279,6 +280,8 @@ async function createSession(
     supportsVision: config.modelConfig.supportsVision === true,
     keepModelsLoaded: config.keepModelsLoaded ?? false,
     sessionMedia,
+    ...(config.responseLocale ? { responseLocale: config.responseLocale } : {}),
+    ...(config.overviewChrome ? { overviewChrome: config.overviewChrome } : {}),
     ...(config.embeddingModel
       ? {
           embeddingModel: config.embeddingModel,
@@ -418,7 +421,7 @@ async function createSession(
     skillsOverride: () => ({ skills: [], diagnostics: [] }),
     extensionFactories: [
       ...capabilities.extensionFactories,
-      reclaimBeforeModelCall(sessionId),
+      beforeModelCall(sessionId),
       // Pi's agent path ignores `Model.samplingParams`, so the turn's sampling
       // is merged into each request here instead (piSampling.ts).
       createSamplingExtension(
@@ -699,14 +702,14 @@ export async function releaseTurnSession(current: ActiveSession): Promise<void> 
 }
 
 /**
- * A paused turn gave up its Turn Queue place, and Pi is about to call the model
- * for it again: take the place back first. The `context` event is awaited before
- * the request is built, so the request goes to the endpoint readiness left behind.
+ * Pi is about to call the model: a stopped turn stops here, and a paused one takes
+ * its Turn Queue place back first. The `context` event is awaited before the
+ * request is built, so the request goes to the endpoint readiness left behind.
  */
-function reclaimBeforeModelCall(sessionId: string): ExtensionFactory {
+function beforeModelCall(sessionId: string): ExtensionFactory {
   return (pi) => {
     pi.on('context', async () => {
-      await agentTurns.get(sessionId)?.reclaim?.()
+      await agentTurns.get(sessionId)?.beforeModelCall?.()
     })
   }
 }

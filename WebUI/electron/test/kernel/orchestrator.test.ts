@@ -47,6 +47,7 @@ import {
   finishTextRequest,
   mediaRequestsQueued,
   openComponentHolds,
+  prepareChatForSettlement,
   reclaimTurnPlace,
   resetOrchestratorForTest,
   runMediaRequest,
@@ -226,6 +227,45 @@ describe('the orchestrator', () => {
     expect(d.stopChatForMedia).toHaveBeenCalledTimes(1)
     expect(d.freeComfyMemory).toHaveBeenCalledTimes(1)
     expect(d.restartChatBackend).toHaveBeenCalledTimes(1)
+  })
+
+  it('hands the GPU back for a settling run without waiting for it to finish', async () => {
+    const d = deps()
+    setOrchestratorDeps(d)
+    const hold = holdNextRun()
+    const media = submitArtifactRun(payload())
+    await vi.waitFor(() => expect(d.stopChatForMedia).toHaveBeenCalled())
+
+    await prepareChatForSettlement()
+    expect(d.freeComfyMemory).toHaveBeenCalledTimes(1)
+    expect(d.restartChatBackend).toHaveBeenCalledTimes(1)
+    // The chat GPU window is open again while the run is still settling.
+    await awaitChatWindow()
+
+    hold.resolve({ state: 'completed', items: [] })
+    await media
+  })
+
+  it('does not wait for queued media before handing the GPU back to chat', async () => {
+    const d = deps()
+    setOrchestratorDeps(d)
+    const holdOne = holdNextRun()
+    const active = submitArtifactRun(payload())
+    await vi.waitFor(() => expect(d.stopChatForMedia).toHaveBeenCalled())
+    const holdTwo = holdNextRun()
+    const queued = submitArtifactRun(consented({ runId: 'run-2' }), { queue: 'queue' })
+
+    await prepareChatForSettlement()
+    expect(d.freeComfyMemory).toHaveBeenCalledTimes(1)
+    expect(d.restartChatBackend).toHaveBeenCalledTimes(1)
+
+    holdOne.resolve({ state: 'completed', items: [] })
+    await active
+    // The queued run takes the GPU back for its own media when it runs.
+    await vi.waitFor(() => expect(activeRunId).toBe('run-2'))
+    holdTwo.resolve({ state: 'completed', items: [] })
+    await queued
+    expect(d.stopChatForMedia).toHaveBeenCalledTimes(2)
   })
 
   it('does not admit a GPU chat turn while stopChatForMedia is in flight', async () => {

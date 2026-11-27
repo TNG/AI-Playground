@@ -8,6 +8,7 @@ import { mediaCapability } from './media.ts'
 import { mcpCapability, mcpCapabilityId, mcpServerIdOf } from './mcp.ts'
 import { memoryCapability } from './memory.ts'
 import { notifyCapability } from './notify.ts'
+import { overviewCapability } from './overview.ts'
 import { ragCapability } from './rag.ts'
 import { webDebugCapability } from './webDebug.ts'
 import { webCapability } from './web.ts'
@@ -52,6 +53,7 @@ const BUILT_IN_CAPABILITIES: AgentCapability[] = [
   mediaCapability,
   memoryCapability,
   ragCapability,
+  overviewCapability,
   notifyCapability,
   gameStudioCapability,
   gameStudioQuickCapability,
@@ -225,6 +227,8 @@ export type CapabilityInfo = {
   requires: string[]
   /** Slash commands the capability answers, runnable straight from settings. */
   commands: CapabilityCommand[]
+  /** Set when only a preset naming the capability offers it (see `AgentCapability.presetOwned`). */
+  presetOwned?: boolean
   unavailableReason?: string
 }
 
@@ -242,6 +246,7 @@ export function listCapabilities(
         summary: capability.summary,
         requires: capability.requires ?? [],
         commands: capability.commands ?? [],
+        ...(capability.presetOwned ? { presetOwned: true } : {}),
         ...(reason ? { unavailableReason: reason } : {}),
       }
     })

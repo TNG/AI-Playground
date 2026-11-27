@@ -4,6 +4,7 @@ import {
   agentRunControls,
   latestTurnOf,
   sessionTimelineItems,
+  STILL_STOPPING_AFTER_MS,
   timelineTurns,
   visibleLiveMessages,
   withLiveAgentTurn,
@@ -1770,6 +1771,38 @@ describe('the footer of every Turn', () => {
     }
   }
 
+  it('says Cancelled on an Assistant Turn the user stopped', () => {
+    const items = sessionTimelineItems(
+      [
+        assistantMessage('u1', 'user', 'why?'),
+        assistantMessage('a1', 'assistant', 'The sky scatters blue', {
+          harnessTurnId: 't1',
+          harnessTurnEnd: 'cancelled',
+        }),
+      ],
+      {},
+    )
+
+    expect((items[0] as { result: object[] }).result).toContainEqual({
+      kind: 'failure',
+      state: 'cancelled',
+    })
+  })
+
+  it('says nothing extra on an Assistant Turn that completed', () => {
+    const items = sessionTimelineItems(
+      [
+        assistantMessage('u1', 'user', 'why?'),
+        assistantMessage('a1', 'assistant', 'The sky scatters blue.', { harnessTurnId: 't1' }),
+      ],
+      {},
+    )
+
+    expect(
+      (items[0] as { result: { kind: string }[] }).result.some((part) => part.kind === 'failure'),
+    ).toBe(false)
+  })
+
   it('offers Copy, Speak, Regenerate and Delete of its answer on an Assistant Turn', () => {
     const items = sessionTimelineItems(
       [
@@ -2285,6 +2318,8 @@ describe('the live status line of a running Turn', () => {
     working: 'Working…',
     runningTool: 'Running {tool}…',
     queued: 'Waiting for the running turn to finish…',
+    stopping: 'Stopping…',
+    stillStopping: 'Still stopping…',
     audioLoading: 'Loading voice…',
     audioGenerating: 'Generating speech…',
     audioTranscribing: 'Transcribing…',
@@ -2389,6 +2424,153 @@ describe('the live status line of a running Turn', () => {
 
     expect(detailsOf(items[0]).live).toBeUndefined()
     expect(items[0]).not.toHaveProperty('questionKey')
+  })
+
+  it('says a chat Turn is Stopping while it is still in the ledger', () => {
+    const items = sessionTimelineItems([], {
+      chat: [chatMessage('u1', 'user', 'hi'), chatAnswer([{ type: 'text', text: 'hel' }])],
+      chatStatus: { running: false },
+      chatStoppingAt: 1_000,
+      now: 2_000,
+    })
+
+    expect(detailsOf(items[0]).live).toEqual({ kind: 'stopping', stillStopping: false })
+    expect(liveTextOf(items[0])).toBe('Stopping…')
+  })
+
+  it('drops the Stopping line once the chat Turn settles', () => {
+    const items = sessionTimelineItems([], {
+      chat: [chatMessage('u1', 'user', 'hi'), chatAnswer([{ type: 'text', text: 'hel' }])],
+      chatStatus: { running: false },
+      now: 2_000,
+    })
+
+    expect(detailsOf(items[0]).live).toBeUndefined()
+    expect(liveTextOf(items[0])).toBeUndefined()
+  })
+
+  it('says Cancelled once a stopped chat Turn settles', () => {
+    const items = sessionTimelineItems([], {
+      chat: [chatMessage('u1', 'user', 'hi'), chatAnswer([{ type: 'text', text: 'hel' }])],
+      chatStatus: { running: false, cancelled: true },
+      now: 2_000,
+    })
+
+    expect((items[0] as { result: object[] }).result).toContainEqual({
+      kind: 'failure',
+      state: 'cancelled',
+    })
+  })
+
+  it('escalates the Stopping line once the release takes a while', () => {
+    expect(turnLiveText({ kind: 'stopping', stillStopping: true }, labels)).toBe('Still stopping…')
+  })
+
+  it('escalates a chat Turn to Still stopping at ten seconds, not before', () => {
+    const at = 1_000
+    const build = (now: number) =>
+      sessionTimelineItems([], {
+        chat: [chatMessage('u1', 'user', 'hi'), chatAnswer([{ type: 'text', text: 'hel' }])],
+        chatStatus: { running: false },
+        chatStoppingAt: at,
+        now,
+      })
+
+    const before = build(at + STILL_STOPPING_AFTER_MS - 1)
+    expect(liveTextOf(before[0])).toBe('Stopping…')
+
+    const after = build(at + STILL_STOPPING_AFTER_MS)
+    expect(detailsOf(after[0]).live).toEqual({ kind: 'stopping', stillStopping: true })
+    expect(liveTextOf(after[0])).toBe('Still stopping…')
+  })
+
+  it('escalates a media Turn the same way', () => {
+    const at = 1_000
+    const build = (now: number) =>
+      sessionTimelineItems([], {
+        media: { runId: 'r2', prompt: 'a dragon', preset: 'Wan', mode: 'video' as const },
+        mediaStoppingAt: at,
+        now,
+      })
+
+    expect(liveTextOf(build(at + STILL_STOPPING_AFTER_MS - 1)[0])).toBe('Stopping…')
+    expect(liveTextOf(build(at + STILL_STOPPING_AFTER_MS)[0])).toBe('Still stopping…')
+  })
+
+  it('says an Agent Turn is Stopping while it is still in the ledger', () => {
+    const items = sessionTimelineItems([], {
+      agents: [
+        liveAgent([agentMessage('u1', 'user', 'go'), agentAnswer([{ type: 'text', text: 'hel' }])]),
+      ],
+      agentStopping: { harnessSessionId: 'aipg-agent-1', at: 1_000 },
+      now: 2_000,
+    })
+
+    expect(detailsOf(items[0]).live).toEqual({ kind: 'stopping', stillStopping: false })
+    expect(liveTextOf(items[0])).toBe('Stopping…')
+  })
+
+  it('leaves another Harness Session running while one Agent Turn is Stopping', () => {
+    const other = { presetName: 'Agent', harnessSessionId: 'aipg-agent-2' }
+    const otherMessage = {
+      id: 'u2',
+      role: 'user',
+      parts: [{ type: 'text', text: 'go' }],
+      metadata: { agentTurn: other },
+    }
+    const items = sessionTimelineItems([], {
+      agents: [
+        liveAgent([agentMessage('u1', 'user', 'go')]),
+        { tag: other, messages: [otherMessage], live: true },
+      ],
+      agentStopping: { harnessSessionId: 'aipg-agent-1', at: 1_000 },
+      now: 2_000,
+    })
+
+    expect(detailsOf(items[0]).live).toEqual({ kind: 'stopping', stillStopping: false })
+    expect(detailsOf(items[1]).live).toEqual({ kind: 'working' })
+  })
+
+  it('says a media Turn is Stopping while it is still in the ledger', () => {
+    const items = sessionTimelineItems([], {
+      media: { runId: 'r2', prompt: 'a dragon', preset: 'Wan', mode: 'video' as const },
+      mediaStoppingAt: 1_000,
+      now: 2_000,
+    })
+
+    expect(detailsOf(items[0]).live).toEqual({ kind: 'stopping', stillStopping: false })
+    expect(liveTextOf(items[0])).toBe('Stopping…')
+  })
+
+  it("keeps a media Turn Stopping through its run's settled phase", () => {
+    const items = sessionTimelineItems([], {
+      media: { runId: 'r2', prompt: 'a dragon', preset: 'Wan', mode: 'video' as const },
+      mediaStoppingAt: 1_000,
+      now: 2_000,
+      artifactRuns: {
+        runs: { r2: { runId: 'r2', phase: 'completed' as const, items: [], order: 0 } },
+        nextOrder: 1,
+      },
+    })
+
+    expect(detailsOf(items[0]).live).toEqual({ kind: 'stopping', stillStopping: false })
+    expect(liveTextOf(items[0])).toBe('Stopping…')
+  })
+
+  it('says an audio Turn is Stopping while it is still in the ledger', () => {
+    const items = sessionTimelineItems([], {
+      audio: {
+        kind: 'tts' as const,
+        prompt: 'hi',
+        preset: 'Text to Speech',
+        phase: 'generating' as const,
+      },
+      audioStoppingAt: 1_000,
+      now: 2_000,
+    })
+
+    expect(detailsOf(items[0]).live).toEqual({ kind: 'stopping', stillStopping: false })
+    expect(liveTextOf(items[0])).toBe('Stopping…')
   })
 
   it('says in its Result why a chat Turn failed before it produced anything', () => {

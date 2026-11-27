@@ -14,6 +14,7 @@ import { audioTurnArtifacts, pendingAudioArtifacts, ttsToolArtifacts } from '@/l
 import { messageText } from '@/lib/chatMessageText'
 import { isChatMediaToolPart } from '@/lib/chatToolParts'
 import { isHarnessChatPreset } from '@/lib/harnessChatPreset'
+import { harnessTurnEndOf } from '@/lib/harnessTurnEnd'
 import { mediaRerun } from '@/lib/mediaRerun'
 import { reasoningElapsedMsFromParts } from '@/lib/reasoningTimings'
 import { asChatTranscriptMessage, chatTranscriptOf } from '@/lib/sessionChat'
@@ -45,6 +46,7 @@ import type { LatestTurn } from '@/lib/agentComposer'
 import { modelDisplayName } from '@/lib/turnText'
 import type {
   AgentRunIdentity,
+  AgentStopping,
   AgentTurn,
   AnswerDetailKind,
   AnswerPartRef,
@@ -54,6 +56,7 @@ import type {
   ArtifactKind,
   LiveAgentTurn,
   LiveChatStatus,
+  LiveStopping,
   LiveTurns,
   MediaStepStatus,
   PendingAudio,
@@ -74,6 +77,7 @@ import type {
   TurnSummary,
 } from '@/lib/turnTypes'
 import type { GenerationSettings } from '@/types/mediaItem'
+import type { SessionTurnKind, OverviewSummaryUpdateRow } from '@/types/sessionIpc'
 import type {
   AgentTurnTag,
   AudioTurnData,
@@ -85,6 +89,9 @@ import type {
 } from '@/types/sessionTimeline'
 
 type AgentRun = { name: string; lastTurn: AgentTurn; end?: AgentRunTag['end'] }
+
+/** A stop that lasts this long says "Still stopping…" instead of "Stopping…". */
+export const STILL_STOPPING_AFTER_MS = 10_000
 
 function isMessageShaped(value: unknown): boolean {
   if (!value || typeof value !== 'object') return false
@@ -199,6 +206,98 @@ function withLiveChatTurn(
   return [...merged, ...tagged.values()]
 }
 
+type OverviewUpdateTurnKind = 'chat' | 'agent' | 'media' | 'audio'
+
+/** Which History Entry kinds belong to a turn kind, so a media or audio turn finds its own row. */
+const OVERVIEW_UPDATE_TURN_KINDS: Record<
+  OverviewUpdateTurnKind,
+  readonly OverviewSummaryUpdateRow['kind'][]
+> = {
+  chat: ['chat'],
+  agent: ['agent'],
+  media: ['image', 'edit', 'video'],
+  audio: ['tts', 'stt'],
+}
+
+function normalizedPrompt(text: string): string {
+  return text.replace(/\s+/g, ' ').trim()
+}
+
+/** The History Entry a timeline message settled as, written when the turn settled. */
+function historyEntryIdOf(message: TimelineMessage): string | undefined {
+  return message.metadata?.historyEntryId
+}
+
+type OverviewUpdateTurn = Extract<TimelineTurn, { kind: OverviewUpdateTurnKind }>
+
+function isOverviewUpdateTurn(turn: TimelineTurn): turn is OverviewUpdateTurn {
+  return (
+    turn.kind === 'chat' || turn.kind === 'agent' || turn.kind === 'media' || turn.kind === 'audio'
+  )
+}
+
+/**
+ * Gives each settled chat or agent Turn its own Overview Summary update outcome, so
+ * the Turn's details row can show it. Turns that know their entry claim that exact
+ * row first; only then do turns without an id fall back by kind and prompt, newest
+ * first, so an older turn sharing a prompt cannot steal a newer turn's outcome.
+ */
+function attachOverviewUpdates(
+  turns: TimelineTurn[],
+  rows: readonly OverviewSummaryUpdateRow[],
+): void {
+  if (rows.length === 0) return
+  const remaining = rows.map((row) => ({ row, used: false }))
+  const push = (turn: OverviewUpdateTurn, row: OverviewSummaryUpdateRow) => {
+    turn.details.parts.push({
+      kind: 'overview-update',
+      entryId: row.entryId,
+      update: row.update,
+      ...(row.covered ? { covered: row.covered } : {}),
+    })
+  }
+  const kindsOf = (turn: OverviewUpdateTurn): readonly OverviewSummaryUpdateRow['kind'][] =>
+    OVERVIEW_UPDATE_TURN_KINDS[turn.kind]
+
+  for (const turn of turns) {
+    if (!isOverviewUpdateTurn(turn) || !turn.historyEntryId) continue
+    const entry = remaining.find(
+      (candidate) => !candidate.used && candidate.row.entryId === turn.historyEntryId,
+    )
+    if (!entry) continue
+    entry.used = true
+    push(turn, entry.row)
+  }
+
+  for (let index = turns.length - 1; index >= 0; index--) {
+    const turn = turns[index]
+    if (!turn || !isOverviewUpdateTurn(turn) || turn.historyEntryId) continue
+    const kinds = kindsOf(turn)
+    const prompt = normalizedPrompt(turn.prompt?.text ?? '')
+    const harness = turn.kind === 'agent' ? turn.harnessSessionId : undefined
+    const fits = (row: OverviewSummaryUpdateRow) =>
+      kinds.includes(row.kind) &&
+      (!harness || !row.harnessSessionId || row.harnessSessionId === harness)
+    // A turn still working has no outcome of its own yet; it may show a pending row,
+    // but never a ready one from the turn before it.
+    const working =
+      (turn.kind === 'agent' && turn.streaming === true) || turn.details.live !== undefined
+    const usable = (entry: (typeof remaining)[number]) =>
+      !entry.used && fits(entry.row) && (!working || entry.row.update.state === 'pending')
+    let found = remaining.findLastIndex(
+      (entry) => usable(entry) && normalizedPrompt(entry.row.prompt) === prompt,
+    )
+    if (found < 0 && turn.kind === 'agent' && !working) {
+      found = remaining.findLastIndex(usable)
+    }
+    if (found < 0) continue
+    const entry = remaining[found]
+    if (!entry) continue
+    entry.used = true
+    push(turn, entry.row)
+  }
+}
+
 export function sessionTimelineItems<M extends PendingMedia, A extends PendingAudio>(
   timeline: readonly unknown[],
   live: LiveTurns<M, A>,
@@ -209,6 +308,7 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
    * the hidden turns (chat regenerate), so they must not offer the actions.
    */
   atTrueEnd = true,
+  overviewUpdates: readonly OverviewSummaryUpdateRow[] = [],
 ): SessionTimelineItem<M, A>[] {
   let merged = withLiveChatTurn(timeline, live.chat ?? [])
   for (const agent of live.agents ?? []) {
@@ -216,7 +316,9 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
   }
   const turns = timelineTurns(merged, files, live.artifactRuns)
   const mediaSteps = live.mediaSteps ?? {}
-  for (const agent of live.agents ?? []) markLiveAgentTurns(turns, agent, mediaSteps)
+  const now = live.now ?? Date.now()
+  for (const agent of live.agents ?? [])
+    markLiveAgentTurns(turns, agent, mediaSteps, live.agentStopping, now)
   markRunsInFlight(turns, live.agentRunsInFlight ?? [])
   // A streaming Agent Turn has no footer, so Edit leaves its prompt too until the turn settles.
   for (const turn of turns) {
@@ -224,7 +326,9 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
     turn.footer = noFooter()
     if (turn.prompt?.editable) turn.prompt.editable = false
   }
-  markLiveChatTurn(turns, live.chatStatus, mediaSteps)
+  markLiveChatTurn(turns, live.chatStatus, mediaSteps, live.chatStoppingAt, now)
+  attachOverviewUpdates(turns, overviewUpdates)
+
   const items: SessionTimelineItem<M, A>[] = [...turns]
   const media = live.media
   if (media && !turns.some((turn) => turn.kind === 'media' && turn.media.runId === media.runId)) {
@@ -237,15 +341,17 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
       details: {
         parts: [],
         summary: { kind: 'workflow', preset: media.preset },
-        ...(run && isTerminalPhase(run.phase)
-          ? {}
-          : {
-              live: {
-                kind: 'artifact' as const,
-                phase: run?.phase ?? 'queued',
-                ...(run?.progress ? { progress: run.progress } : {}),
-              },
-            }),
+        ...(live.mediaStoppingAt !== undefined
+          ? { live: stoppingLive(live.mediaStoppingAt, now) }
+          : run && isTerminalPhase(run.phase)
+            ? {}
+            : {
+                live: {
+                  kind: 'artifact' as const,
+                  phase: run?.phase ?? 'queued',
+                  ...(run?.progress ? { progress: run.progress } : {}),
+                },
+              }),
         ...(run?.phase === 'failed' && run.error ? { error: run.error } : {}),
       },
       result: [{ kind: 'media' }, ...(failure ? [{ kind: 'failure' as const, ...failure }] : [])],
@@ -265,7 +371,10 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
       hint: audioHint(audio),
       details: {
         ...audioDetails(audio),
-        live: { kind: 'audio', phase: audio.phase ?? 'generating' },
+        live:
+          live.audioStoppingAt !== undefined
+            ? stoppingLive(live.audioStoppingAt, now)
+            : { kind: 'audio', phase: audio.phase ?? 'generating' },
       },
       result: [{ kind: 'audio' }],
       prompt: textPrompt(audio.prompt ?? '', audio.preset),
@@ -504,6 +613,15 @@ function withAnswers(
       const run = turn.runKey ? runs.get(turn.runKey) : undefined
       turn.hint = agentHint(run?.name ?? turn.presetName, turn.answers)
       if (run?.lastTurn === turn) turn.result = [...turn.result, ...runEndFailure(run.end)]
+      if (
+        turn.answers.some((answer) => harnessTurnEndOf(answer) === 'cancelled') &&
+        !turn.result.some((part) => part.kind === 'failure' && part.messageId === undefined)
+      ) {
+        turn.result = [
+          ...turn.result,
+          { kind: 'failure', ...generationFailure({ state: 'cancelled' }) },
+        ]
+      }
       turn.footer = agentFooter(resultText(turn), {
         answer: turn.answers.at(-1),
         harnessTurn: harnessTurnOf(turn),
@@ -754,20 +872,58 @@ function partsLiveStatus(
   }
 }
 
+function stoppingLive(at: number, now: number): TurnLiveStatus {
+  return { kind: 'stopping', stillStopping: now - at >= STILL_STOPPING_AFTER_MS }
+}
+
+export function liveStopping(
+  turn: { kind: SessionTurnKind; harnessSessionId?: string } | null | undefined,
+  stoppingAt: number | undefined,
+): LiveStopping {
+  if (!turn || stoppingAt === undefined) return {}
+  switch (turn.kind) {
+    case 'chat':
+      return { chatStoppingAt: stoppingAt }
+    case 'media':
+      return { mediaStoppingAt: stoppingAt }
+    case 'audio':
+      return { audioStoppingAt: stoppingAt }
+    case 'agent':
+      return turn.harnessSessionId
+        ? { agentStopping: { harnessSessionId: turn.harnessSessionId, at: stoppingAt } }
+        : {}
+  }
+}
+
 function markLiveChatTurn(
   entries: TimelineTurn[],
   status: LiveChatStatus | undefined,
   mediaSteps: Readonly<Record<string, MediaStepStatus>>,
+  stoppingAt: number | undefined,
+  now: number,
 ): void {
   const turn = entries.findLast((entry) => entry.kind === 'chat')
-  if (turn?.kind !== 'chat' || !status) return
-  if (status.error && !status.running && turn.result.length === 0) {
-    turn.result = [
-      { kind: 'failure', ...generationFailure({ state: 'failed', error: status.error }) },
-    ]
-    turn.details = { ...turn.details, error: joinErrors([turn.details.error, status.error]) }
+  if (turn?.kind !== 'chat') return
+  if (stoppingAt !== undefined) {
+    turn.details = { ...turn.details, live: stoppingLive(stoppingAt, now) }
+    if (status?.questionKey) turn.questionKey = status.questionKey
+    return
   }
-  if (!status.running) return
+  if (!status) return
+  if (!status.running) {
+    if (status.error && turn.result.length === 0) {
+      turn.result = [
+        { kind: 'failure', ...generationFailure({ state: 'failed', error: status.error }) },
+      ]
+      turn.details = { ...turn.details, error: joinErrors([turn.details.error, status.error]) }
+    } else if (status.cancelled && !turn.result.some((part) => part.kind === 'failure')) {
+      turn.result = [
+        ...turn.result,
+        { kind: 'failure', ...generationFailure({ state: 'cancelled' }) },
+      ]
+    }
+    return
+  }
   const fromParts = partsLiveStatus('chat', turn.answers, mediaSteps)
   const live: TurnLiveStatus = (fromParts?.kind === 'tool' && fromParts.label ? fromParts : null) ??
     (status.activity ? { kind: 'activity', ...status.activity } : null) ??
@@ -780,6 +936,8 @@ function markLiveAgentTurns(
   entries: TimelineTurn[],
   agent: LiveAgentTurn,
   mediaSteps: Readonly<Record<string, MediaStepStatus>>,
+  stopping: AgentStopping | undefined,
+  now: number,
 ): void {
   const id = agent.tag.harnessSessionId
   const turns = entries.filter(
@@ -793,11 +951,14 @@ function markLiveAgentTurns(
     turn.canResend = !!agent.canResend && turn.notRun && turn === last
   }
   if (last) {
-    const live: TurnLiveStatus | null = !agent.live
-      ? null
-      : last.queued
-        ? { kind: 'queued' }
-        : (partsLiveStatus('agent', last.answers, mediaSteps) ?? { kind: 'working' })
+    const live: TurnLiveStatus | null =
+      stopping && id === stopping.harnessSessionId
+        ? stoppingLive(stopping.at, now)
+        : !agent.live
+          ? null
+          : last.queued
+            ? { kind: 'queued' }
+            : (partsLiveStatus('agent', last.answers, mediaSteps) ?? { kind: 'working' })
     const error = joinErrors([last.details.error, agent.error])
     const errorLine = oneLine(agent.error)
     last.details = {
@@ -908,6 +1069,7 @@ export function timelineTurns(
           footer: noFooter(),
           presetName: followUp ?? tag.presetName,
           harnessSessionId: tag.harnessSessionId,
+          ...(historyEntryIdOf(message) ? { historyEntryId: historyEntryIdOf(message) } : {}),
           artifacts: [],
           audioArtifacts: [],
           ...(message.role === 'user'
@@ -947,6 +1109,7 @@ export function timelineTurns(
         details: EMPTY_DETAILS,
         result: [],
         footer: noFooter(),
+        ...(historyEntryIdOf(message) ? { historyEntryId: historyEntryIdOf(message) } : {}),
         artifacts: [],
         audioArtifacts: [],
         ...(prompted ? { prompt: messagePrompt(message), answers: [] } : { answers: [message] }),
@@ -965,6 +1128,7 @@ export function timelineTurns(
         details: audioDetails(audio),
         result: [{ kind: 'audio' }],
         footer: audioFooter(audio),
+        ...(historyEntryIdOf(answer) ? { historyEntryId: historyEntryIdOf(answer) } : {}),
         prompt: textPrompt(promptOf(message), audio.preset, {
           audio: audio.kind === 'stt' && audio.audioUrl ? [{ url: audio.audioUrl }] : undefined,
         }),
@@ -984,6 +1148,7 @@ export function timelineTurns(
         details: mediaDetails(media),
         result: [{ kind: 'media' }],
         footer: noFooter(),
+        ...(historyEntryIdOf(next) ? { historyEntryId: historyEntryIdOf(next) } : {}),
         prompt: textPrompt(promptOf(message), media.preset, {
           inputImageUrl: mediaInputImage(media),
         }),

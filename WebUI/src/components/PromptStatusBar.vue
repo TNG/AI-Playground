@@ -229,6 +229,7 @@
     <WorkspaceChip />
     <div class="ml-auto flex flex-none items-center gap-2">
       <SessionReachabilityChip />
+      <SessionIncludedInOverviewsChip />
       <!-- Live GPU / RAM, gated on the same Metrics checkbox as the chat footer. -->
       <TooltipProvider v-if="textInference.metricsEnabled && computeChip" :delay-duration="0">
         <Tooltip>
@@ -338,6 +339,7 @@ import { llamaCppFitTarget } from '@/lib/useLlamaCppVramFit'
 import CapabilityIcons from '@/components/CapabilityIcons.vue'
 import AgentTokenUsage from '@/components/AgentTokenUsage.vue'
 import SessionReachabilityChip from '@/components/SessionReachabilityChip.vue'
+import SessionIncludedInOverviewsChip from '@/components/SessionIncludedInOverviewsChip.vue'
 import WorkspaceChip from '@/components/WorkspaceChip.vue'
 import AgentLibraryMenuItems from '@/components/agentLibrary/AgentLibraryMenuItems.vue'
 import { computeDetailSections, formatMib } from '@/lib/computeMetricsFormat'

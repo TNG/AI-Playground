@@ -7,6 +7,7 @@ import {
   AgentRunTagSchema,
 } from './agentSessionIpc'
 import type { IpcDataResult, IpcFail } from './ipcChannels'
+import { OverviewChromeSchema } from './overviewChrome'
 
 /** The error an agent turn fails with when the user declines its model's download. */
 export const MODEL_DOWNLOAD_DECLINED = 'model download declined'
@@ -154,6 +155,16 @@ export const AgentModeTurnConfigSchema = z.object({
   /** Developer setting: skip the GPU swap around in-process media calls. */
   keepModelsLoaded: z.boolean().optional(),
   /**
+   * The language the Session was frozen with, carried even when the reply is not
+   * language-directed.
+   */
+  responseLocale: z.string().optional(),
+  /**
+   * The Overview chrome and its locale, resolved by the renderer. Main reads no
+   * translation files, so the renderer ships the resolved strings.
+   */
+  overviewChrome: OverviewChromeSchema.optional(),
+  /**
    * Local backend load facts (step 15). Main occupies as a `text` request then
    * loads; absent for cloud and for older tests that only exercise the harness.
    */
@@ -209,6 +220,8 @@ export type AgentCapabilityInfo = {
   summary: string
   requires: string[]
   commands: { command: string; description: string }[]
+  /** Set when only a preset naming the capability offers it in its checklist. */
+  presetOwned?: boolean
   unavailableReason?: string
 }
 

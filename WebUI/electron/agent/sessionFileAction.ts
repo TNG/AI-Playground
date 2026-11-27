@@ -37,7 +37,20 @@ function realOrResolved(target: string): string {
   try {
     return fs.realpathSync(target)
   } catch {
-    return path.resolve(target)
+    // A path through deleted folders must carry its deepest surviving
+    // ancestor's canonical prefix, or the containment check misreads a gone
+    // file as an escape (macOS /var vs /private/var).
+    let dir = path.dirname(target)
+    const tail = [path.basename(target)]
+    while (true) {
+      try {
+        return path.join(fs.realpathSync(dir), ...tail.reverse())
+      } catch {
+        if (dir === path.dirname(dir)) return path.resolve(target)
+        tail.push(path.basename(dir))
+        dir = path.dirname(dir)
+      }
+    }
   }
 }
 

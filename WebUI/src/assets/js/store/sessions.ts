@@ -5,6 +5,9 @@ import { useErrors } from '@/assets/js/store/errors'
 import { requestMissingWorkspace } from '@/assets/js/permissions/permissions'
 import type {
   MissingWorkspace,
+  OverviewSummary,
+  Summariser,
+  OverviewSummaryUpdateRow,
   SessionDeletePreview,
   SessionDocument,
   SessionFolderList,
@@ -60,6 +63,10 @@ export const useSessions = defineStore('sessions', () => {
   const showMore = ref<ShowMore>({ pinned: false, older: false })
   const openSessionId = ref<string | null>(null)
   const openTimeline = ref<unknown[]>([])
+  /** The open Session's Overview Summary text and picture; the panel rows carry only its state. */
+  const openOverviewSummary = ref<OverviewSummary | undefined>()
+  /** The open Session's per-turn Overview Summary update outcomes, for the turn details rows. */
+  const openOverviewUpdates = ref<OverviewSummaryUpdateRow[]>([])
   // Ids a regenerate dropped from the view before main's file did; a stale `session-changed` must not restore them.
   const forgottenTimelineIds = new Set<string>()
   /** Artifact URLs of the open Session whose file was deleted; their cards say so. */
@@ -95,9 +102,10 @@ export const useSessions = defineStore('sessions', () => {
   }
 
   function applyChanged(document: SessionDocument): void {
-    const { timeline, ...summary } = document
+    const { timeline, overviewSummary, ...summary } = document
     remember(summary)
     if (openSessionId.value !== document.id) return
+    openOverviewSummary.value = overviewSummary
     openHiddenIds.value = summary.hiddenMessageIds
     const stored = new Set(timeline.map(timelineIdOf))
     for (const id of forgottenTimelineIds) {
@@ -107,6 +115,25 @@ export const useSessions = defineStore('sessions', () => {
       ? timelineWithout(timeline, forgottenTimelineIds)
       : timeline
     refreshDeletedFiles(document.id)
+    void loadOverviewUpdates(document.id)
+  }
+
+  let overviewUpdatesSeq = 0
+
+  /** Reads the per-turn update outcomes after a session change; a stale reply is dropped. */
+  async function loadOverviewUpdates(id: string): Promise<void> {
+    const seq = ++overviewUpdatesSeq
+    try {
+      const result = await window.electronAPI.sessions.overviewUpdates(id)
+      if (seq !== overviewUpdatesSeq || openSessionId.value !== id) return
+      if (result.success) openOverviewUpdates.value = result.data.updates
+    } catch (error) {
+      errors.report(error, {
+        code: 'sessions/overview-updates-failed',
+        category: 'backend',
+        surface: 'silent',
+      })
+    }
   }
 
   function applyGroups(state: SessionGroupsState): void {
@@ -116,14 +143,57 @@ export const useSessions = defineStore('sessions', () => {
 
   /** Each Session's turn in flight, as main's ledger has it. */
   const turns = ref<SessionTurns>({})
+  /** Turns the user asked to stop, by Turn id, with when they asked; renderer-only. */
+  const stoppingTurns = ref<Record<string, number>>({})
   /** Sessions whose turn ended while another was open; cleared when opened. */
   const unseen = ref<Record<string, true>>({})
+
+  function pruneStoppingTurns(next: SessionTurns): void {
+    const live = new Set(Object.values(next).map((turn) => turn.turnId))
+    const kept = Object.entries(stoppingTurns.value).filter(([turnId]) => live.has(turnId))
+    if (kept.length !== Object.keys(stoppingTurns.value).length) {
+      stoppingTurns.value = Object.fromEntries(kept)
+    }
+  }
+
+  function markTurnStopping(turnId: string): void {
+    stoppingTurns.value = { ...stoppingTurns.value, [turnId]: Date.now() }
+  }
+
+  function isTurnStopping(turnId: string): boolean {
+    return stoppingTurns.value[turnId] !== undefined
+  }
+
+  /** One clock shared by every Stopping Turn, so no component owns a timer. */
+  const stoppingNow = ref(Date.now())
+  const STOPPING_CLOCK_MS = 1_000
+  let stoppingClock: ReturnType<typeof setInterval> | null = null
+
+  function runStoppingClock(stopping: boolean): void {
+    if (!stopping) {
+      if (stoppingClock !== null) clearInterval(stoppingClock)
+      stoppingClock = null
+      return
+    }
+    stoppingNow.value = Date.now()
+    if (stoppingClock === null) {
+      stoppingClock = setInterval(() => {
+        stoppingNow.value = Date.now()
+      }, STOPPING_CLOCK_MS)
+    }
+  }
+
+  watch(() => Object.keys(stoppingTurns.value).length > 0, runStoppingClock, {
+    immediate: true,
+    flush: 'sync',
+  })
 
   function applyTurns(next: SessionTurns): void {
     const ended = Object.keys(turns.value).filter(
       (id) => !next[id] && id !== openSessionId.value && sessions.value[id],
     )
     turns.value = next
+    pruneStoppingTurns(next)
     if (ended.length === 0) return
     unseen.value = { ...unseen.value, ...Object.fromEntries(ended.map((id) => [id, true])) }
   }
@@ -136,6 +206,7 @@ export const useSessions = defineStore('sessions', () => {
     },
     (snapshot) => {
       turns.value = { ...snapshot.state.sessionTurns }
+      pruneStoppingTurns(turns.value)
     },
   )
 
@@ -150,7 +221,10 @@ export const useSessions = defineStore('sessions', () => {
   })
   projection.ready.catch((error: unknown) => errors.report(error, { surface: 'silent' }))
   if (import.meta.hot) {
-    import.meta.hot.dispose(() => projection.dispose())
+    import.meta.hot.dispose(() => {
+      projection.dispose()
+      if (stoppingClock !== null) clearInterval(stoppingClock)
+    })
   }
 
   /** The open Session, creating one when none is open yet. */
@@ -290,6 +364,7 @@ export const useSessions = defineStore('sessions', () => {
     remember(result.session)
     openSessionId.value = result.session.id
     openTimeline.value = []
+    openOverviewSummary.value = undefined
     openHiddenIds.value = []
     openDeletedFiles.value = []
     revealInGroup(result.session)
@@ -311,13 +386,16 @@ export const useSessions = defineStore('sessions', () => {
   ): Promise<SessionLastPreset | null> {
     const result = await call('sessions/open-failed', () => window.electronAPI.sessions.open(id))
     if (!result) return null
-    const { timeline, ...summary } = result.session
+    const { timeline, overviewSummary, ...summary } = result.session
     remember(summary)
     openSessionId.value = id
     forgottenTimelineIds.clear()
     openTimeline.value = timeline
+    openOverviewSummary.value = overviewSummary
     openHiddenIds.value = summary.hiddenMessageIds
     openDeletedFiles.value = result.missingFiles
+    openOverviewUpdates.value = []
+    void loadOverviewUpdates(id)
     if (reveal) revealInGroup(summary)
     return result.lastPreset
   }
@@ -340,6 +418,52 @@ export const useSessions = defineStore('sessions', () => {
     )
     if (result) remember(result.session)
     return !!result
+  }
+
+  /**
+   * Include the Session in Overviews. With a request, enabling starts the first summary and
+   * opting out deletes it; false when the change was not kept.
+   */
+  async function setIncludedInOverviews(
+    id: string,
+    included: boolean,
+    request?: Summariser,
+  ): Promise<boolean> {
+    const result = await call('sessions/set-included-in-overviews-failed', () =>
+      window.electronAPI.sessions.setIncludedInOverviews(id, included, request),
+    )
+    if (result) remember(result.session)
+    return !!result
+  }
+
+  /** Ask main to write the Overview Summary again without a new turn (the chip's Retry). */
+  async function refreshOverviewSummary(id: string, request: Summariser): Promise<boolean> {
+    const result = await call('sessions/refresh-overview-summary-failed', () =>
+      window.electronAPI.sessions.refreshOverviewSummary(id, request),
+    )
+    if (result) remember(result.session)
+    return !!result
+  }
+
+  /** Retry one turn's failed Overview Summary update and write its new outcome to that entry. */
+  async function retryOverviewUpdate(
+    id: string,
+    entryId: string,
+    request: Summariser,
+  ): Promise<boolean> {
+    const result = await call('sessions/retry-overview-update-failed', () =>
+      window.electronAPI.sessions.retryOverviewUpdate(id, entryId, request),
+    )
+    if (result) remember(result.session)
+    return !!result
+  }
+
+  /** Resume the pending updates an interrupted run left behind; returns the Session ids. */
+  async function resumePendingOverviewUpdates(request: Summariser): Promise<string[]> {
+    const result = await call('sessions/resume-pending-overview-updates-failed', () =>
+      window.electronAPI.sessions.resumePendingOverviewUpdates(request),
+    )
+    return result?.data.resumed ?? []
   }
 
   /** The Agent picked in the Session's prompt bar, `null` for Assistant; false when not kept. */
@@ -669,6 +793,8 @@ export const useSessions = defineStore('sessions', () => {
     openSessionId.value = null
     forgottenTimelineIds.clear()
     openTimeline.value = []
+    openOverviewSummary.value = undefined
+    openOverviewUpdates.value = []
     openHiddenIds.value = []
     openDeletedFiles.value = []
     await openNewestOrCreate()
@@ -680,12 +806,18 @@ export const useSessions = defineStore('sessions', () => {
     showMore,
     openSessionId,
     openTimeline,
+    openOverviewSummary,
+    openOverviewUpdates,
     openHiddenIds,
     openVisibleTimeline,
     sessionsWithHiddenMessages,
     openDeletedFiles,
     pendingTurns,
     turns,
+    stoppingTurns,
+    stoppingNow,
+    markTurnStopping,
+    isTurnStopping,
     unseen,
     openTurn,
     orderedSessions,
@@ -712,6 +844,10 @@ export const useSessions = defineStore('sessions', () => {
     workspaceDirOf,
     pickAgent,
     setReachable,
+    setIncludedInOverviews,
+    refreshOverviewSummary,
+    retryOverviewUpdate,
+    resumePendingOverviewUpdates,
     createGroup,
     moveToGroup,
     renameGroup,

@@ -17,6 +17,7 @@ import { unregisterAgentModeIpc } from './agentModeIpc'
 import { demoAwareStorage } from '../demoAwareStorage'
 import { makeForwardPersist } from '@/lib/ipcPersist'
 import { settleStreamingParts } from '@/lib/agentTranscript'
+import { stampHarnessTurnEnd } from '@/lib/harnessTurnEnd'
 import { applyEditedPrompt } from '@/lib/editedPrompt'
 import { fillTemplate } from '@/lib/fillTemplate'
 import { cloneForIpc } from '@/lib/cloneForIpc'
@@ -65,7 +66,9 @@ import { createAppError, createCancellation, extractMessage } from '@/assets/js/
 import { registerSessionPromptPort } from '@/assets/js/permissions/sessionPromptPort'
 import * as toast from '@/assets/js/toast'
 import { withResponseLanguage } from '@/lib/responseLanguage'
+import { overviewChromeOf } from '@/lib/overviewChrome'
 import { ragEmbeddingPrepFailure } from '@/lib/ragEmbeddingPrep'
+import type { OverviewChrome } from '@/types/overviewChrome'
 import { requestDownload } from '@/assets/js/permissions/permissions'
 import {
   DEFAULT_CAPABILITY_IDS,
@@ -915,6 +918,7 @@ export const useAgentMode = defineStore(
     // Frozen per session so a later turn does not rebuild Pi (instructions are
     // part of the session key) or pick up a Language-selector change mid-run.
     const pendingResponseLocales: Record<string, string> = {}
+    const pendingOverviewChrome: Record<string, OverviewChrome> = {}
     const pendingTitles: Record<string, string> = {}
 
     function sessionResponseLocale(sessionId: string): string {
@@ -922,6 +926,15 @@ export const useAgentMode = defineStore(
       if (stored) return stored
       pendingResponseLocales[sessionId] = i18n.langName
       return pendingResponseLocales[sessionId]
+    }
+
+    // Frozen with the locale: a language change mid-session must not rewrite the
+    // chrome of an Overview the Session already produces in one language.
+    function sessionOverviewChrome(sessionId: string): OverviewChrome {
+      return (pendingOverviewChrome[sessionId] ??= overviewChromeOf(
+        sessionResponseLocale(sessionId),
+        i18n.state,
+      ))
     }
 
     // The rag capability (main process) asks for this before its first index:
@@ -1031,6 +1044,8 @@ export const useAgentMode = defineStore(
         planningThinkingOnly: effectivePlanningThinkingOnly.value,
         textInference,
         cloudMode,
+        responseLocale: sessionResponseLocale(sessionId),
+        overviewChrome: sessionOverviewChrome(sessionId),
         answer: turnContexts[sessionId]?.answer,
       })
     }
@@ -1071,6 +1086,8 @@ export const useAgentMode = defineStore(
           settings.planningThinkingOnly ?? readAgentDefaults().planningThinkingOnly,
         textInference: stored.inference,
         cloudMode: stored.cloud,
+        responseLocale: sessionResponseLocale(sessionId),
+        overviewChrome: sessionOverviewChrome(sessionId),
         tools: stored.tools,
         answer: context.answer,
         taskRun: context.taskRun && withTaskId(context.taskRun, sessions.value[sessionId]),
@@ -1445,6 +1462,18 @@ export const useAgentMode = defineStore(
       const stopped = stoppedByUser.delete(sessionId)
       const chat = turns.runtimeOf(sessionId)?.chat
       const failed = chat?.status === 'error'
+      if (stopped) {
+        if (chat) chat.messages = stampHarnessTurnEnd(chat.messages, 'cancelled')
+        const record = sessions.value[sessionId]
+        if (record) {
+          const ended = {
+            ...record,
+            messages: stampHarnessTurnEnd(record.messages as UIMessage[], 'cancelled'),
+          }
+          rewriteSession(sessionId, ended)
+          saveToSessionTimeline(ended)
+        }
+      }
       if (!stopped && sessionId !== openSessionId.value && sessions.value[sessionId]) {
         unseenTurns.value = { ...unseenTurns.value, [sessionId]: failed ? 'failed' : 'done' }
       }

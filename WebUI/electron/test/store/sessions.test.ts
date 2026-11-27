@@ -32,6 +32,7 @@ vi.mock('@/assets/js/toast', () => ({
 const sessionModule = await import('../../session/sessions')
 const kernelBus = await import('../../kernel/kernelBus')
 const { recordMediaTurn } = await import('../../session/sessionMediaTurn')
+const { appendHistoryEntry, historyOverviewUpdates } = await import('../../session/sessionHistory')
 const {
   addHiddenMessages,
   clearAllHiddenMessages,
@@ -58,6 +59,7 @@ const registry = buildSessionsRegistry({
   addHiddenMessages,
   clearHiddenMessages,
   clearAllHiddenMessages,
+  historyOverviewUpdates,
 } as unknown as SessionsDeps)
 /** The folder the next "Locate folder…" picker returns; undefined cancels it. */
 let pickedFolder: string | undefined
@@ -97,6 +99,12 @@ beforeEach(async () => {
         rename: (id: string, title: string) =>
           ok(async () => ({ session: await sessionModule.renameSession(id, title) }))(),
         delete: (id: string) => ok(async () => sessionModule.deleteSession(id).then(() => ({})))(),
+        setIncludedInOverviews: (
+          id: string,
+          included: boolean,
+          request?: import('@/types/sessionIpc').Summariser,
+        ) => registry['sessions:setIncludedInOverviews'](noEvent, id, included, request),
+        overviewUpdates: (id: string) => registry['sessions:overviewUpdates'](noEvent, id),
         createGroup: (id: string, name: string) =>
           registry['sessions:createGroup'](noEvent, id, name),
         renameGroup: (groupId: string, name: string) =>
@@ -438,6 +446,101 @@ describe('Sessions store', () => {
     await store.init()
 
     await vi.waitFor(() => expect(store.openTurn?.kind).toBe('chat'))
+  })
+
+  it('marks a Turn Stopping by its id, with when the stop was asked for, until it is released', async () => {
+    const store = useSessions()
+    await store.init()
+    const session = store.openSessionId!
+    ledger.claimSessionTurn(session, { turnId: 't1', kind: 'chat' })
+    await vi.waitFor(() => expect(store.openTurn?.turnId).toBe('t1'))
+
+    const asked = Date.now()
+    store.markTurnStopping('t1')
+
+    expect(store.isTurnStopping('t1')).toBe(true)
+    expect(store.stoppingTurns.t1).toBeGreaterThanOrEqual(asked)
+
+    ledger.releaseSessionTurn(session, 't1')
+    await vi.waitFor(() => expect(store.openTurn).toBeNull())
+
+    expect(store.isTurnStopping('t1')).toBe(false)
+    expect(store.stoppingTurns).toEqual({})
+  })
+
+  it.each(['media', 'agent', 'audio'] as const)(
+    'marks a stopping %s Turn until it is released',
+    async (kind) => {
+      const store = useSessions()
+      await store.init()
+      const session = store.openSessionId!
+      const turnId = `${kind}-turn`
+      ledger.claimSessionTurn(session, { turnId, kind })
+      await vi.waitFor(() => expect(store.openTurn?.turnId).toBe(turnId))
+
+      store.markTurnStopping(turnId)
+      expect(store.isTurnStopping(turnId)).toBe(true)
+
+      ledger.releaseSessionTurn(session, turnId)
+      await vi.waitFor(() => expect(store.openTurn).toBeNull())
+
+      expect(store.isTurnStopping(turnId)).toBe(false)
+    },
+  )
+
+  it('tracks Stopping Turns in different Sessions independently', async () => {
+    const store = useSessions()
+    await store.init()
+    const first = store.openSessionId!
+    await store.create()
+    const second = store.openSessionId!
+    ledger.claimSessionTurn(first, { turnId: 't1', kind: 'chat' })
+    ledger.claimSessionTurn(second, { turnId: 't2', kind: 'chat' })
+    await vi.waitFor(() => expect(store.turns[second]?.turnId).toBe('t2'))
+
+    store.markTurnStopping('t1')
+    store.markTurnStopping('t2')
+    ledger.releaseSessionTurn(first, 't1')
+    await vi.waitFor(() => expect(store.isTurnStopping('t1')).toBe(false))
+
+    expect(store.isTurnStopping('t2')).toBe(true)
+  })
+
+  it('ticks one shared clock only while a Turn is Stopping', async () => {
+    const store = useSessions()
+    await store.init()
+    vi.useFakeTimers()
+    try {
+      const asked = Date.now()
+      store.markTurnStopping('t1')
+      expect(store.stoppingNow).toBe(asked)
+
+      vi.advanceTimersByTime(5_000)
+      expect(store.stoppingNow).toBe(asked + 5_000)
+
+      store.stoppingTurns = {}
+      const settled = store.stoppingNow
+      vi.advanceTimersByTime(5_000)
+      expect(store.stoppingNow).toBe(settled)
+    } finally {
+      store.stoppingTurns = {}
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps a stopping Turn across a Session switch', async () => {
+    const store = useSessions()
+    await store.init()
+    const first = store.openSessionId!
+    const second = (await store.create())!
+    ledger.claimSessionTurn(first, { turnId: 't1', kind: 'chat' })
+    await vi.waitFor(() => expect(store.turns[first]?.turnId).toBe('t1'))
+    store.markTurnStopping('t1')
+
+    await store.open(second)
+    await store.open(first)
+
+    expect(store.isTurnStopping('t1')).toBe(true)
   })
 
   it('sees Groups renamed, collapsed, deleted and Pinned "show more" through the Groups push', async () => {
@@ -783,5 +886,26 @@ describe('a turn in a Session whose Workspace is missing', () => {
 
     expect(await store.readyWorkspaceForTurn(store.openSessionId!)).toBe(true)
     expect(useDialogStore().missingWorkspaceQuestion).toBeNull()
+  })
+})
+
+describe('Overview inclusion', () => {
+  it('starts the first Overview Summary through main when the toggle is enabled', async () => {
+    const created = await sessionModule.createSession()
+    await appendHistoryEntry(created.id, {
+      preset: 'Assistant',
+      kind: 'chat',
+      prompt: 'set up the project',
+      status: 'completed',
+      artifacts: [],
+    })
+    const store = useSessions()
+    await store.open(created.id)
+
+    const kept = await store.setIncludedInOverviews(created.id, true, { language: 'de' })
+
+    expect(kept).toBe(true)
+    expect(store.sessions[created.id].includedInOverviews).toBe(true)
+    expect(store.sessions[created.id].overviewSummaryState).toBe('pending')
   })
 })

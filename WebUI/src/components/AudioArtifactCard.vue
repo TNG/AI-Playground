@@ -19,7 +19,7 @@
       {{ failureText }}
     </p>
     <p v-else-if="artifact.state === 'cancelled'" class="flex-1 px-2 text-sm text-muted-foreground">
-      {{ languages.SESSION_AUDIO_CANCELLED }}
+      {{ languages.SESSION_TURN_CANCELLED }}
     </p>
     <template v-else>
       <audio

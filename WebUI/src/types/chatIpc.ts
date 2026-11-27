@@ -170,6 +170,8 @@ export const ChatTurnRequestSchema = z.object({
   /** The chat preset (and variant) the turn ran with, for its History Entry. */
   presetName: z.string().optional(),
   variant: z.string().optional(),
+  /** The reply language the turn was held with, for its Overview Summary update. */
+  responseLocale: z.string().optional(),
 })
 export type ChatTurnRequest = z.infer<typeof ChatTurnRequestSchema>
 

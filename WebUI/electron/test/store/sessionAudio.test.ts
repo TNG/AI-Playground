@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
+import type { AudioTurnRequest } from '@/types/sessionIpc'
 
 // The audio turn driver against the real Session module in a temp dir; only the
 // speech engines are faked.
@@ -14,6 +15,14 @@ const speech = vi.hoisted(() => ({
   readyTranscriptionForInput: vi.fn(),
 }))
 const activePreset = vi.hoisted(() => ({ name: 'Text to Speech' }))
+const turnSummariser = vi.hoisted(() => ({
+  model: {
+    backend: 'llamaCPP',
+    modelId: 'qwen-test',
+    readiness: { serviceName: 'llamacpp-backend', llmModelName: 'qwen-test' },
+  },
+  language: 'en-US',
+}))
 
 vi.mock('../../persist/userDataPaths.ts', () => ({
   getSessionsDir: () => dirs.real,
@@ -40,6 +49,7 @@ vi.mock('@/assets/js/toast', () => ({
 }))
 
 vi.mock('@/assets/js/speech/speechIO', () => speech)
+vi.mock('@/lib/turnSummariser', () => ({ turnSummariser: () => turnSummariser }))
 
 vi.mock('@/assets/js/store/i18n', () => ({
   useI18N: () => ({ langName: 'en-US', state: {} }),
@@ -168,6 +178,28 @@ describe('Text-to-Speech in a Session', () => {
     expect(sessions.openSession?.title).toBe('Read this aloud')
   })
 
+  it('ships the renderer-resolved summariser with the turn', async () => {
+    await openSession()
+    speech.synthesizeClip.mockResolvedValue({
+      audioBase64: Buffer.from(WAV_BYTES).toString('base64'),
+      mediaType: 'audio/wav',
+      voice: 'af_heart',
+      engine: 'kokoro',
+    })
+    const recorded: AudioTurnRequest[] = []
+    const record = window.electronAPI.sessions.recordAudioTurn
+    window.electronAPI.sessions.recordAudioTurn = vi.fn(
+      async (request: Parameters<typeof record>[0]) => {
+        recorded.push(request)
+        return record(request)
+      },
+    )
+
+    await useSessionAudio().synthesize('Read this aloud')
+
+    expect(recorded[0]?.summariser).toEqual(turnSummariser)
+  })
+
   it('records a failed synthesis as a failed turn', async () => {
     const { id } = await openSession()
     speech.synthesizeClip.mockRejectedValue(new Error('UR_RESULT_ERROR_DEVICE_LOST'))
@@ -192,6 +224,26 @@ describe('Text-to-Speech in a Session', () => {
     await running
 
     expect(audio.processing).toBe(false)
+  })
+
+  it('Stop abandons a running synthesis and records the Turn as Cancelled', async () => {
+    const { sessions, id } = await openSession()
+    speech.synthesizeClip.mockReturnValue(new Promise(() => {}))
+    const audio = useSessionAudio()
+
+    const running = audio.synthesize('Read this aloud')
+    await vi.waitFor(() => expect(sessions.openTurn?.kind).toBe('audio'))
+    const turnId = sessions.openTurn!.turnId
+    sessions.markTurnStopping(turnId)
+    expect(audio.cancel(id)).toBe(true)
+
+    await running
+    await vi.waitFor(() => expect(sessions.openTurn).toBeNull())
+
+    expect(sessions.isTurnStopping(turnId)).toBe(false)
+    expect(await readHistoryEntries(id)).toEqual([
+      expect.objectContaining({ kind: 'tts', status: 'cancelled', artifacts: [] }),
+    ])
   })
 
   it('holds the open Session as its one turn, and refuses to start while another holds it', async () => {

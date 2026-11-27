@@ -38,9 +38,12 @@ export class MainPage {
    * button and the transient disabled "Stopping" button.
    */
   get busyButton(): Locator {
-    return this.page
-      .getByRole('button', { name: 'Stop generating' })
-      .or(this.page.getByRole('button', { name: 'Stopping' }))
+    return this.page.getByRole('button', { name: 'Stop generating' }).or(this.stoppingButton)
+  }
+
+  /** The disabled spinner between Stop and Send, while main releases a stopped Turn. */
+  get stoppingButton(): Locator {
+    return this.page.getByRole('button', { name: 'Stopping' })
   }
 
   /**

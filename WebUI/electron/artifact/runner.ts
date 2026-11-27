@@ -33,6 +33,7 @@ import {
 import type { ArtifactPhase, ArtifactRunOwner, ArtifactRunTag } from '@/types/kernelEvents'
 import type { MediaItem } from '@/types/mediaItem'
 import type { ArtifactRunMode, ArtifactRunResult } from '@/types/artifactIpc'
+import type { Summariser } from '@/types/sessionIpc'
 import type { IpcOkWith } from '@/types/ipcChannels'
 import {
   findKeysByClassType,
@@ -130,6 +131,8 @@ export type ArtifactRunPayload = {
   activityId?: string
   /** The Session a panel run belongs to: its outputs and History Entry settle there. */
   sessionId?: string
+  /** The renderer-resolved local model and reply language for that Session's summary. */
+  summariser?: Summariser
 }
 
 // Hoisted to `@/types/artifactIpc` (the manifest row states it); re-exported
@@ -177,6 +180,12 @@ export type ArtifactRunnerDeps = {
   devPresetsEnabled(): boolean
   /** The file an `aipg-media://` URL names, so a Session can take the run's outputs. */
   localPathOf?(url: string): string | null
+  /**
+   * Hands the GPU back to chat before a panel run's Overview Summary update: the
+   * run still holds the Turn Queue's place, so the orchestrator frees ComfyUI and
+   * reloads the chat model here instead of waiting for the run to settle.
+   */
+  prepareChatForSettlement?(): Promise<void>
 }
 
 type ActiveRun = {
@@ -364,20 +373,28 @@ async function settleIntoSession(
   result: ArtifactRunResult,
 ): Promise<ArtifactRunResult> {
   try {
-    const items = await recordMediaTurn({
-      sessionId,
-      runId: run.payload.runId,
-      mode: run.payload.mode,
-      preset: run.payload.preset.name,
-      variant: resolvedVariantName(run.payload),
-      prompt: run.payload.params.prompt,
-      status: result.state,
-      error: result.error,
-      durationMs: Date.now() - run.startedAt,
-      items: result.items,
-      unfinished: result.unfinished,
-      localPathOf: (url) => runnerDeps?.localPathOf?.(url) ?? null,
-    })
+    const items = await recordMediaTurn(
+      {
+        sessionId,
+        runId: run.payload.runId,
+        mode: run.payload.mode,
+        preset: run.payload.preset.name,
+        variant: resolvedVariantName(run.payload),
+        prompt: run.payload.params.prompt,
+        status: result.state,
+        error: result.error,
+        durationMs: Date.now() - run.startedAt,
+        items: result.items,
+        unfinished: result.unfinished,
+        localPathOf: (url) => runnerDeps?.localPathOf?.(url) ?? null,
+      },
+      {
+        ...(run.payload.summariser ? { summariser: run.payload.summariser } : {}),
+        beforeSummary: async () => {
+          await runnerDeps?.prepareChatForSettlement?.()
+        },
+      },
+    )
     for (const item of items) emitItem(run, item)
     return { ...result, items }
   } catch (error) {

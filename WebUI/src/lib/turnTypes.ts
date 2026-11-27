@@ -18,6 +18,7 @@ import type {
   AgentRunTag,
   TimelineMessage,
 } from '@/types/sessionTimeline'
+import type { OverviewSummaryUpdate } from '@/types/sessionIpc'
 
 export type TurnHintKind = 'chat' | 'agent' | 'workflow' | 'speech'
 export type TurnHintIcon = 'chat' | 'agent' | 'image' | 'video' | 'tts' | 'stt'
@@ -34,6 +35,12 @@ export type AnswerDetailKind = 'reasoning' | 'tool' | 'generation' | 'compaction
 export type TurnDetailPart =
   | ({ kind: AnswerDetailKind } & AnswerPartRef)
   | { kind: 'workspace-path'; path: string }
+  | {
+      kind: 'overview-update'
+      entryId: string
+      update: OverviewSummaryUpdate
+      covered?: { at: number; number: number }
+    }
   | {
       kind: 'workflow'
       variant?: string
@@ -75,6 +82,7 @@ export type TurnLiveStatus =
   | { kind: 'writing' }
   | { kind: 'working' }
   | { kind: 'queued' }
+  | { kind: 'stopping'; stillStopping: boolean }
   | { kind: 'tool'; name: string; label?: string; progress?: number }
   | { kind: 'activity'; label: string; progress?: number; browsing?: boolean }
   | { kind: 'artifact'; phase: ArtifactPhase; progress?: ArtifactProgress }
@@ -186,6 +194,8 @@ export type TurnOf<K extends string, Body> = {
   details: TurnDetails
   result: TurnResultPart[]
   footer: TurnFooter
+  /** The History Entry this turn settled as, when the timeline carries it. */
+  historyEntryId?: string
 } & Body
 
 /** A chat or agent Turn opened by an answer has no prompt. */
@@ -282,16 +292,31 @@ export type LiveChatStatus = {
   questionKey?: string
   /** Why the newest chat turn failed, until the next one starts. */
   error?: string
+  /** The newest chat turn was stopped by the user, until the next one starts. */
+  cancelled?: boolean
 }
 
 export type MediaStepStatus = { label: string; progress?: number }
 
-export type LiveTurns<M extends PendingMedia, A extends PendingAudio> = {
+/** A live Agent Turn that is Stopping: its Harness Session, and when the stop was asked for. */
+export type AgentStopping = { harnessSessionId: string; at: number }
+
+/** When the user asked to stop each kind of live Turn, while main has not released it. */
+export type LiveStopping = {
+  chatStoppingAt?: number
+  agentStopping?: AgentStopping
+  mediaStoppingAt?: number
+  audioStoppingAt?: number
+}
+
+export type LiveTurns<M extends PendingMedia, A extends PendingAudio> = LiveStopping & {
   chat?: readonly { id: string }[]
   agents?: readonly LiveAgentTurn[]
   /** Run keys of the Agent Runs still in flight. */
   agentRunsInFlight?: readonly string[]
   chatStatus?: LiveChatStatus
+  /** The time the Stopping escalation is measured against; a view supplies its ticking clock. */
+  now?: number
   media?: M | null
   mediaSteps?: Readonly<Record<string, MediaStepStatus>>
   audio?: A | null

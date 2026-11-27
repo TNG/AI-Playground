@@ -27,6 +27,8 @@ export const AGENT_TEMPLATE_CAPABILITY_IDS = [
 
 export const MCP_CAPABILITY_PREFIX = 'mcp:'
 
+export const OVERVIEW_CAPABILITY_ID = 'overview'
+
 export const GAME_STUDIO_ID = 'game-studio'
 export const GAME_STUDIO_QUICK_ID = 'game-studio-quick'
 

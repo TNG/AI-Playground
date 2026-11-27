@@ -88,25 +88,31 @@ export const useSessionSettings = defineStore('sessionSettings', () => {
     return settings.value[presetName]?.bags[settingsKey]
   }
 
-  const pendingWrites = new Set<string>()
+  type PendingWrite = { sessionId: string; presetName: string; entry: PresetSessionSettings }
+
+  // The latest entry per Session and preset, written once the current tick ends. A later
+  // update replaces the snapshot rather than being dropped along with a session switch.
+  const queuedWrites = new Map<string, PendingWrite>()
+  const runningWrites = new Set<Promise<void>>()
 
   function update(presetName: string, entry: PresetSessionSettings): void {
     settings.value = { ...settings.value, [presetName]: entry }
     const sessionId = loadedSessionId.value
     if (!sessionId) return
     const writeKey = JSON.stringify([sessionId, presetName])
-    if (pendingWrites.has(writeKey)) return
-    pendingWrites.add(writeKey)
-    queueMicrotask(() => {
-      pendingWrites.delete(writeKey)
-      void write(sessionId, presetName)
+    const alreadyQueued = queuedWrites.has(writeKey)
+    queuedWrites.set(writeKey, { sessionId, presetName, entry })
+    if (alreadyQueued) return
+    const job = Promise.resolve().then(async () => {
+      const pending = queuedWrites.get(writeKey)
+      queuedWrites.delete(writeKey)
+      if (pending) await write(pending)
     })
+    runningWrites.add(job)
+    void job.finally(() => runningWrites.delete(job)).catch(() => {})
   }
 
-  async function write(sessionId: string, presetName: string): Promise<void> {
-    if (loadedSessionId.value !== sessionId) return
-    const entry = settings.value[presetName]
-    if (!entry) return
+  async function write({ sessionId, presetName, entry }: PendingWrite): Promise<void> {
     try {
       const result = await window.electronAPI.sessions.writePresetSettings(
         sessionId,
@@ -120,6 +126,13 @@ export const useSessionSettings = defineStore('sessionSettings', () => {
         category: 'backend',
         surface: 'toast',
       })
+    }
+  }
+
+  /** Settles once every write this store has queued has reached the disk. */
+  async function whenWritten(): Promise<void> {
+    while (runningWrites.size > 0) {
+      await Promise.allSettled([...runningWrites])
     }
   }
 
@@ -290,7 +303,13 @@ export const useSessionSettings = defineStore('sessionSettings', () => {
     else imageGeneration.loadSettingsForActivePreset()
   }
 
+  let loadSeq = 0
+
   async function load(sessionId: string | null): Promise<void> {
+    const seq = ++loadSeq
+    // A re-read must not overtake this renderer's own writes for the session it left.
+    await whenWritten()
+    if (seq !== loadSeq) return
     loadedSessionId.value = null
     settings.value = {}
     baseline = null
@@ -298,10 +317,11 @@ export const useSessionSettings = defineStore('sessionSettings', () => {
     try {
       const result = await window.electronAPI.sessions.readSettings(sessionId)
       if (!result.success) throw new Error(result.error)
-      if (sessions.openSessionId !== sessionId) return
+      if (seq !== loadSeq || sessions.openSessionId !== sessionId) return
       settings.value = result.settings
       loadedSessionId.value = sessionId
     } catch (error) {
+      if (seq !== loadSeq) return
       errors.report(error, {
         code: 'sessions/settings-read-failed',
         category: 'backend',
@@ -422,6 +442,7 @@ export const useSessionSettings = defineStore('sessionSettings', () => {
     saveAsDefault,
     resetToDefault,
     whenLoaded,
+    whenWritten,
     reloadPreset,
   }
 })

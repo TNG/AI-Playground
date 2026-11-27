@@ -186,8 +186,11 @@ const settingsModule = await import('../../session/sessionSettings')
 const { useSessions } = await import('@/assets/js/store/sessions')
 const { useSessionSettings } = await import('@/assets/js/store/sessionSettings')
 
-/** Lets queued Session writes and reads reach the disk. */
-const flushPromises = () => new Promise((resolve) => setTimeout(resolve, 30))
+/** Lets queued Session writes reach the disk, and the reads they queue follow. */
+const flushPromises = async () => {
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  await useSessionSettings().whenWritten()
+}
 
 function ok<T extends object>(run: () => Promise<T>) {
   return async () => ({ success: true as const, ...(await run()) })

@@ -1,3 +1,4 @@
+import { serializeSession } from '../persist/sessionFiles'
 import { mutateSession, readSession } from './sessions'
 import {
   parseSessionSettings,
@@ -15,7 +16,9 @@ import {
  */
 
 export async function readSessionSettings(id: string): Promise<SessionSettingsMap> {
-  return parseSessionSettings((await readSession(id)).settings)
+  // Read behind the session's writes so a read can never overtake one in flight.
+  const file = await serializeSession(id, () => readSession(id))
+  return parseSessionSettings(file.settings)
 }
 
 export async function writePresetSettings(

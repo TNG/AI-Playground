@@ -120,4 +120,16 @@ describe('entriesToDownloadParams', () => {
       entriesToDownloadParams([entry('org/repo/a.gguf', { downloaded: true })], resolvePath),
     ).toEqual([])
   })
+
+  it('never builds download params for a Hybrid Cloud model', () => {
+    // A remote id has no directory to resolve a download path for, and the state
+    // saying otherwise must not turn into a download that cannot work.
+    const cloud = entry('provider/gpt-x', {
+      pathKey: 'cloud',
+      serviceBackend: 'cloud',
+      downloaded: false,
+      sizeBytes: 0,
+    })
+    expect(entriesToDownloadParams([cloud], resolvePath)).toEqual([])
+  })
 })

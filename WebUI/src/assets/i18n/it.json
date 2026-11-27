@@ -851,6 +851,7 @@
   "MODEL_MANAGER_DOWNLOAD_MODEL": "Scarica {label}",
   "MODEL_MANAGER_STATUS_ON_DISK": "Su disco",
   "MODEL_MANAGER_STATUS_NOT_DOWNLOADED": "Non scaricato",
+  "MODEL_MANAGER_STATUS_REMOTE": "Remoto",
   "MODEL_MANAGER_USED_BY": "Usato da:",
   "MODEL_MANAGER_NO_RESULTS": "Nessun modello corrisponde alla ricerca e ai filtri.",
   "MODEL_MANAGER_READ_ONLY": "La cartella dei modelli è di sola lettura, quindi su questa macchina non è possibile scaricare o eliminare modelli.",

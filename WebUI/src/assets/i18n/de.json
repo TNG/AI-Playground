@@ -851,6 +851,7 @@
   "MODEL_MANAGER_DOWNLOAD_MODEL": "{label} herunterladen",
   "MODEL_MANAGER_STATUS_ON_DISK": "Auf der Festplatte",
   "MODEL_MANAGER_STATUS_NOT_DOWNLOADED": "Nicht heruntergeladen",
+  "MODEL_MANAGER_STATUS_REMOTE": "Remote",
   "MODEL_MANAGER_USED_BY": "Verwendet von:",
   "MODEL_MANAGER_NO_RESULTS": "Keine Modelle entsprechen Ihrer Suche und den Filtern.",
   "MODEL_MANAGER_READ_ONLY": "Der Modellordner ist schreibgeschützt, daher können auf diesem Rechner keine Modelle heruntergeladen oder gelöscht werden.",

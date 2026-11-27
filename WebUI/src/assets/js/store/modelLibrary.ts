@@ -130,6 +130,8 @@ export const useModelLibrary = defineStore('modelLibrary', () => {
 
   // On an NVIDIA box this leaves Llama.cpp (and the CUDA sidecars), which is also
   // what locks the toolbar's backend filter — there is nothing else to pick.
+  // Hybrid Cloud rows are remote, so they survive it: cloud needs no backend
+  // installed at all.
   const entries = computed<ModelEntry[]>(() =>
     entriesForProductMode(
       buildEntries({
@@ -137,6 +139,10 @@ export const useModelLibrary = defineStore('modelLibrary', () => {
         scanned: scanned.value,
         requiredModels: requiredModels.value,
         speechModels: speechModels.value,
+        // The chat store's cloud models, already capability-resolved (provider
+        // data plus the user's per-model overrides). Reactively follows the
+        // provider list, so a refresh or an edit re-keys the rows by itself.
+        cloudModels: textInference.llmModels.filter((model) => model.type === 'cloud'),
         preferences: modelPreferences.preferences,
       }),
       nvidiaMode.value,
@@ -190,6 +196,11 @@ export const useModelLibrary = defineStore('modelLibrary', () => {
   )
 
   function fitTargetFor(entry: ModelEntry): VramFitTarget | undefined {
+    // A cloud model has no header and needs no card: the 0 GB verdict the chip
+    // shows is decided by the target's `cloud` flag alone.
+    if (entry.serviceBackend === 'cloud') {
+      return { name: entry.name, downloaded: true, cloud: true }
+    }
     if (entry.useCase !== 'llm' || entry.serviceBackend !== 'llama_cpp') return undefined
     const known = llamaCppCatalog.value.get(normalizeModelKey(entry.name))
     return {

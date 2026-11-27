@@ -851,6 +851,7 @@
   "MODEL_MANAGER_DOWNLOAD_MODEL": "ดาวน์โหลด {label}",
   "MODEL_MANAGER_STATUS_ON_DISK": "อยู่ในดิสก์",
   "MODEL_MANAGER_STATUS_NOT_DOWNLOADED": "ยังไม่ดาวน์โหลด",
+  "MODEL_MANAGER_STATUS_REMOTE": "ระยะไกล",
   "MODEL_MANAGER_USED_BY": "ใช้โดย:",
   "MODEL_MANAGER_NO_RESULTS": "ไม่มีโมเดลที่ตรงกับการค้นหาและตัวกรองของคุณ",
   "MODEL_MANAGER_READ_ONLY": "โฟลเดอร์โมเดลเป็นแบบอ่านอย่างเดียว จึงไม่สามารถดาวน์โหลดหรือลบโมเดลบนเครื่องนี้ได้",
